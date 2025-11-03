@@ -1,0 +1,42 @@
+{
+  "groups": [
+    {
+      "name": "hub.crypto",
+      "type": "com.dadp.hub.crypto.HubCryptoConfig",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig"
+    }
+  ],
+  "properties": [
+    {
+      "name": "hub.crypto.base-url",
+      "type": "java.lang.String",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig",
+      "defaultValue": "http:\/\/localhost:9004"
+    },
+    {
+      "name": "hub.crypto.default-policy",
+      "type": "java.lang.String",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig",
+      "defaultValue": "dadp"
+    },
+    {
+      "name": "hub.crypto.enable-logging",
+      "type": "java.lang.Boolean",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig",
+      "defaultValue": true
+    },
+    {
+      "name": "hub.crypto.retry-count",
+      "type": "java.lang.Integer",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig",
+      "defaultValue": 3
+    },
+    {
+      "name": "hub.crypto.timeout",
+      "type": "java.lang.Integer",
+      "sourceType": "com.dadp.hub.crypto.HubCryptoConfig",
+      "defaultValue": 5000
+    }
+  ],
+  "hints": []
+}
