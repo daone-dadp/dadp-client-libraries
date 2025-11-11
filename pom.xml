@@ -17,8 +17,8 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>3.2.12</spring-boot.version>
-        <jackson.version>2.15.3</jackson.version>
+        <spring-boot.version>2.7.18</spring-boot.version>
+        <jackson.version>2.13.5</jackson.version>
     </properties>
 
     <modules>
@@ -26,6 +26,9 @@
         <module>dadp-aop</module>
         <module>dadp-aop-spring-boot-starter</module>
     </modules>
+    
+    <!-- 참고: dadp-hub-crypto-lib-java8, dadp-hub-crypto-lib-java11은 통일되어 
+         dadp-hub-crypto-lib 하나로 관리됩니다. Maven 프로파일로 Java 버전별 빌드합니다. -->
 
     <dependencyManagement>
         <dependencies>

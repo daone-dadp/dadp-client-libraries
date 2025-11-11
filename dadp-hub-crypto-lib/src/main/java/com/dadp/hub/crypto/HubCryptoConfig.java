@@ -17,7 +17,7 @@ import org.springframework.web.client.RestTemplate;
 @ConfigurationProperties(prefix = "hub.crypto")
 public class HubCryptoConfig {
     
-    private String baseUrl = "http://localhost:9004";
+    private String baseUrl;
     private int timeout = 5000;
     private int retryCount = 3;
     private boolean enableLogging = true;
@@ -43,7 +43,17 @@ public class HubCryptoConfig {
     
     // Getters and Setters
     public String getBaseUrl() {
-        return baseUrl;
+        // 환경 변수 DADP_HUB_BASE_URL 우선 사용
+        String envHubUrl = System.getenv("DADP_HUB_BASE_URL");
+        if (envHubUrl != null && !envHubUrl.trim().isEmpty()) {
+            return envHubUrl;
+        }
+        // 설정 파일에서 읽은 값 사용 (dadp.hub-base-url 또는 hub.crypto.base-url)
+        if (baseUrl != null && !baseUrl.trim().isEmpty()) {
+            return baseUrl;
+        }
+        // 기본값
+        return "http://localhost:9004";
     }
     
     public void setBaseUrl(String baseUrl) {

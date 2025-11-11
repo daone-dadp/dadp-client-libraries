@@ -35,7 +35,40 @@ public class CryptoService {
      * @return 복호화된 데이터
      */
     public String decrypt(String encryptedData) {
-        return hubCryptoService.decrypt(encryptedData);
+        return hubCryptoService.decrypt(encryptedData, null, null);
+    }
+    
+    /**
+     * 데이터 복호화 (Hub 암복호화 라이브러리 사용, 마스킹 정책 포함)
+     * 
+     * Proxy의 HubCryptoAdapter와 동일하게 처리:
+     * - Hub에 복호화 요청 (암호화 여부 판단하지 않음)
+     * - null 반환 시 "데이터가 암호화되지 않았습니다" 의미 → 원본 데이터 반환
+     * 
+     * @param encryptedData 복호화할 암호화된 데이터 (또는 일반 텍스트)
+     * @param maskPolicyName 마스킹 정책명 (선택사항)
+     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
+     * @return 복호화된 데이터 (null이면 원본 데이터 반환)
+     */
+    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
+        if (encryptedData == null) {
+            return null;
+        }
+        
+        try {
+            // Hub/Engine에서 암호화 여부 판단 및 처리
+            String decrypted = hubCryptoService.decrypt(encryptedData, maskPolicyName, maskPolicyUid);
+            
+            // null 반환 시 "데이터가 암호화되지 않았습니다" 의미 (원본 데이터 반환)
+            if (decrypted == null) {
+                return encryptedData;
+            }
+            
+            return decrypted;
+        } catch (Exception e) {
+            // 예외 발생 시 원본 데이터 반환 (fail-open 모드)
+            return encryptedData;
+        }
     }
     
     /**
