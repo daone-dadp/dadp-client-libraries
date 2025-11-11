@@ -25,7 +25,7 @@ import java.util.Collection;
 /**
  * 암복호화 AOP Aspect
  * 
- * @Encrypt, @Decrypt 어노테이션이 적용된 메서드의 반환값을 자동으로 암복호화합니다.
+ * {@code @Encrypt}, {@code @Decrypt} 어노테이션이 적용된 메서드의 반환값을 자동으로 암복호화합니다.
  * 
  * @author DADP Development Team
  * @version 2.0.0
@@ -47,7 +47,7 @@ public class EncryptionAspect {
     private Object entityManager;
     
     /**
-     * @Encrypt 어노테이션이 적용된 메서드 처리
+     * {@code @Encrypt} 어노테이션이 적용된 메서드 처리
      */
     @Around("@annotation(com.dadp.aop.annotation.Encrypt)")
     public Object handleEncrypt(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -89,7 +89,7 @@ public class EncryptionAspect {
     }
     
     /**
-     * @Decrypt 어노테이션이 적용된 메서드 처리
+     * {@code @Decrypt} 어노테이션이 적용된 메서드 처리
      */
     @Around("@annotation(com.dadp.aop.annotation.Decrypt)")
     public Object handleDecrypt(ProceedingJoinPoint joinPoint) throws Throwable {
