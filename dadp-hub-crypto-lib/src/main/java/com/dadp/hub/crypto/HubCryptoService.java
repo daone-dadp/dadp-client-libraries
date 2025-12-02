@@ -39,6 +39,7 @@ public class HubCryptoService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private String hubUrl;
+    private String apiBasePath = "/hub/api/v1";  // 기본값: Hub 경로, Engine 사용 시 "/api"로 변경
     private int timeout;
     private boolean enableLogging;
     private boolean initialized = false;
@@ -63,18 +64,45 @@ public class HubCryptoService {
      * 자동 초기화 메서드 - 커스텀 설정으로 생성
      */
     public static HubCryptoService createInstance(String hubUrl, int timeout, boolean enableLogging) {
+        return createInstance(hubUrl, "/hub/api/v1", timeout, enableLogging);
+    }
+    
+    /**
+     * 자동 초기화 메서드 - API 경로 포함
+     * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003)
+     * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
+     * @param timeout 타임아웃 (ms)
+     * @param enableLogging 로깅 활성화
+     */
+    public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, boolean enableLogging) {
         HubCryptoService instance = new HubCryptoService();
         instance.hubUrl = hubUrl;
+        instance.apiBasePath = apiBasePath != null ? apiBasePath : "/hub/api/v1";
         instance.timeout = timeout;
         instance.enableLogging = enableLogging;
         instance.initialized = true;
         
         if (enableLogging) {
-            log.info("✅ HubCryptoService 자동 초기화 완료: hubUrl={}, timeout={}ms", 
-                    hubUrl, timeout);
+            log.info("✅ HubCryptoService 자동 초기화 완료: hubUrl={}, apiBasePath={}, timeout={}ms", 
+                    hubUrl, instance.apiBasePath, timeout);
         }
         
         return instance;
+    }
+    
+    /**
+     * API 기본 경로 설정
+     * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
+     */
+    public void setApiBasePath(String apiBasePath) {
+        this.apiBasePath = apiBasePath != null ? apiBasePath : "/hub/api/v1";
+    }
+    
+    /**
+     * API 기본 경로 조회
+     */
+    public String getApiBasePath() {
+        return this.apiBasePath;
     }
 
     /**
@@ -104,6 +132,27 @@ public class HubCryptoService {
             } catch (Exception e2) {
                 log.error("상태 코드 확인 실패", e2);
                 return false;
+            }
+        }
+    }
+    
+    /**
+     * Spring Boot 2.x/3.x 호환성을 위한 예외에서 상태코드 추출
+     */
+    private String getExceptionStatusCode(Exception e) {
+        try {
+            // 리플렉션을 사용하여 getStatusCode() 호출 (Spring Boot 2.x/3.x 호환)
+            Method getStatusCodeMethod = e.getClass().getMethod("getStatusCode");
+            Object statusCode = getStatusCodeMethod.invoke(e);
+            return statusCode.toString();
+        } catch (Exception ex) {
+            // 최후의 수단: getRawStatusCode() 사용 (Spring Boot 2.x)
+            try {
+                Method getRawStatusCodeMethod = e.getClass().getMethod("getRawStatusCode");
+                int statusValue = (Integer) getRawStatusCodeMethod.invoke(e);
+                return String.valueOf(statusValue);
+            } catch (Exception ex2) {
+                return "UNKNOWN";
             }
         }
     }
@@ -161,7 +210,7 @@ public class HubCryptoService {
         }
         
         try {
-            String url = hubUrl + "/hub/api/v1/encrypt";
+            String url = hubUrl + apiBasePath + "/encrypt";
             
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
@@ -187,7 +236,7 @@ public class HubCryptoService {
             try {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getStatusCode() + " " + e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
                 throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
             }
@@ -215,12 +264,26 @@ public class HubCryptoService {
                     throw new HubCryptoException("암호화 실패: " + errorMessage);
                 }
                 
-                // data 필드 추출 및 EncryptResponse로 파싱
+                // data 필드 추출
                 JsonNode dataNode = rootNode.get("data");
                 if (dataNode == null || dataNode.isNull()) {
                     throw new HubCryptoException("암호화 실패: 응답에 data 필드가 없습니다");
                 }
                 
+                String encryptedData;
+                
+                // Engine 응답: data가 암호화된 문자열
+                if (dataNode.isTextual()) {
+                    encryptedData = dataNode.asText();
+                    if (enableLogging) {
+                        log.info("✅ Engine 암호화 성공: {} → {}", 
+                                data != null ? data.substring(0, Math.min(10, data.length())) + "..." : "null",
+                                encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null");
+                    }
+                    return encryptedData;
+                }
+                
+                // Hub 응답: data가 EncryptResponse 객체
                 EncryptResponse encryptResponse;
                 try {
                     encryptResponse = objectMapper.treeToValue(dataNode, EncryptResponse.class);
@@ -233,7 +296,7 @@ public class HubCryptoService {
                 }
                 
                 if (encryptResponse.getSuccess() != null && encryptResponse.getSuccess() && encryptResponse.getEncryptedData() != null) {
-                    String encryptedData = encryptResponse.getEncryptedData();
+                    encryptedData = encryptResponse.getEncryptedData();
                     if (enableLogging) {
                         log.info("✅ Hub 암호화 성공: {} → {}", 
                                 data != null ? data.substring(0, Math.min(10, data.length())) + "..." : "null",
@@ -299,7 +362,7 @@ public class HubCryptoService {
         }
         
         try {
-            String url = hubUrl + "/hub/api/v1/decrypt";
+            String url = hubUrl + apiBasePath + "/decrypt";
             
             DecryptRequest request = new DecryptRequest();
             request.setEncryptedData(encryptedData);
@@ -326,7 +389,7 @@ public class HubCryptoService {
             try {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getStatusCode() + " " + e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
                 throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
             }
@@ -363,12 +426,26 @@ public class HubCryptoService {
                     throw new HubCryptoException("복호화 실패: " + errorMessage);
                 }
                 
-                // data 필드 추출 및 DecryptResponse로 파싱
+                // data 필드 추출
                 JsonNode dataNode = rootNode.get("data");
                 if (dataNode == null || dataNode.isNull()) {
                     throw new HubCryptoException("복호화 실패: 응답에 data 필드가 없습니다");
                 }
                 
+                String decryptedData;
+                
+                // Engine 응답: data가 복호화된 문자열
+                if (dataNode.isTextual()) {
+                    decryptedData = dataNode.asText();
+                    if (enableLogging) {
+                        log.info("✅ Engine 복호화 성공: {} → {}", 
+                                encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
+                                decryptedData != null ? decryptedData.substring(0, Math.min(10, decryptedData.length())) + "..." : "null");
+                    }
+                    return decryptedData;
+                }
+                
+                // Hub 응답: data가 DecryptResponse 객체
                 DecryptResponse decryptResponse;
                 try {
                     decryptResponse = objectMapper.treeToValue(dataNode, DecryptResponse.class);
@@ -383,7 +460,7 @@ public class HubCryptoService {
                 // DecryptResponse의 success 확인
                 // success가 true이고 decryptedData가 있으면 반환
                 if (Boolean.TRUE.equals(decryptResponse.getSuccess()) && decryptResponse.getDecryptedData() != null) {
-                    String decryptedData = decryptResponse.getDecryptedData();
+                    decryptedData = decryptResponse.getDecryptedData();
                     if (enableLogging) {
                         log.info("✅ Hub 복호화 성공: {} → {}", 
                                 encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
@@ -392,7 +469,7 @@ public class HubCryptoService {
                     return decryptedData;
                 } else if (decryptResponse.getDecryptedData() != null) {
                     // success가 false여도 decryptedData가 있으면 반환 (평문 데이터에 마스킹 적용된 경우)
-                    String decryptedData = decryptResponse.getDecryptedData();
+                    decryptedData = decryptResponse.getDecryptedData();
                     if (enableLogging) {
                         log.info("✅ Hub 처리 완료 (마스킹 적용 가능): {} → {}", 
                                 encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",

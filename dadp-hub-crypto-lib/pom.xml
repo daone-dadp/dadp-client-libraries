@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-hub-crypto-lib</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>DADP Hub Crypto Library</name>
@@ -216,7 +216,7 @@
                 <configuration>
                     <useAgent>false</useAgent>
                     <passphrase>${env.GPG_PASSPHRASE}</passphrase>
-                    <skip>false</skip>
+                    <skip>true</skip>
                 </configuration>
                 <executions>
                     <execution>

@@ -18,6 +18,7 @@ import org.springframework.web.client.RestTemplate;
 public class HubCryptoConfig {
     
     private String baseUrl;
+    private String apiBasePath = "/hub/api/v1";  // 기본값: Hub 경로, Engine 사용 시 "/api"로 설정
     private int timeout = 5000;
     private int retryCount = 3;
     private boolean enableLogging = true;
@@ -29,7 +30,7 @@ public class HubCryptoConfig {
     @Bean
     @ConditionalOnMissingBean
     public HubCryptoService hubCryptoService() {
-        return HubCryptoService.createInstance(baseUrl, timeout, enableLogging);
+        return HubCryptoService.createInstance(getBaseUrl(), getApiBasePath(), timeout, enableLogging);
     }
     
     /**
@@ -58,6 +59,24 @@ public class HubCryptoConfig {
     
     public void setBaseUrl(String baseUrl) {
         this.baseUrl = baseUrl;
+    }
+    
+    public String getApiBasePath() {
+        // 환경 변수 HUB_CRYPTO_API_BASE_PATH 우선 사용
+        String envApiBasePath = System.getenv("HUB_CRYPTO_API_BASE_PATH");
+        if (envApiBasePath != null && !envApiBasePath.trim().isEmpty()) {
+            return envApiBasePath;
+        }
+        // 설정 파일에서 읽은 값 사용
+        if (apiBasePath != null && !apiBasePath.trim().isEmpty()) {
+            return apiBasePath;
+        }
+        // 기본값: Hub 경로
+        return "/hub/api/v1";
+    }
+    
+    public void setApiBasePath(String apiBasePath) {
+        this.apiBasePath = apiBasePath;
     }
     
     public int getTimeout() {
