@@ -47,4 +47,11 @@ public @interface Encrypt {
      * 기본값: true
      */
     boolean enableLogging() default true;
+    
+    /**
+     * 통계 정보 수집 여부
+     * true일 경우 엔진 응답에 상세 통계 정보가 포함됩니다.
+     * 기본값: false
+     */
+    boolean includeStats() default false;
 }

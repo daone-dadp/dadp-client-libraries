@@ -8,7 +8,12 @@ import java.lang.annotation.Target;
 /**
  * 메서드 레벨 복호화 어노테이션
  * 
- * 이 어노테이션이 적용된 메서드의 반환값을 자동으로 복호화합니다.
+ * 이 어노테이션이 적용된 메서드의 반환값(DB 조회 결과)을 자동으로 복호화합니다.
+ * 파라미터는 복호화하지 않습니다 (DB 조회 메서드이므로 파라미터는 일반적으로 ID나 검색 조건).
+ * 
+ * 사용 예시:
+ * - 리포지토리 조회 메서드: {@code @Decrypt List<User> findAll();}
+ * - 서비스 조회 메서드: {@code @Decrypt User findById(Long id);}
  * 
  * @author DADP Development Team
  * @version 2.1.0
@@ -54,4 +59,11 @@ public @interface Decrypt {
      * maskPolicyName과 maskPolicyUid 중 하나만 지정하면 됨
      */
     String maskPolicyUid() default "";
+    
+    /**
+     * 통계 정보 수집 여부
+     * true일 경우 엔진 응답에 상세 통계 정보가 포함됩니다.
+     * 기본값: false
+     */
+    boolean includeStats() default false;
 }

@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Collection;
+import java.util.ArrayList;
 
 /**
  * 암복호화 AOP Aspect
@@ -41,13 +42,53 @@ public class EncryptionAspect {
     private CryptoService cryptoService;
     
     @Autowired(required = false)
+    private com.dadp.aop.config.DadpAopProperties dadpAopProperties;
+    
+    
+    /**
+     * 로깅이 활성화된 경우에만 DEBUG 레벨 로그 출력
+     */
+    private void debugIfEnabled(boolean enabled, String message, Object... args) {
+        if (enabled) {
+            log.debug(message, args);
+        }
+    }
+    
+    /**
+     * 로깅이 활성화된 경우에만 INFO 레벨 로그 출력
+     */
+    private void infoIfEnabled(boolean enabled, String message, Object... args) {
+        if (enabled) {
+            log.info(message, args);
+        }
+    }
+    
+    /**
+     * 로깅이 활성화된 경우에만 WARN 레벨 로그 출력
+     */
+    private void warnIfEnabled(boolean enabled, String message, Object... args) {
+        if (enabled) {
+            log.warn(message, args);
+        }
+    }
+    
+    @Autowired(required = false)
     private ApplicationContext applicationContext;
+    
+    @Autowired(required = false)
+    private com.dadp.aop.metadata.EncryptionMetadataInitializer encryptionMetadataInitializer;
     
     // EntityManager는 런타임에 리플렉션으로 가져오기 (JPA가 있는 경우에만)
     private Object entityManager;
     
     /**
      * {@code @Encrypt} 어노테이션이 적용된 메서드 처리
+     * 
+     * 메서드 실행 전에 파라미터를 암호화하고, 실행 후 반환값도 암호화합니다.
+     * 
+     * @param joinPoint AOP 조인 포인트
+     * @return 암호화 처리된 메서드 실행 결과
+     * @throws Throwable 메서드 실행 중 발생한 예외
      */
     @Around("@annotation(com.dadp.aop.annotation.Encrypt)")
     public Object handleEncrypt(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -55,12 +96,68 @@ public class EncryptionAspect {
         Method method = signature.getMethod();
         Encrypt encryptAnnotation = method.getAnnotation(Encrypt.class);
         
-        log.debug("🔒 암호화 AOP 시작: {}.{}", 
-                 method.getDeclaringClass().getSimpleName(), method.getName());
+        String methodName = method.getName();
+        log.info("✅ [트리거 확인] handleEncrypt 트리거됨: {}.{}",
+                 method.getDeclaringClass().getSimpleName(), methodName);
         
         try {
+            // 메서드 시그니처에서 파라미터 타입 확인 (복수/단수 판단)
+            Class<?>[] paramTypes = method.getParameterTypes();
+            boolean hasIterableParam = false;
+            for (Class<?> paramType : paramTypes) {
+                if (Iterable.class.isAssignableFrom(paramType) || Collection.class.isAssignableFrom(paramType)) {
+                    hasIterableParam = true;
+                    break;
+                }
+            }
+            
+            // saveAll 메서드인지 확인 (메서드 이름으로 판단)
+            boolean isSaveAllMethod = "saveAll".equals(methodName) && hasIterableParam;
+            
+            // 메서드 파라미터 암호화 (저장 전에 암호화하기 위해)
+            Object[] args = joinPoint.getArgs();
+            if (args != null && (hasIterableParam || isSaveAllMethod)) {
+                // 복수인 경우: AOP가 배치 처리하여 Spring Data JPA에 넘김
+                for (int i = 0; i < args.length; i++) {
+                    if (args[i] != null && args[i] instanceof Collection && !(args[i] instanceof String)) {
+                        // Collection을 배치 암호화 처리
+                        @SuppressWarnings("unchecked")
+                        Collection<Object> collection = (Collection<Object>) args[i];
+                        log.info("🔒 saveAll 배치 암호화 시작: size={}", collection.size());
+                        processCollectionEncryption(collection, encryptAnnotation);
+                    } else if (args[i] != null && args[i] instanceof Iterable && !(args[i] instanceof String)) {
+                        // Iterable을 List로 변환하여 배치 암호화 처리
+                        Iterable<?> iterable = (Iterable<?>) args[i];
+                        List<Object> list = new ArrayList<>();
+                        for (Object item : iterable) {
+                            list.add(item);
+                        }
+                        log.info("🔒 saveAll 배치 암호화 시작: size={}", list.size());
+                        processCollectionEncryption(list, encryptAnnotation);
+                        // 원본 타입 유지
+                        if (args[i] instanceof List) {
+                            args[i] = list;
+                        } else if (args[i] instanceof java.util.Set) {
+                            args[i] = new java.util.HashSet<>(list);
+                        } else {
+                            args[i] = list;
+                        }
+                    }
+                }
+            } else if (args != null) {
+                // 단수인 경우: Spring Data JPA가 처리하게 둠 (기본 처리만)
+                for (int i = 0; i < args.length; i++) {
+                    if (args[i] != null) {
+                        Object encryptedArg = processEncryption(args[i], encryptAnnotation);
+                        if (encryptedArg != args[i]) {
+                            args[i] = encryptedArg;
+                        }
+                    }
+                }
+            }
+            
             // 원본 메서드 실행
-            Object result = joinPoint.proceed();
+            Object result = joinPoint.proceed(args);
             
             if (result == null) {
                 return result;
@@ -68,9 +165,6 @@ public class EncryptionAspect {
             
             // 반환값 암호화 처리
             Object encryptedResult = processEncryption(result, encryptAnnotation);
-            
-            log.debug("✅ 암호화 AOP 완료: {}.{}", 
-                     method.getDeclaringClass().getSimpleName(), method.getName());
             
             return encryptedResult;
             
@@ -90,6 +184,13 @@ public class EncryptionAspect {
     
     /**
      * {@code @Decrypt} 어노테이션이 적용된 메서드 처리
+     * 
+     * 메서드 실행 후 반환값(DB 조회 결과)을 복호화합니다.
+     * 파라미터는 복호화하지 않습니다 (DB 조회 메서드이므로 파라미터는 일반적으로 ID나 검색 조건).
+     * 
+     * @param joinPoint AOP 조인 포인트
+     * @return 복호화 처리된 메서드 실행 결과
+     * @throws Throwable 메서드 실행 중 발생한 예외
      */
     @Around("@annotation(com.dadp.aop.annotation.Decrypt)")
     public Object handleDecrypt(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -97,17 +198,24 @@ public class EncryptionAspect {
         Method method = signature.getMethod();
         Decrypt decryptAnnotation = method.getAnnotation(Decrypt.class);
         
-        log.debug("🔓 복호화 AOP 시작: {}.{}", 
+        log.info("✅ [트리거 확인] handleDecrypt 트리거됨: {}.{}", 
                  method.getDeclaringClass().getSimpleName(), method.getName());
         
         try {
+            // 메서드 시그니처에서 반환 타입 확인 (복수/단수 판단)
+            Class<?> returnType = method.getReturnType();
+            boolean isCollectionReturn = Collection.class.isAssignableFrom(returnType) || 
+                                       Iterable.class.isAssignableFrom(returnType);
+            
             // ① 트랜잭션 경계 안에서 FlushMode를 COMMIT으로 설정 (JPA 레벨, Session 없어도 가능)
             Object em = getTransactionalEntityManager();
             if (em != null) {
                 try {
                     Class<?> flushModeTypeClass = Class.forName("jakarta.persistence.FlushModeType");
-                    Object commitFlushMode = flushModeTypeClass.getEnumConstants()[0]; // COMMIT
-                    for (Object constant : flushModeTypeClass.getEnumConstants()) {
+                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    Object[] enumConstants = flushModeTypeClass.getEnumConstants();
+                    Object commitFlushMode = enumConstants[0]; // COMMIT
+                    for (Object constant : enumConstants) {
                         if (constant.toString().equals("COMMIT")) {
                             commitFlushMode = constant;
                             break;
@@ -115,27 +223,33 @@ public class EncryptionAspect {
                     }
                     Method setFlushModeMethod = em.getClass().getMethod("setFlushMode", flushModeTypeClass);
                     setFlushModeMethod.invoke(em, commitFlushMode);
-                    log.debug("✅ FlushMode COMMIT 설정 완료");
+                    debugIfEnabled(decryptAnnotation.enableLogging(), "✅ FlushMode COMMIT 설정 완료");
                 } catch (Exception e) {
-                    log.debug("⚠️ FlushMode 설정 실패 (무시): {}", e.getMessage());
+                    debugIfEnabled(decryptAnnotation.enableLogging(), "⚠️ FlushMode 설정 실패 (무시): {}", e.getMessage());
                 }
             }
             
-            // 원본 메서드 실행
+            // 원본 메서드 실행 (DB 조회)
             Object result = joinPoint.proceed();
             
             if (result == null) {
                 return result;
             }
             
-            // 반환값 복호화/마스킹 처리
-            Object decryptedResult = processDecryption(result, decryptAnnotation);
+            // 반환값 복호화/마스킹 처리 (DB에서 조회한 암호화된 데이터를 복호화)
+            Object decryptedResult;
+            if (isCollectionReturn && result instanceof Collection) {
+                // 복수인 경우: AOP가 배치 처리하여 Spring Data JPA의 내부 처리 막음
+                @SuppressWarnings("unchecked")
+                Collection<Object> collection = (Collection<Object>) result;
+                decryptedResult = processCollectionDecryption(collection, decryptAnnotation);
+            } else {
+                // 단수인 경우: Spring Data JPA가 처리하게 둠 (기본 처리만)
+                decryptedResult = processDecryption(result, decryptAnnotation);
+            }
             
             // ② 복호화 후 엔티티를 readOnly로 설정하고 detach
             handleResultForReadOnly(decryptedResult, em);
-            
-            log.debug("✅ 복호화 AOP 완료: {}.{}", 
-                     method.getDeclaringClass().getSimpleName(), method.getName());
             
             return decryptedResult;
             
@@ -165,38 +279,52 @@ public class EncryptionAspect {
         if (obj instanceof String) {
             String data = (String) obj;
             if (cryptoService.isEncryptedData(data)) {
-                log.debug("이미 암호화된 데이터입니다: {}", data.substring(0, Math.min(20, data.length())) + "...");
+                debugIfEnabled(encryptAnnotation.enableLogging(), "이미 암호화된 데이터입니다: {}", data.substring(0, Math.min(20, data.length())) + "...");
                 return data;
             }
             
-            String encryptedData = cryptoService.encrypt(data, encryptAnnotation.policy());
-            if (encryptAnnotation.enableLogging()) {
-                log.info("🔒 데이터 암호화 완료: {} → {}", 
+            String encryptedData = cryptoService.encrypt(data, encryptAnnotation.policy(), encryptAnnotation.includeStats());
+            infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 데이터 암호화 완료: {} → {}", 
                         data.substring(0, Math.min(10, data.length())) + "...", 
                         encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
-            }
             return encryptedData;
         }
         
-        // Collection 타입인 경우 (List, Set 등) 각 요소에 대해 재귀적으로 암호화
-        if (obj instanceof Collection) {
+        // Collection 또는 Iterable 타입인 경우 개별 처리
+        // saveAll()의 파라미터는 Iterable이지만, 실제로는 List(Collection)를 전달
+        boolean isCollection = (obj instanceof Collection) || 
+                              (obj != null && Collection.class.isAssignableFrom(obj.getClass()));
+        boolean isIterable = (obj instanceof Iterable) && !(obj instanceof Collection);
+        
+        if (isCollection) {
             Collection<?> collection = (Collection<?>) obj;
-            for (Object item : collection) {
-                if (item != null) {
-                    processEncryption(item, encryptAnnotation);
-                }
+            if (collection.isEmpty()) {
+                return obj;
             }
-            return obj;
+            
+            // 배치 처리: 동일한 필드(동일한 정책)의 데이터를 수집하여 배치 암호화
+            return processCollectionEncryption(collection, encryptAnnotation);
+        } else if (isIterable) {
+            // Iterable이지만 Collection이 아닌 경우: List로 변환하여 처리
+            Iterable<?> iterable = (Iterable<?>) obj;
+            List<Object> list = new ArrayList<>();
+            for (Object item : iterable) {
+                list.add(item);
+            }
+            if (list.isEmpty()) {
+                return obj;
+            }
+            return processCollectionEncryption(list, encryptAnnotation);
         }
         
-        // 객체인 경우 필드별 암호화
+        // 객체인 경우 필드별 개별 암호화
         List<FieldDetector.FieldInfo> fields = FieldDetector.detectEncryptFields(
             obj, encryptAnnotation.fields(), encryptAnnotation.fieldTypes());
         
+        // 각 필드별로 개별 암호화
         for (FieldDetector.FieldInfo fieldInfo : fields) {
             // @EncryptField가 없는 필드는 암호화하지 않음 (name 필드 등)
             if (fieldInfo.getEncryptField() == null) {
-                log.debug("필드 {}는 @EncryptField가 없어 암호화하지 않습니다", fieldInfo.getFieldName());
                 continue;
             }
             
@@ -204,7 +332,6 @@ public class EncryptionAspect {
             if (fieldValue instanceof String) {
                 String data = (String) fieldValue;
                 if (cryptoService.isEncryptedData(data)) {
-                    log.debug("필드 {}는 이미 암호화된 데이터입니다", fieldInfo.getFieldName());
                     continue;
                 }
                 
@@ -213,14 +340,19 @@ public class EncryptionAspect {
                     policy = fieldInfo.getEncryptField().policy();
                 }
                 
-                String encryptedData = cryptoService.encrypt(data, policy);
-                fieldInfo.setValue(obj, encryptedData);
-                
-                if (encryptAnnotation.enableLogging()) {
-                    log.info("🔒 필드 암호화 완료: {}.{} = {} → {}", 
-                            obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
-                            data.substring(0, Math.min(10, data.length())) + "...", 
-                            encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
+                try {
+                    String encryptedData = cryptoService.encrypt(data, policy);
+                    if (encryptedData != null) {
+                        fieldInfo.setValue(obj, encryptedData);
+                        
+                        infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 필드 암호화 완료: {}.{} = {} → {}", 
+                                    obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
+                                    data.substring(0, Math.min(10, data.length())) + "...", 
+                                    encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
+                    }
+                } catch (Exception e) {
+                    log.error("❌ 필드 암호화 실패: {}.{} - {}", 
+                            obj.getClass().getSimpleName(), fieldInfo.getFieldName(), e.getMessage());
                 }
             }
         }
@@ -234,6 +366,27 @@ public class EncryptionAspect {
     private Object processDecryption(Object obj, Decrypt decryptAnnotation) {
         if (obj == null) {
             return obj;
+        }
+        
+        // Collection 타입인 경우 배치 처리
+        boolean isCollection = (obj instanceof Collection) || 
+                              (obj != null && Collection.class.isAssignableFrom(obj.getClass()));
+        
+        log.info("processDecryption: objType={}, isCollection={}, size={}", 
+                obj.getClass().getName(), isCollection, 
+                isCollection ? ((Collection<?>) obj).size() : -1);
+        
+        if (isCollection) {
+            Collection<?> collection = (Collection<?>) obj;
+            if (collection.isEmpty()) {
+                log.info("processDecryption: Collection이 비어있음");
+                return obj;
+            }
+            
+            log.info("processDecryption: 배치 복호화 시작 - Collection size={}", collection.size());
+            // 배치 처리: 동일한 필드의 데이터를 수집하여 배치 복호화
+            // (복호화는 데이터 안에 정책 정보가 포함되어 있어 모든 데이터를 한번에 보내면 됨)
+            return processCollectionDecryption(collection, decryptAnnotation);
         }
         
         // Optional 타입인 경우 내부 값을 추출하여 복호화
@@ -267,31 +420,23 @@ public class EncryptionAspect {
             
             // Hub에 전달 (Hub가 암호화 여부를 판단하고 처리)
             // CryptoService.decrypt()가 null이면 원본 데이터를 반환하므로 여기서는 그냥 반환
-            String result = cryptoService.decrypt(data, maskPolicyName, maskPolicyUid);
+            String result = cryptoService.decrypt(data, maskPolicyName, maskPolicyUid, decryptAnnotation.includeStats());
             
-            if (decryptAnnotation.enableLogging()) {
-                log.info("🔓 Hub 처리 완료: {} → {} (maskPolicyName={}, maskPolicyUid={})", 
+            infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 Hub 처리 완료: {} → {} (maskPolicyName={}, maskPolicyUid={})", 
                         data.substring(0, Math.min(20, data.length())) + "...", 
                         result != null ? result.substring(0, Math.min(10, result.length())) + "..." : "null",
                         maskPolicyName, maskPolicyUid);
-            }
             return result;
         }
         
-        // Collection 타입인 경우 (List, Set 등) 각 요소에 대해 재귀적으로 복호화
-        if (obj instanceof Collection) {
-            Collection<?> collection = (Collection<?>) obj;
-            for (Object item : collection) {
-                if (item != null) {
-                    processDecryption(item, decryptAnnotation);
-                }
-            }
-            return obj;
-        }
         
-        // 객체인 경우 필드별 복호화
+        // 객체인 경우 필드별 개별 복호화
         List<FieldDetector.FieldInfo> fields = FieldDetector.detectDecryptFields(
             obj, decryptAnnotation.fields(), decryptAnnotation.fieldTypes());
+        
+        if (fields.isEmpty()) {
+            return obj;
+        }
         
         // 마스킹 정책 정보 추출
         String maskPolicyName = decryptAnnotation.maskPolicyName();
@@ -309,6 +454,7 @@ public class EncryptionAspect {
             specifiedFieldNames.addAll(Arrays.asList(decryptAnnotation.fields()));
         }
         
+        // 각 필드별로 개별 복호화
         for (FieldDetector.FieldInfo fieldInfo : fields) {
             Object fieldValue = fieldInfo.getValue(obj);
             if (fieldValue instanceof String) {
@@ -332,28 +478,35 @@ public class EncryptionAspect {
                     fieldMaskPolicyUid = maskPolicyUid;
                 }
                 
-                // DB에서 조회한 암호화 데이터 + 정책명 + 마스크 정책명 → Hub → 복호화/마스킹된 데이터
-                String result = cryptoService.decrypt(data, fieldMaskPolicyName, fieldMaskPolicyUid);
-                if (result == null) {
-                    result = data; // 복호화 실패 시 원본 데이터 유지
-                }
-                fieldInfo.setValue(obj, result);
-                
-                if (decryptAnnotation.enableLogging()) {
-                    log.info("🔓 필드 Hub 처리 완료: {}.{} = {} → {} (maskPolicyName={}, maskPolicyUid={})", 
-                            obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
-                            data.substring(0, Math.min(20, data.length())) + "...", 
-                            result != null ? result.substring(0, Math.min(10, result.length())) + "..." : "null",
-                            fieldMaskPolicyName, fieldMaskPolicyUid);
+                // 개별 복호화 수행
+                String result = cryptoService.decrypt(data, fieldMaskPolicyName, fieldMaskPolicyUid, decryptAnnotation.includeStats());
+                if (result != null) {
+                    fieldInfo.setValue(obj, result);
+                    
+                    infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 필드 Hub 처리 완료: {}.{} = {} → {} (maskPolicyName={}, maskPolicyUid={})", 
+                                obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
+                                data.substring(0, Math.min(20, data.length())) + "...", 
+                                result.substring(0, Math.min(10, result.length())) + "...",
+                                fieldMaskPolicyName, fieldMaskPolicyUid);
                 }
             }
         }
         
-        // 필드 값을 변경했지만, handleResultForReadOnly에서 처리하므로 여기서는 detach 불필요
-        // (중복 detach 방지)
-        
         return obj;
     }
+    
+    /**
+     * 배치 복호화를 위한 내부 클래스
+     */
+    /**
+     * 암호화 항목 정보
+     */
+    @SuppressWarnings("unused")
+    private static class EncryptItemInfo {
+        Object item;
+        List<Integer> fieldIndices; // allDataList의 인덱스 (-1이면 암호화하지 않음)
+    }
+    
     
     /**
      * 복호화 결과를 readOnly로 설정하고 detach 처리
@@ -365,7 +518,9 @@ public class EncryptionAspect {
         
         // Stream으로 변환하여 처리
         java.util.stream.Stream<Object> stream;
-        if (result instanceof Collection) {
+        boolean isCollection = (result instanceof Collection) || 
+                              Collection.class.isAssignableFrom(result.getClass());
+        if (isCollection) {
             stream = ((Collection<?>) result).stream().map(e -> (Object) e);
         } else if (result instanceof java.util.Optional) {
             java.util.Optional<?> opt = (java.util.Optional<?>) result;
@@ -422,6 +577,7 @@ public class EncryptionAspect {
         // javax.persistence.Entity 확인
         try {
             Class<?> javaxEntity = Class.forName("javax.persistence.Entity");
+            @SuppressWarnings("unchecked")
             Annotation annotation = entityClass.getAnnotation((Class<? extends Annotation>) javaxEntity);
             if (annotation != null) {
                 return true;
@@ -433,6 +589,7 @@ public class EncryptionAspect {
         // jakarta.persistence.Entity 확인
         try {
             Class<?> jakartaEntity = Class.forName("jakarta.persistence.Entity");
+            @SuppressWarnings("unchecked")
             Annotation annotation = entityClass.getAnnotation((Class<? extends Annotation>) jakartaEntity);
             if (annotation != null) {
                 return true;
@@ -538,6 +695,7 @@ public class EncryptionAspect {
             // javax.persistence.Entity 확인
             try {
                 Class<?> javaxEntity = Class.forName("javax.persistence.Entity");
+                @SuppressWarnings("unchecked")
                 Annotation annotation = entityClass.getAnnotation((Class<? extends Annotation>) javaxEntity);
                 if (annotation != null) {
                     isEntity = true;
@@ -550,6 +708,7 @@ public class EncryptionAspect {
             if (!isEntity) {
                 try {
                     Class<?> jakartaEntity = Class.forName("jakarta.persistence.Entity");
+                    @SuppressWarnings("unchecked")
                     Annotation annotation = entityClass.getAnnotation((Class<? extends Annotation>) jakartaEntity);
                     if (annotation != null) {
                         isEntity = true;
@@ -615,7 +774,9 @@ public class EncryptionAspect {
         }
         
         // Collection 타입인 경우 각 요소에 대해 재귀적으로 처리
-        if (obj instanceof Collection) {
+        boolean isCollection = (obj instanceof Collection) || 
+                              (obj != null && Collection.class.isAssignableFrom(obj.getClass()));
+        if (isCollection) {
             Collection<?> collection = (Collection<?>) obj;
             for (Object item : collection) {
                 if (item != null) {
@@ -678,5 +839,233 @@ public class EncryptionAspect {
         }
         
         return null;
+    }
+    
+    /**
+     * Collection 암호화 배치 처리
+     * 동일한 필드(동일한 정책)의 데이터를 수집하여 배치 암호화 수행
+     * 
+     * 예: saveAll(List<User>) 호출 시
+     * - 모든 User의 email 필드(동일 정책)를 수집
+     * - batchEncrypt(emailList, policyList) 한 번 호출
+     * - 결과를 각 User 객체에 설정
+     */
+    private Object processCollectionEncryption(Collection<?> collection, Encrypt encryptAnnotation) {
+        if (collection.isEmpty()) {
+            return collection;
+        }
+        
+        // 첫 번째 항목으로부터 필드 정보 얻기
+        Object firstItem = collection.iterator().next();
+        if (firstItem == null) {
+            // null 항목이 있으면 개별 처리로 폴백
+            for (Object item : collection) {
+                if (item != null) {
+                    processEncryption(item, encryptAnnotation);
+                }
+            }
+            return collection;
+        }
+        
+        List<FieldDetector.FieldInfo> fields = FieldDetector.detectEncryptFields(
+            firstItem, encryptAnnotation.fields(), encryptAnnotation.fieldTypes());
+        
+        if (fields.isEmpty()) {
+            return collection;
+        }
+        
+        // Collection을 List로 변환 (인덱스 접근 필요)
+        List<Object> itemList = new ArrayList<>(collection);
+        
+        // 각 필드별로 배치 암호화 수행
+        for (FieldDetector.FieldInfo fieldInfo : fields) {
+            if (fieldInfo.getEncryptField() == null) {
+                continue;
+            }
+            
+            String policy = encryptAnnotation.policy();
+            if (fieldInfo.getEncryptField() != null) {
+                policy = fieldInfo.getEncryptField().policy();
+            }
+            
+            // 동일한 정책을 사용하는 필드의 데이터 수집
+            long collectStartTime = System.currentTimeMillis();
+            List<String> dataList = new ArrayList<>();
+            List<Integer> indexList = new ArrayList<>(); // null이 아닌 항목의 인덱스
+            
+            for (int i = 0; i < itemList.size(); i++) {
+                Object item = itemList.get(i);
+                if (item == null) {
+                    continue;
+                }
+                
+                Object fieldValue = fieldInfo.getValue(item);
+                if (fieldValue instanceof String) {
+                    String data = (String) fieldValue;
+                    if (!cryptoService.isEncryptedData(data)) {
+                        dataList.add(data);
+                        indexList.add(i);
+                    }
+                }
+            }
+            long collectTime = System.currentTimeMillis() - collectStartTime;
+            
+            if (dataList.isEmpty()) {
+                continue;
+            }
+            
+            // 배치 암호화 수행 (동일한 정책이므로 policyList는 모두 동일)
+            try {
+                List<String> policyList = new ArrayList<>();
+                for (int i = 0; i < dataList.size(); i++) {
+                    policyList.add(policy);
+                }
+                
+                long engineStartTime = System.currentTimeMillis();
+                List<String> encryptedDataList = cryptoService.batchEncrypt(dataList, policyList);
+                long engineTime = System.currentTimeMillis() - engineStartTime;
+                
+                // 결과를 각 항목에 설정 (순서 보장)
+                long matchStartTime = System.currentTimeMillis();
+                for (int i = 0; i < indexList.size(); i++) {
+                    int index = indexList.get(i);
+                    Object item = itemList.get(index);
+                    if (item != null && i < encryptedDataList.size()) {
+                        fieldInfo.setValue(item, encryptedDataList.get(i));
+                    }
+                }
+                long matchTime = System.currentTimeMillis() - matchStartTime;
+                
+                long totalTime = collectTime + engineTime + matchTime;
+                infoIfEnabled(encryptAnnotation.enableLogging(), 
+                    "🔒 배치 필드 암호화 완료: {}.{} ({}개 항목, 정책: {}) - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
+                    firstItem.getClass().getSimpleName(), fieldInfo.getFieldName(),
+                    dataList.size(), policy, collectTime, engineTime, matchTime, totalTime);
+                    
+            } catch (Exception e) {
+                log.error("❌ 배치 필드 암호화 실패: {}.{} - {}", 
+                    firstItem.getClass().getSimpleName(), fieldInfo.getFieldName(), e.getMessage());
+                // 실패 시 개별 처리로 폴백
+                for (int index : indexList) {
+                    Object item = itemList.get(index);
+                    if (item != null) {
+                        processEncryption(item, encryptAnnotation);
+                    }
+                }
+            }
+        }
+        
+        return collection;
+    }
+    
+    /**
+     * Collection 복호화 배치 처리
+     * 모든 필드의 데이터를 수집하여 배치 복호화 수행
+     * 
+     * 간단한 구현: 데이터만 List로 보내고 결과를 순서대로 매칭
+     * 정책/마스크 정보는 엔진에서 데이터 안에 포함된 정보로 처리
+     */
+    private Object processCollectionDecryption(Collection<?> collection, Decrypt decryptAnnotation) {
+        log.info("🔓 processCollectionDecryption 시작: size={}", collection.size());
+        
+        if (collection.isEmpty()) {
+            return collection;
+        }
+        
+        // Collection을 List로 변환
+        List<Object> itemList = new ArrayList<>(collection);
+        
+        // 첫 번째 항목으로부터 필드 정보 얻기
+        Object firstItem = itemList.stream().filter(item -> item != null).findFirst().orElse(null);
+        if (firstItem == null) {
+            return collection;
+        }
+        
+        List<FieldDetector.FieldInfo> fields = FieldDetector.detectDecryptFields(
+            firstItem, decryptAnnotation.fields(), decryptAnnotation.fieldTypes());
+        
+        if (fields.isEmpty()) {
+            return collection;
+        }
+        
+        // 모든 필드의 데이터를 수집
+        long collectStartTime = System.currentTimeMillis();
+        List<String> allDataList = new ArrayList<>();
+        List<FieldMapping> fieldMappings = new ArrayList<>(); // (itemIndex, fieldInfo, dataIndex)
+        
+        for (int itemIndex = 0; itemIndex < itemList.size(); itemIndex++) {
+            Object item = itemList.get(itemIndex);
+            if (item == null) {
+                continue;
+            }
+            
+            for (FieldDetector.FieldInfo fieldInfo : fields) {
+                Object fieldValue = fieldInfo.getValue(item);
+                if (fieldValue instanceof String) {
+                    String data = (String) fieldValue;
+                    allDataList.add(data);
+                    fieldMappings.add(new FieldMapping(itemIndex, fieldInfo, allDataList.size() - 1));
+                }
+            }
+        }
+        long collectTime = System.currentTimeMillis() - collectStartTime;
+        
+        if (allDataList.isEmpty()) {
+            return collection;
+        }
+        
+        // 배치 복호화 수행 (데이터만 전송, 정책/마스크는 엔진에서 처리)
+        try {
+            long engineStartTime = System.currentTimeMillis();
+            List<String> decryptedDataList = cryptoService.batchDecrypt(
+                allDataList, null, null, false);
+            long engineTime = System.currentTimeMillis() - engineStartTime;
+            
+            // 결과를 순서대로 각 항목에 설정
+            long matchStartTime = System.currentTimeMillis();
+            for (FieldMapping mapping : fieldMappings) {
+                if (mapping.dataIndex < decryptedDataList.size()) {
+                    String decrypted = decryptedDataList.get(mapping.dataIndex);
+                    if (decrypted != null) {
+                        Object item = itemList.get(mapping.itemIndex);
+                        if (item != null) {
+                            mapping.fieldInfo.setValue(item, decrypted);
+                        }
+                    }
+                }
+            }
+            long matchTime = System.currentTimeMillis() - matchStartTime;
+            
+            long totalTime = collectTime + engineTime + matchTime;
+            infoIfEnabled(decryptAnnotation.enableLogging(), 
+                "🔓 배치 복호화 완료: {}개 항목, {}개 필드 데이터 - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
+                itemList.size(), allDataList.size(), collectTime, engineTime, matchTime, totalTime);
+                
+        } catch (Exception e) {
+            log.error("❌ 배치 복호화 실패: {}", e.getMessage(), e);
+            // 실패 시 개별 처리로 폴백
+            for (Object item : itemList) {
+                if (item != null) {
+                    processDecryption(item, decryptAnnotation);
+                }
+            }
+        }
+        
+        return collection;
+    }
+    
+    /**
+     * 필드 매핑 정보 (배치 복호화용)
+     */
+    private static class FieldMapping {
+        int itemIndex;
+        FieldDetector.FieldInfo fieldInfo;
+        int dataIndex;
+        
+        FieldMapping(int itemIndex, FieldDetector.FieldInfo fieldInfo, int dataIndex) {
+            this.itemIndex = itemIndex;
+            this.fieldInfo = fieldInfo;
+            this.dataIndex = dataIndex;
+        }
     }
 }

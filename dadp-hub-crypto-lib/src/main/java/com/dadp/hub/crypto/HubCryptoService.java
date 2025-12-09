@@ -39,10 +39,14 @@ public class HubCryptoService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private String hubUrl;
-    private String apiBasePath = "/hub/api/v1";  // 기본값: Hub 경로, Engine 사용 시 "/api"로 변경
+    private String apiBasePath = "/api";  // 기본값: Engine 경로 (AOP는 엔진에 직접 연결)
     private int timeout;
     private boolean enableLogging;
     private boolean initialized = false;
+    
+    // Hub 경로 상수
+    private static final String HUB_API_PATH = "/hub/api/v1";
+    private static final String ENGINE_API_PATH = "/api";
 
     /**
      * 생성자
@@ -57,34 +61,91 @@ public class HubCryptoService {
      * 자동 초기화 메서드 - Spring Bean이 아닌 경우 사용
      */
     public static HubCryptoService createInstance() {
-        return createInstance("http://localhost:9004", 5000, true);
+        return createInstance("http://localhost:9003", 5000, true);
     }
 
     /**
      * 자동 초기화 메서드 - 커스텀 설정으로 생성
+     * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003 또는 http://hub:9004/hub)
+     *               base URL만 제공하면 자동으로 경로 감지
+     * @param timeout 타임아웃 (ms)
+     * @param enableLogging 로깅 활성화
      */
     public static HubCryptoService createInstance(String hubUrl, int timeout, boolean enableLogging) {
-        return createInstance(hubUrl, "/hub/api/v1", timeout, enableLogging);
+        // apiBasePath를 null로 전달하여 자동 감지
+        return createInstance(hubUrl, null, timeout, enableLogging);
+    }
+    
+    /**
+     * Base URL에서 경로를 제거하여 추출
+     * 예: "http://hub:9004/hub" → "http://hub:9004"
+     * 예: "http://engine:9003/api" → "http://engine:9003"
+     * 
+     * @param url 전체 URL 또는 base URL
+     * @return base URL (경로 제외)
+     */
+    private static String extractBaseUrl(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return url;
+        }
+        
+        try {
+            java.net.URI uri = java.net.URI.create(url.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            int port = uri.getPort();
+            
+            if (scheme == null || host == null) {
+                // URI 파싱 실패 시 원본 반환
+                return url.trim();
+            }
+            
+            // base URL 구성 (scheme://host:port)
+            if (port != -1) {
+                return scheme + "://" + host + ":" + port;
+            } else {
+                return scheme + "://" + host;
+            }
+        } catch (Exception e) {
+            // URI 파싱 실패 시 원본 반환
+            log.warn("⚠️ URL 파싱 실패, 원본 사용: {}", url);
+            return url.trim();
+        }
     }
     
     /**
      * 자동 초기화 메서드 - API 경로 포함
-     * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003)
+     * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003 또는 http://hub:9004/hub)
      * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
+     *                   null이면 자동 감지 (Hub인 경우 "/hub/api/v1", 그 외 "/api")
      * @param timeout 타임아웃 (ms)
      * @param enableLogging 로깅 활성화
      */
     public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, boolean enableLogging) {
         HubCryptoService instance = new HubCryptoService();
-        instance.hubUrl = hubUrl;
-        instance.apiBasePath = apiBasePath != null ? apiBasePath : "/hub/api/v1";
+        
+        // base URL 추출 (경로 제거)
+        String baseUrl = extractBaseUrl(hubUrl);
+        instance.hubUrl = baseUrl;
+        
+        // apiBasePath가 null이면 자동 감지
+        if (apiBasePath == null || apiBasePath.trim().isEmpty()) {
+            // 원본 URL에 "/hub"가 포함되어 있으면 Hub로 간주
+            if (hubUrl != null && hubUrl.contains("/hub")) {
+                apiBasePath = HUB_API_PATH;
+            } else {
+                apiBasePath = ENGINE_API_PATH;
+            }
+        }
+        
+        instance.apiBasePath = apiBasePath;
         instance.timeout = timeout;
         instance.enableLogging = enableLogging;
         instance.initialized = true;
         
         if (enableLogging) {
-            log.info("✅ HubCryptoService 자동 초기화 완료: hubUrl={}, apiBasePath={}, timeout={}ms", 
-                    hubUrl, instance.apiBasePath, timeout);
+            log.info("✅ HubCryptoService 자동 초기화 완료: baseUrl={}, apiBasePath={}, timeout={}ms", 
+                    baseUrl, instance.apiBasePath, timeout);
         }
         
         return instance;
@@ -95,7 +156,7 @@ public class HubCryptoService {
      * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
      */
     public void setApiBasePath(String apiBasePath) {
-        this.apiBasePath = apiBasePath != null ? apiBasePath : "/hub/api/v1";
+        this.apiBasePath = apiBasePath != null ? apiBasePath : "/api";
     }
     
     /**
@@ -201,12 +262,25 @@ public class HubCryptoService {
      * @throws HubCryptoException 암호화 실패 시
      */
     public String encrypt(String data, String policy) {
+        return encrypt(data, policy, false);
+    }
+    
+    /**
+     * 데이터 암호화 (통계 정보 포함 옵션)
+     * 
+     * @param data 암호화할 데이터
+     * @param policy 암호화 정책명
+     * @param includeStats 통계 정보 포함 여부
+     * @return 암호화된 데이터
+     * @throws HubCryptoException 암호화 실패 시
+     */
+    public String encrypt(String data, String policy, boolean includeStats) {
         // 초기화 확인
         initializeIfNeeded();
         
         if (enableLogging) {
-            log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}", 
-                    data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy);
+            log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}, includeStats={}", 
+                    data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy, includeStats);
         }
         
         try {
@@ -215,6 +289,7 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policy);
+            request.setIncludeStats(includeStats);
             
             String requestBody;
             try {
@@ -352,13 +427,27 @@ public class HubCryptoService {
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
+        return decrypt(encryptedData, maskPolicyName, maskPolicyUid, false);
+    }
+    
+    /**
+     * 데이터 복호화 (마스킹 정책 및 통계 정보 포함 옵션)
+     * 
+     * @param encryptedData 복호화할 암호화된 데이터
+     * @param maskPolicyName 마스킹 정책명 (선택사항)
+     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
+     * @param includeStats 통계 정보 포함 여부
+     * @return 복호화된 데이터 (마스킹 정책이 지정된 경우 마스킹 적용)
+     * @throws HubCryptoException 복호화 실패 시
+     */
+    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         // 초기화 확인
         initializeIfNeeded();
         
         if (enableLogging) {
-            log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}", 
+            log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}, includeStats={}", 
                     encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
-                    maskPolicyName, maskPolicyUid);
+                    maskPolicyName, maskPolicyUid, includeStats);
         }
         
         try {
@@ -368,6 +457,7 @@ public class HubCryptoService {
             request.setEncryptedData(encryptedData);
             request.setMaskPolicyName(maskPolicyName);
             request.setMaskPolicyUid(maskPolicyUid);
+            request.setIncludeStats(includeStats);
             
             String requestBody;
             try {
@@ -547,6 +637,293 @@ public class HubCryptoService {
             } else {
                 throw new HubConnectionException("Hub 연결 실패: " + errorMessage, e);
             }
+        }
+    }
+    
+    /**
+     * 배치 복호화 (여러 개의 암호화된 데이터를 일괄 복호화)
+     * 
+     * @param encryptedDataList 복호화할 암호화된 데이터 목록
+     * @param maskPolicyName 마스킹 정책명 (선택사항, 모든 항목에 공통 적용)
+     * @param maskPolicyUid 마스킹 정책 UID (선택사항, 모든 항목에 공통 적용)
+     * @param includeStats 통계 정보 포함 여부
+     * @return 복호화된 데이터 목록 (순서 보장)
+     * @throws HubCryptoException 복호화 실패 시
+     */
+    public java.util.List<String> batchDecrypt(java.util.List<String> encryptedDataList, 
+                                                String maskPolicyName, 
+                                                String maskPolicyUid, 
+                                                boolean includeStats) {
+        // 초기화 확인
+        initializeIfNeeded();
+        
+        if (encryptedDataList == null || encryptedDataList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        
+        if (enableLogging) {
+            log.info("🔓 Hub 배치 복호화 요청 시작: itemsCount={}, maskPolicyName={}, maskPolicyUid={}, includeStats={}", 
+                    encryptedDataList.size(), maskPolicyName, maskPolicyUid, includeStats);
+        }
+        
+        try {
+            // Engine의 배치 복호화 API 호출
+            String url = hubUrl + apiBasePath + "/decrypt/batch";
+            
+            // 배치 요청 생성
+            java.util.Map<String, Object> batchRequest = new java.util.HashMap<>();
+            java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
+            
+            for (String encryptedData : encryptedDataList) {
+                java.util.Map<String, Object> item = new java.util.HashMap<>();
+                item.put("data", encryptedData);
+                if (maskPolicyName != null && !maskPolicyName.trim().isEmpty()) {
+                    item.put("maskPolicyName", maskPolicyName);
+                }
+                if (maskPolicyUid != null && !maskPolicyUid.trim().isEmpty()) {
+                    item.put("maskPolicyUid", maskPolicyUid);
+                }
+                items.add(item);
+            }
+            
+            batchRequest.put("items", items);
+            batchRequest.put("includeStats", includeStats);
+            
+            String requestBody;
+            try {
+                requestBody = objectMapper.writeValueAsString(batchRequest);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new HubCryptoException("요청 데이터 직렬화 실패: " + e.getMessage());
+            }
+            
+            if (enableLogging) {
+                log.info("🔓 Hub 배치 요청 URL: {}", url);
+            }
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            
+            ResponseEntity<String> response;
+            try {
+                response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+            } catch (HttpClientErrorException | HttpServerErrorException e) {
+                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+            } catch (Exception e) {
+                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+            }
+            
+            if (enableLogging) {
+                log.info("🔓 Hub 배치 응답 상태: {} {}", getStatusCodeString(response), url);
+                log.info("🔓 Hub 배치 응답 데이터: {}", response.getBody());
+            }
+            
+            if (is2xxSuccessful(response)) {
+                // 엔진 직접 연결: BatchDecryptResponse를 직접 반환 (ApiResponse 래퍼 없음)
+                JsonNode rootNode;
+                try {
+                    rootNode = objectMapper.readTree(response.getBody());
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    log.error("❌ Hub 응답 파싱 실패: 응답 본문={}", response.getBody(), e);
+                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                }
+                
+                // results 배열 추출 (최상위 레벨)
+                JsonNode resultsNode = rootNode.get("results");
+                if (resultsNode == null || !resultsNode.isArray()) {
+                    // ApiResponse 래퍼가 있는 경우 (Hub를 통한 경우) 처리
+                    JsonNode successNode = rootNode.get("success");
+                    if (successNode != null && successNode.asBoolean()) {
+                        JsonNode dataNode = rootNode.get("data");
+                        if (dataNode != null && !dataNode.isNull()) {
+                            resultsNode = dataNode.get("results");
+                        }
+                    }
+                    
+                    if (resultsNode == null || !resultsNode.isArray()) {
+                        log.error("❌ 배치 복호화 실패: 응답에 results 배열이 없습니다. 응답 본문={}", response.getBody());
+                        throw new HubCryptoException("배치 복호화 실패: 응답에 results 배열이 없습니다");
+                    }
+                }
+                
+                java.util.List<String> decryptedList = new java.util.ArrayList<>();
+                for (JsonNode resultNode : resultsNode) {
+                    if (resultNode.get("success") != null && resultNode.get("success").asBoolean()) {
+                        JsonNode decryptedDataNode = resultNode.get("decryptedData");
+                        if (decryptedDataNode != null && !decryptedDataNode.isNull()) {
+                            decryptedList.add(decryptedDataNode.asText());
+                        } else {
+                            // 복호화 실패 시 원본 데이터 유지
+                            JsonNode originalDataNode = resultNode.get("originalData");
+                            decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        }
+                    } else {
+                        // 실패한 항목은 원본 데이터 유지
+                        JsonNode originalDataNode = resultNode.get("originalData");
+                        decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                    }
+                }
+                
+                if (enableLogging) {
+                    log.info("✅ Hub 배치 복호화 성공: {}개 항목 처리", decryptedList.size());
+                }
+                
+                return decryptedList;
+            } else {
+                throw new HubCryptoException("배치 복호화 실패: " + getStatusCodeString(response));
+            }
+            
+        } catch (HubCryptoException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HubCryptoException("배치 복호화 중 오류: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 배치 암호화
+     * 여러 개의 평문 데이터를 일괄 암호화
+     * 
+     * @param dataList 암호화할 평문 데이터 목록
+     * @param policyList 각 데이터에 적용할 정책명 목록 (dataList와 동일한 크기)
+     * @return 암호화된 데이터 목록 (순서는 요청과 동일)
+     * @throws HubCryptoException 암호화 실패 시
+     */
+    public java.util.List<String> batchEncrypt(java.util.List<String> dataList, 
+                                                java.util.List<String> policyList) {
+        // 초기화 확인
+        initializeIfNeeded();
+        
+        if (dataList == null || dataList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        
+        if (policyList == null || policyList.size() != dataList.size()) {
+            throw new HubCryptoException("정책 목록의 크기가 데이터 목록과 일치하지 않습니다");
+        }
+        
+        // 항상 로그 출력 (디버깅용)
+        log.info("Hub batchEncrypt called: itemsCount={}, hubUrl={}, apiBasePath={}", 
+                dataList.size(), hubUrl, apiBasePath);
+        
+        if (enableLogging) {
+            log.info("🔐 Hub 배치 암호화 요청 시작: itemsCount={}", 
+                    dataList.size());
+        }
+        
+        try {
+            // Engine의 배치 암호화 API 호출
+            String url = hubUrl + apiBasePath + "/encrypt/batch";
+            log.debug("Hub batchEncrypt URL: {}", url);
+            
+            // 배치 요청 생성
+            java.util.Map<String, Object> batchRequest = new java.util.HashMap<>();
+            java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
+            
+            for (int i = 0; i < dataList.size(); i++) {
+                java.util.Map<String, Object> item = new java.util.HashMap<>();
+                item.put("data", dataList.get(i));
+                String policy = policyList.get(i);
+                if (policy != null && !policy.trim().isEmpty()) {
+                    item.put("policyName", policy);
+                }
+                items.add(item);
+            }
+            
+            batchRequest.put("items", items);
+            
+            String requestBody;
+            try {
+                requestBody = objectMapper.writeValueAsString(batchRequest);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new HubCryptoException("요청 데이터 직렬화 실패: " + e.getMessage());
+            }
+            
+            if (enableLogging) {
+                log.info("🔐 Hub 배치 요청 URL: {}", url);
+            }
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            
+            ResponseEntity<String> response;
+            try {
+                log.info("Hub batchEncrypt sending request to: {}", url);
+                response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+                log.info("Hub batchEncrypt response status: {}", getStatusCodeString(response));
+            } catch (HttpClientErrorException | HttpServerErrorException e) {
+                log.error("Hub batchEncrypt HTTP error: {} {}", getExceptionStatusCode(e), e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+            } catch (Exception e) {
+                log.error("Hub batchEncrypt exception: {}", e.getMessage(), e);
+                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+            }
+            
+            if (enableLogging) {
+                log.info("🔐 Hub 배치 응답 상태: {} {}", getStatusCodeString(response), url);
+            }
+            
+            if (is2xxSuccessful(response)) {
+                // Hub 응답은 ApiResponse<BatchEncryptResponse> 형태
+                JsonNode rootNode;
+                try {
+                    rootNode = objectMapper.readTree(response.getBody());
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                }
+                
+                // ApiResponse의 success 확인
+                JsonNode successNode = rootNode.get("success");
+                if (successNode == null || !successNode.asBoolean()) {
+                    JsonNode messageNode = rootNode.get("message");
+                    String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "배치 암호화 실패";
+                    throw new HubCryptoException("배치 암호화 실패: " + errorMessage);
+                }
+                
+                // data 필드 추출
+                JsonNode dataNode = rootNode.get("data");
+                if (dataNode == null || dataNode.isNull()) {
+                    throw new HubCryptoException("배치 암호화 실패: 응답에 data 필드가 없습니다");
+                }
+                
+                // results 배열 추출
+                JsonNode resultsNode = dataNode.get("results");
+                if (resultsNode == null || !resultsNode.isArray()) {
+                    throw new HubCryptoException("배치 암호화 실패: 응답에 results 배열이 없습니다");
+                }
+                
+                java.util.List<String> encryptedList = new java.util.ArrayList<>();
+                for (JsonNode resultNode : resultsNode) {
+                    if (resultNode.get("success") != null && resultNode.get("success").asBoolean()) {
+                        JsonNode encryptedDataNode = resultNode.get("encryptedData");
+                        if (encryptedDataNode != null && !encryptedDataNode.isNull()) {
+                            encryptedList.add(encryptedDataNode.asText());
+                        } else {
+                            // 암호화 실패 시 원본 데이터 유지
+                            JsonNode originalDataNode = resultNode.get("originalData");
+                            encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        }
+                    } else {
+                        // 실패한 항목은 원본 데이터 유지
+                        JsonNode originalDataNode = resultNode.get("originalData");
+                        encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                    }
+                }
+                
+                if (enableLogging) {
+                    log.info("✅ Hub 배치 암호화 성공: {}개 항목 처리", encryptedList.size());
+                }
+                
+                return encryptedList;
+            } else {
+                throw new HubCryptoException("배치 암호화 실패: " + getStatusCodeString(response));
+            }
+            
+        } catch (HubCryptoException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new HubCryptoException("배치 암호화 중 오류: " + e.getMessage(), e);
         }
     }
     

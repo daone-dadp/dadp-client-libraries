@@ -65,10 +65,10 @@ public class FieldDetector {
                     if (encryptField != null) {
                         field.setAccessible(true);
                         fields.add(new FieldInfo(field, encryptField));
-                        log.debug("암호화 대상 필드 감지: {}.{} (policy={})", 
+                        log.trace("암호화 대상 필드 감지: {}.{} (policy={})", 
                                 clazz.getSimpleName(), field.getName(), encryptField.policy());
                     } else {
-                        log.debug("암호화 제외 필드: {}.{} (@EncryptField 없음)", 
+                        log.trace("암호화 제외 필드: {}.{} (@EncryptField 없음)", 
                                 clazz.getSimpleName(), field.getName());
                     }
                 }

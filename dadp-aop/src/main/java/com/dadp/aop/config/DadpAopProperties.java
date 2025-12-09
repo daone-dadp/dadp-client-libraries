@@ -13,14 +13,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class DadpAopProperties {
     
     /**
-     * DADP Hub 기본 URL (환경 변수 DADP_HUB_BASE_URL 사용)
-     */
-    private String hubBaseUrl;
-    
-    /**
      * AOP 설정
      */
     private AopConfig aop = new AopConfig();
+    
+    /**
+     * Hub 기본 URL (알림 전송용)
+     */
+    private String hubBaseUrl;
     
     /**
      * AOP 설정 내부 클래스
@@ -37,7 +37,7 @@ public class DadpAopProperties {
         private boolean enabled = true;
         
         /**
-         * 기본 암호화 정책
+         * 기본 암호화 정책 (기본값: "dadp" 하드코딩)
          */
         private String defaultPolicy = "dadp";
         
@@ -51,9 +51,25 @@ public class DadpAopProperties {
          */
         private boolean enableLogging = true;
         
+        /**
+         * 배치 처리 임계값 (이 값보다 작으면 개별 처리)
+         * 기본값: 10000 (10000건 이상일 때만 배치 처리)
+         */
+        private int batchThreshold = 10000;
+        
         // Getters and Setters
         public String getEngineBaseUrl() {
-            return engineBaseUrl;
+            // 환경 변수 DADP_CRYPTO_BASE_URL 우선 사용 (암복호화용)
+            String envCryptoUrl = System.getenv("DADP_CRYPTO_BASE_URL");
+            if (envCryptoUrl != null && !envCryptoUrl.trim().isEmpty()) {
+                return envCryptoUrl;
+            }
+            // 설정 파일에서 읽은 값 사용
+            if (engineBaseUrl != null && !engineBaseUrl.trim().isEmpty()) {
+                return engineBaseUrl;
+            }
+            // 기본값 (Engine 직접 연결)
+            return "http://localhost:9003";
         }
         
         public void setEngineBaseUrl(String engineBaseUrl) {
@@ -69,7 +85,17 @@ public class DadpAopProperties {
         }
         
         public String getDefaultPolicy() {
-            return defaultPolicy;
+            // 환경 변수 DADP_CRYPTO_DEFAULT_POLICY 우선 사용
+            String envPolicy = System.getenv("DADP_CRYPTO_DEFAULT_POLICY");
+            if (envPolicy != null && !envPolicy.trim().isEmpty()) {
+                return envPolicy;
+            }
+            // 설정 파일에서 읽은 값 사용
+            if (defaultPolicy != null && !defaultPolicy.trim().isEmpty()) {
+                return defaultPolicy;
+            }
+            // 기본값: "dadp" (하드코딩)
+            return "dadp";
         }
         
         public void setDefaultPolicy(String defaultPolicy) {
@@ -91,27 +117,17 @@ public class DadpAopProperties {
         public void setEnableLogging(boolean enableLogging) {
             this.enableLogging = enableLogging;
         }
+        
+        public int getBatchThreshold() {
+            return batchThreshold;
+        }
+        
+        public void setBatchThreshold(int batchThreshold) {
+            this.batchThreshold = batchThreshold;
+        }
     }
     
     // Getters and Setters
-    public String getHubBaseUrl() {
-        // 환경 변수 DADP_HUB_BASE_URL 우선 사용
-        String envHubUrl = System.getenv("DADP_HUB_BASE_URL");
-        if (envHubUrl != null && !envHubUrl.trim().isEmpty()) {
-            return envHubUrl;
-        }
-        // 설정 파일에서 읽은 값 사용
-        if (hubBaseUrl != null && !hubBaseUrl.trim().isEmpty()) {
-            return hubBaseUrl;
-        }
-        // 기본값
-        return "http://localhost:9004";
-    }
-    
-    public void setHubBaseUrl(String hubBaseUrl) {
-        this.hubBaseUrl = hubBaseUrl;
-    }
-    
     public AopConfig getAop() {
         return aop;
     }
@@ -139,5 +155,30 @@ public class DadpAopProperties {
     
     public boolean isEnableLogging() {
         return aop.isEnableLogging();
+    }
+    
+    /**
+     * Hub 기본 URL 조회 (알림 전송용)
+     * 환경 변수 DADP_HUB_BASE_URL 우선 사용
+     */
+    public String getHubBaseUrl() {
+        // 환경 변수 DADP_HUB_BASE_URL 우선 사용
+        String envHubUrl = System.getenv("DADP_HUB_BASE_URL");
+        if (envHubUrl != null && !envHubUrl.trim().isEmpty()) {
+            return envHubUrl;
+        }
+        // 설정 파일에서 읽은 값 사용
+        if (hubBaseUrl != null && !hubBaseUrl.trim().isEmpty()) {
+            return hubBaseUrl;
+        }
+        // 기본값 없음 (알림은 선택적 기능)
+        return null;
+    }
+    
+    /**
+     * Hub 기본 URL 설정
+     */
+    public void setHubBaseUrl(String hubBaseUrl) {
+        this.hubBaseUrl = hubBaseUrl;
     }
 }

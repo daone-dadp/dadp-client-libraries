@@ -6,13 +6,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>2.1.0</version>
+        <version>3.17.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-aop-spring-boot-starter</artifactId>
-    <version>2.1.0</version>
+    <version>3.17.0</version>
     <packaging>jar</packaging>
     
     <name>DADP AOP Spring Boot Starter</name>
@@ -44,28 +44,25 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-aop</artifactId>
-            <version>2.1.0</version>
+            <version>3.17.0</version>
         </dependency>
         
         <!-- Spring Boot Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
-            <version>2.7.18</version>
         </dependency>
         
         <!-- Spring Boot AOP -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
-            <version>2.7.18</version>
         </dependency>
         
         <!-- Spring Boot Configuration Processor -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
-            <version>2.7.18</version>
             <optional>true</optional>
         </dependency>
     </dependencies>
@@ -122,7 +119,7 @@
                 <configuration>
                     <useAgent>false</useAgent>
                     <passphrase>${env.GPG_PASSPHRASE}</passphrase>
-                    <skip>false</skip>
+                    <skip>${gpg.skip}</skip>
                 </configuration>
                 <executions>
                     <execution>

@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 /**
  * 클래스 레벨 기본 암호화 정책 어노테이션
  * 
- * 이 어노테이션이 적용된 클래스의 모든 @EncryptField에 기본 정책을 적용합니다.
+ * 이 어노테이션이 적용된 클래스의 모든 {@code @EncryptField}에 기본 정책을 적용합니다.
  * 
  * @author DADP Development Team
  * @version 2.0.0
