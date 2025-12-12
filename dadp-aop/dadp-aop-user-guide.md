@@ -1077,6 +1077,10 @@ class ColumnSizeValidationTest {
    - 중규모 데이터(1,000 ~ 10,000개): 주의 필요 (1-2초 소요)
    - 대규모 데이터(10,000개 이상): **비권장** (메모리 및 시간 부하)
    - 대안: 대량 데이터 조회 시 `Page<T>` 또는 `Slice<T>` 사용 권장
+   - **read-only 트랜잭션 지원**: Stream 복호화 시 read-only 트랜잭션에서도 정상 동작 (v3.17.1)
+     - Stream을 List로 수집한 직후, 복호화 전에 모든 엔티티를 detach하여 Hibernate의 변경 추적 차단
+     - read-only 트랜잭션에서 UPDATE 쿼리 시도 없음
+     - `@Transactional(readOnly = true)`와 함께 사용 가능
 
 5. **Page/Slice 반환 타입 지원** ✅
    - `Page<T>`, `Slice<T>` 반환 타입 완전 지원

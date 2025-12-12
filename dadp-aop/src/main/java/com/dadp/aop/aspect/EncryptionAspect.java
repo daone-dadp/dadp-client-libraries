@@ -305,7 +305,7 @@ public class EncryptionAspect {
             Object decryptedResult;
             if (isStreamType && result != null) {
                 // Stream 타입인 경우: Stream → List → 복호화 → Stream 변환 (우선 처리)
-                decryptedResult = handleStreamDecryption(result, decryptAnnotation);
+                decryptedResult = handleStreamDecryption(result, decryptAnnotation, em);
             } else if (isPageType && result != null) {
                 // Page 타입인 경우: content를 추출하여 복호화 후 다시 Page로 감싸기
                 decryptedResult = processPageDecryption(result, decryptAnnotation);
@@ -1402,18 +1402,22 @@ public class EncryptionAspect {
     /**
      * Stream<T> 반환 타입 복호화 처리
      * 
-     * Stream을 List로 수집 → 복호화 → 다시 Stream으로 변환
+     * Stream을 List로 수집 → 엔티티 detach → 복호화 → 다시 Stream으로 변환
      * 
      * 주의: Stream은 한 번만 소비 가능하므로, AOP에서 collect()하는 순간 이미 소비됨.
      * 반환되는 Stream은 in-memory Stream이며, JPA의 lazy-stream이 아님.
      * 대량 데이터 조회 시 메모리 사용량이 증가할 수 있음.
      * 
+     * 중요: read-only 트랜잭션에서 UPDATE 방지를 위해 복호화 전에 엔티티를 detach합니다.
+     * 복호화로 인한 필드 변경이 Hibernate의 dirty 체크를 트리거하지 않도록 합니다.
+     * 
      * @param result 원본 Stream
      * @param decryptAnnotation @Decrypt 어노테이션
+     * @param em EntityManager (엔티티 detach용)
      * @return 복호화된 Stream
      */
     @SuppressWarnings("unchecked")
-    private Object handleStreamDecryption(Object result, Decrypt decryptAnnotation) {
+    private Object handleStreamDecryption(Object result, Decrypt decryptAnnotation, Object em) {
         try {
             java.util.stream.Stream<Object> stream = (java.util.stream.Stream<Object>) result;
             
@@ -1424,7 +1428,27 @@ public class EncryptionAspect {
                 return java.util.stream.Stream.empty();
             }
             
-            // 기존 Collection 배치 복호화 로직 재사용
+            // 🔥 중요: 복호화 전에 모든 엔티티를 detach하여 read-only 트랜잭션에서 UPDATE 방지
+            // 복호화로 인한 필드 변경이 Hibernate의 dirty 체크를 트리거하지 않도록 함
+            if (em != null) {
+                for (Object entity : list) {
+                    if (entity != null && isJpaEntity(entity)) {
+                        try {
+                            Method detachMethod = em.getClass().getMethod("detach", Object.class);
+                            detachMethod.invoke(em, entity);
+                            debugIfEnabled(decryptAnnotation.enableLogging(), 
+                                "✅ Stream 엔티티 detach 완료: {}", entity.getClass().getSimpleName());
+                        } catch (Exception e) {
+                            debugIfEnabled(decryptAnnotation.enableLogging(), 
+                                "⚠️ Stream 엔티티 detach 실패 (무시): {}", e.getMessage());
+                        }
+                    }
+                }
+                infoIfEnabled(decryptAnnotation.enableLogging(), 
+                    "✅ Stream 엔티티 detach 완료: {}개 항목 (복호화 전)", list.size());
+            }
+            
+            // 기존 Collection 배치 복호화 로직 재사용 (이미 detach된 엔티티는 dirty로 마킹되지 않음)
             Collection<Object> decryptedList = 
                     (Collection<Object>) processCollectionDecryption(list, decryptAnnotation);
             

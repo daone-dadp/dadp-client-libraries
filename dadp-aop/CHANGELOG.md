@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.17.1] - 2025-12-12 (배포 전)
+
+### 🎉 릴리즈 정보
+
+**버전**: 3.17.1  
+**릴리즈 일자**: 2025-12-12 (최종 업데이트)  
+**배포 상태**: ⚠️ **개발 완료, Maven Central 미배포** (배포 전)
+
+### ✅ Changed
+
+- **includeStats 역할 명확화 및 엔진 요청 개선**: `includeStats` 파라미터가 AOP 로깅용으로만 사용되도록 수정하고, 엔진 요청에서 `includeStats` 파라미터를 제거
+  - `includeStats=true`일 때 AOP 레벨에서만 상세 로그를 출력 (암복호화 수행, 결과 일부 값)
+  - 엔진 요청에서 `includeStats` 파라미터를 완전히 제거 (엔진은 자동으로 통계 수집)
+  - AOP에서 `cryptoService.encrypt(data, policy)` 형태로 호출 (includeStats 파라미터 없음)
+  - `HubCryptoService`에서 `EncryptRequest`/`DecryptRequest`에 `includeStats` 필드를 설정하지 않음
+  - `includeStats`는 AOP 자체의 로깅 기능이며, 엔진 통계 수집과는 무관
+  - 엔진 요청 크기 감소 (불필요한 파라미터 제거)
+  - 기존 코드 변경 불필요 (동작 방식만 변경)
+
+### ✅ Fixed
+
+- **Stream 반환 타입 read-only 트랜잭션 문제 해결** (2025-12-12)
+  - Stream 복호화 시 read-only 트랜잭션에서 UPDATE 쿼리 시도로 인한 에러 해결
+  - Stream을 List로 수집한 직후, 복호화 전에 모든 엔티티를 detach하여 Hibernate의 변경 추적 차단
+  - `handleStreamDecryption()` 메서드에 EntityManager 파라미터 추가
+  - detach된 엔티티는 복호화 후에도 dirty로 마킹되지 않아 read-only 트랜잭션에서 정상 동작
+  - 에러 메시지: `Connection is read-only. Queries leading to data modification are not allowed` 해결
+  - 영향: `getAllUsersAsStream()`, `getUsersByNameAsStream()` 등 Stream 반환 메서드 정상 동작
+
+### (기타 개발 중)
+
+이 버전은 현재 개발 중이며, 아직 배포되지 않았습니다.
+
+---
+
 ## [3.17.0] - 2025-12-09
 
 ### 🎉 릴리즈 정보
