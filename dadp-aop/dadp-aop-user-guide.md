@@ -265,6 +265,10 @@ dadp.aop.default-policy=dadp
 dadp.aop.fallback-to-original=true
 dadp.aop.enable-logging=true
 
+# AOP 배치 처리 설정 (선택사항)
+dadp.aop.batch-min-size=100
+dadp.aop.batch-max-size=10000
+
 # Hub 암복호화 라이브러리 설정
 hub.crypto.timeout=5000
 hub.crypto.retry-count=3
@@ -282,6 +286,8 @@ dadp:
     default-policy: dadp
     fallback-to-original: true
     enable-logging: true
+    batch-min-size: 100
+    batch-max-size: 10000
 
 hub:
   crypto:
@@ -303,6 +309,34 @@ export DADP_HUB_BASE_URL=http://your-hub-server:9004
 # application.properties에서 환경 변수 참조
 dadp.hub-base-url=${DADP_HUB_BASE_URL:http://localhost:9004}
 ```
+
+### 배치 처리 환경변수 설정 (선택사항)
+
+배치 처리 성능 최적화를 위한 환경변수 설정:
+
+```bash
+# 배치 처리 최소 크기 (기본값: 100)
+# 이 값보다 작은 데이터셋은 자동으로 개별 처리로 폴백
+export DADP_AOP_BATCH_MIN_SIZE=100
+
+# 배치 처리 최대 크기 (기본값: 10,000)
+# 이 값보다 큰 데이터셋은 청크 단위로 분할 처리
+export DADP_AOP_BATCH_MAX_SIZE=10000
+
+# 배치 처리 완전 비활성화 (기본값: false)
+# true로 설정하면 무조건 개별 처리 사용 (테스트용)
+export DADP_AOP_DISABLE_BATCH=false
+```
+
+**설정 우선순위:**
+1. 환경변수 (`DADP_AOP_BATCH_MIN_SIZE`, `DADP_AOP_BATCH_MAX_SIZE`, `DADP_AOP_DISABLE_BATCH`)
+2. 설정 파일 (`dadp.aop.batch-min-size`, `dadp.aop.batch-max-size`)
+3. 기본값 (100, 10,000, false)
+
+**권장 설정:**
+- 작은 데이터셋(100개 필드 미만)이 많은 경우: `DADP_AOP_BATCH_MIN_SIZE=100` (기본값)
+- 대량 데이터셋(10,000개 필드 이상)이 많은 경우: `DADP_AOP_BATCH_MAX_SIZE=10000` (기본값)
+- 성능 테스트 시: `DADP_AOP_DISABLE_BATCH=true` (개별 처리 강제)
 
 ---
 
@@ -662,23 +696,29 @@ public class User {
 
 ### 미지원 명령어 (확인됨)
 
+#### ✅ **지원 JPA 기능**
+
+| 기능 | 설명 | 상태 |
+|------|------|------|
+| `@Query` (네이티브 쿼리) | 네이티브 SQL 쿼리 | ✅ **지원** - `@Decrypt` 어노테이션 정상 적용, 반환 타입에 따라 자동 복호화 |
+| `@Query` (JPQL) | JPQL 쿼리 | ✅ **지원** - 네이티브 쿼리와 동일하게 처리 |
+| `@Modifying` | 수정 쿼리 | ⚠️ **테스트 중** - `@Encrypt`는 파라미터 암호화 가능하나 테스트 필요, `@Decrypt`는 반환값 없어 의미 없음 |
+
 #### ❌ **미지원 JPA 기능**
 
 | 기능 | 설명 | 상태 |
 |------|------|------|
-| `@Query` (네이티브 쿼리) | 네이티브 SQL 쿼리 | ⚠️ **테스트 중** - 기술적으로 가능하나 테스트 필요 |
-| `@Modifying` | 수정 쿼리 | ⚠️ **테스트 중** - `@Encrypt`는 파라미터 암호화 가능하나 테스트 필요, `@Decrypt`는 반환값 없어 의미 없음 |
 | `EntityManager` 직접 사용 | EntityManager 직접 호출 | ❌ **미지원** - 어노테이션 적용 불가 |
 | `Criteria API` | Criteria 쿼리 | ❌ **미지원** - 어노테이션 적용 불가 |
 | `JPQL` 직접 작성 | JPQL 문자열 | ❌ **미지원** - 어노테이션 적용 불가 |
 
-#### ❌ **미지원 반환 타입**
+#### ✅ **지원 반환 타입**
 
 | 반환 타입 | 설명 | 상태 |
 |----------|------|------|
-| `Stream<T>` | 스트림 | ❌ **미지원** - Collection으로 변환 필요 |
-| `Page<T>` | 페이징 | ❌ **미지원** - 처리 로직 없음, Collection으로 변환 필요 |
-| `Slice<T>` | 슬라이스 | ❌ **미지원** - 처리 로직 없음, Collection으로 변환 필요 |
+| `Stream<T>` | 스트림 | ✅ **제한적 지원** - Stream 전체를 수집 후 복호화, in-memory Stream으로 재생성. 대량 데이터 시 메모리 사용량 증가 가능 |
+| `Page<T>` | 페이징 | ✅ **완전 지원** - content 자동 복호화 후 Page 재생성 |
+| `Slice<T>` | 슬라이스 | ✅ **완전 지원** - content 자동 복호화 후 Slice 재생성 |
 
 ### 사용 권장사항
 
@@ -714,14 +754,25 @@ public class User {
 }
 ```
 
+#### ✅ **지원 사용법 (네이티브 쿼리)**
+
+```java
+// ✅ 지원: @Query 네이티브 쿼리
+@Query(value = "SELECT * FROM users WHERE email = ?1", nativeQuery = true)
+@Decrypt  // ← 정상 적용됨
+List<User> findByEmailNative(String email);
+
+// ✅ 지원: Stream 반환 타입
+@Decrypt
+@Query("SELECT u FROM User u")
+Stream<User> findAllAsStream();  // ← 내부적으로 Stream → List → 복호화 → Stream 변환
+
+// ⚠️ 주의: Stream 타입은 대량 데이터 시 메모리 사용량 증가 가능
+```
+
 #### ❌ **비권장 사용법**
 
 ```java
-// ⚠️ 테스트 중: @Query 네이티브 쿼리 (기술적으로 가능하나 테스트 필요)
-@Query(value = "SELECT * FROM users WHERE email = ?1", nativeQuery = true)
-@Decrypt  // ← 테스트 중
-List<User> findByEmailNative(String email);
-
 // ❌ 비권장: EntityManager 직접 사용
 @Autowired
 private EntityManager em;
@@ -1002,10 +1053,11 @@ class ColumnSizeValidationTest {
 
 ### AOP 제한사항
 
-1. **네이티브 쿼리 테스트 중**
-   - `@Query(nativeQuery = true)` 사용 시 어노테이션 적용 가능하나 테스트 필요
-   - 기술적으로는 동작 가능하나 반환값 처리 등 검증 필요
-   - 메서드 쿼리 또는 JPQL 사용 권장
+1. **네이티브 쿼리 지원** ✅
+   - `@Query(nativeQuery = true)` 사용 시 `@Decrypt` 어노테이션 정상 적용
+   - 반환 타입이 Entity / List<Entity> / Optional<Entity> / Page / Slice / Collection 일 경우,
+     일반 메서드와 동일하게 복호화 처리
+   - 네이티브 쿼리든 JPQL이든 반환값 처리 방식 동일
 
 2. **@Modifying 쿼리 테스트 중**
    - `@Modifying` + `@Encrypt`: 파라미터 암호화 가능하나 테스트 필요
@@ -1016,13 +1068,20 @@ class ColumnSizeValidationTest {
    - `EntityManager` 직접 호출 시 어노테이션 적용 불가
    - Repository 인터페이스 사용 권장
 
-4. **Stream 반환 타입 미지원**
-   - `Stream<T>` 반환 시 처리 안 됨
-   - `List<T>`로 변환 후 사용 권장
+4. **Stream 반환 타입 제한적 지원** ✅
+   - `Stream<T>` 반환 시 `@Decrypt` 어노테이션 적용 가능
+   - 내부적으로 Stream 전체를 수집 후 복호화하고, in-memory Stream으로 재생성
+   - **주의**: 대량 데이터 조회 시 메모리 사용량 증가 가능
+   - JPA의 lazy-stream이 아닌 in-memory Stream이 반환됨
+   - 소규모 데이터(1,000개 이하): 문제 없음
+   - 중규모 데이터(1,000 ~ 10,000개): 주의 필요 (1-2초 소요)
+   - 대규모 데이터(10,000개 이상): **비권장** (메모리 및 시간 부하)
+   - 대안: 대량 데이터 조회 시 `Page<T>` 또는 `Slice<T>` 사용 권장
 
-5. **Page/Slice 반환 타입 미지원**
-   - `Page<T>`, `Slice<T>` 반환 타입은 처리 로직이 없음
-   - `getContent()`로 Collection을 추출하여 처리하거나, `List<T>`로 변환 필요
+5. **Page/Slice 반환 타입 지원** ✅
+   - `Page<T>`, `Slice<T>` 반환 타입 완전 지원
+   - content 자동 복호화 후 Page/Slice 재생성
+   - Pageable, totalElements, hasNext 등 메타데이터 보존
 
 ---
 
@@ -1081,12 +1140,19 @@ class ColumnSizeValidationTest {
 
 ### 현재 버전
 
-**v3.17.0** (2025-12-09 배포 완료)
+**v3.17.0** (2025-12-09 배포 완료) ✅
 
 - [릴리즈 노트](./RELEASE_NOTES_v3.17.0.md)
 - [변경 내역](./CHANGELOG.md)
 
-### 주요 변경사항
+### 개발 중 버전
+
+**v3.17.1** (배포 전) ⏳
+
+- [릴리즈 노트](./RELEASE_NOTES_v3.17.1.md)
+- 상태: 개발 완료, Maven Central 미배포
+
+### 주요 변경사항 (v3.17.0)
 
 - ✅ Engine 직접 연결 지원
 - ✅ 리포지토리 레벨 암복호화 지원 (권장)

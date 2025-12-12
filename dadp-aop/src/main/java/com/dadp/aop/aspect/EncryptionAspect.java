@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.Collection;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 /**
  * 암복호화 AOP Aspect
@@ -43,6 +44,47 @@ public class EncryptionAspect {
     
     @Autowired(required = false)
     private com.dadp.aop.config.DadpAopProperties dadpAopProperties;
+    
+    /**
+     * 배치 처리 최소 크기 임계값 조회
+     * 환경변수 DADP_AOP_BATCH_MIN_SIZE 또는 설정 파일에서 읽음
+     */
+    private int getBatchMinSize() {
+        if (dadpAopProperties != null) {
+            return dadpAopProperties.getAop().getBatchMinSize();
+        }
+        // 기본값: 100개 필드 데이터
+        // 실측 결과: 60개 필드 데이터 기준 배치 처리(1.3초)가 개별 처리(0.44초)보다 느림
+        String envMinSize = System.getenv("DADP_AOP_BATCH_MIN_SIZE");
+        if (envMinSize != null && !envMinSize.trim().isEmpty()) {
+            try {
+                return Integer.parseInt(envMinSize.trim());
+            } catch (NumberFormatException e) {
+                // 파싱 실패 시 기본값 사용
+            }
+        }
+        return 100;
+    }
+    
+    /**
+     * 배치 처리 최대 크기 제한 조회
+     * 환경변수 DADP_AOP_BATCH_MAX_SIZE 또는 설정 파일에서 읽음
+     */
+    private int getBatchMaxSize() {
+        if (dadpAopProperties != null) {
+            return dadpAopProperties.getAop().getBatchMaxSize();
+        }
+        // 기본값: 10,000개 필드 데이터
+        String envMaxSize = System.getenv("DADP_AOP_BATCH_MAX_SIZE");
+        if (envMaxSize != null && !envMaxSize.trim().isEmpty()) {
+            try {
+                return Integer.parseInt(envMaxSize.trim());
+            } catch (NumberFormatException e) {
+                // 파싱 실패 시 기본값 사용
+            }
+        }
+        return 10000;
+    }
     
     
     /**
@@ -207,6 +249,29 @@ public class EncryptionAspect {
             boolean isCollectionReturn = Collection.class.isAssignableFrom(returnType) || 
                                        Iterable.class.isAssignableFrom(returnType);
             
+            // Stream 타입 체크 (우선 처리 필요)
+            boolean isStreamType = isStreamType(returnType);
+            
+            // Page/Slice 타입 체크 (Spring Data의 페이징 타입)
+            boolean isPageType = false;
+            boolean isSliceType = false;
+            try {
+                Class<?> pageClass = Class.forName("org.springframework.data.domain.Page");
+                Class<?> sliceClass = Class.forName("org.springframework.data.domain.Slice");
+                isPageType = pageClass.isAssignableFrom(returnType);
+                isSliceType = sliceClass.isAssignableFrom(returnType);
+            } catch (ClassNotFoundException e) {
+                // Spring Data가 없는 환경 (드물지만 안전을 위해)
+            }
+            
+            // @Query(nativeQuery) 감지 (로깅/모니터링용, 복호화는 건너뛰지 않음)
+            boolean isNativeQuery = detectNativeQuery(method);
+            if (isNativeQuery) {
+                debugIfEnabled(decryptAnnotation.enableLogging(), 
+                    "📝 네이티브 쿼리 감지: {}.{}", 
+                    method.getDeclaringClass().getSimpleName(), method.getName());
+            }
+            
             // ① 트랜잭션 경계 안에서 FlushMode를 COMMIT으로 설정 (JPA 레벨, Session 없어도 가능)
             Object em = getTransactionalEntityManager();
             if (em != null) {
@@ -238,7 +303,16 @@ public class EncryptionAspect {
             
             // 반환값 복호화/마스킹 처리 (DB에서 조회한 암호화된 데이터를 복호화)
             Object decryptedResult;
-            if (isCollectionReturn && result instanceof Collection) {
+            if (isStreamType && result != null) {
+                // Stream 타입인 경우: Stream → List → 복호화 → Stream 변환 (우선 처리)
+                decryptedResult = handleStreamDecryption(result, decryptAnnotation);
+            } else if (isPageType && result != null) {
+                // Page 타입인 경우: content를 추출하여 복호화 후 다시 Page로 감싸기
+                decryptedResult = processPageDecryption(result, decryptAnnotation);
+            } else if (isSliceType && result != null) {
+                // Slice 타입인 경우: content를 추출하여 복호화 후 다시 Slice로 감싸기
+                decryptedResult = processSliceDecryption(result, decryptAnnotation);
+            } else if (isCollectionReturn && result instanceof Collection) {
                 // 복수인 경우: AOP가 배치 처리하여 Spring Data JPA의 내부 처리 막음
                 @SuppressWarnings("unchecked")
                 Collection<Object> collection = (Collection<Object>) result;
@@ -283,10 +357,24 @@ public class EncryptionAspect {
                 return data;
             }
             
-            String encryptedData = cryptoService.encrypt(data, encryptAnnotation.policy(), encryptAnnotation.includeStats());
+            // includeStats는 AOP 로깅용이며, 엔진에는 전달하지 않음 (엔진은 항상 자동으로 통계 수집)
+            String encryptedData = cryptoService.encrypt(data, encryptAnnotation.policy());
+            
+            // enableLogging: 기본 로그 출력
             infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 데이터 암호화 완료: {} → {}", 
                         data.substring(0, Math.min(10, data.length())) + "...", 
                         encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
+            
+            // includeStats: 상세 로그 출력 (AOP 레벨에서만, 엔진에 요구하지 않음)
+            if (encryptAnnotation.includeStats()) {
+                log.info("📊 [통계] 암호화 수행: policy={}, inputLength={}, outputLength={}, inputPreview={}, outputPreview={}", 
+                        encryptAnnotation.policy(),
+                        data.length(),
+                        encryptedData.length(),
+                        data.substring(0, Math.min(20, data.length())) + (data.length() > 20 ? "..." : ""),
+                        encryptedData.substring(0, Math.min(30, encryptedData.length())) + (encryptedData.length() > 30 ? "..." : ""));
+            }
+            
             return encryptedData;
         }
         
@@ -419,13 +507,26 @@ public class EncryptionAspect {
             }
             
             // Hub에 전달 (Hub가 암호화 여부를 판단하고 처리)
-            // CryptoService.decrypt()가 null이면 원본 데이터를 반환하므로 여기서는 그냥 반환
-            String result = cryptoService.decrypt(data, maskPolicyName, maskPolicyUid, decryptAnnotation.includeStats());
+            // includeStats는 AOP 로깅용이며, 엔진에는 전달하지 않음 (엔진은 항상 자동으로 통계 수집)
+            String result = cryptoService.decrypt(data, maskPolicyName, maskPolicyUid);
             
+            // enableLogging: 기본 로그 출력
             infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 Hub 처리 완료: {} → {} (maskPolicyName={}, maskPolicyUid={})", 
                         data.substring(0, Math.min(20, data.length())) + "...", 
                         result != null ? result.substring(0, Math.min(10, result.length())) + "..." : "null",
                         maskPolicyName, maskPolicyUid);
+            
+            // includeStats: 상세 로그 출력 (AOP 레벨에서만, 엔진에 요구하지 않음)
+            if (decryptAnnotation.includeStats()) {
+                log.info("📊 [통계] 복호화 수행: inputLength={}, outputLength={}, maskPolicyName={}, maskPolicyUid={}, inputPreview={}, outputPreview={}", 
+                        data.length(),
+                        result != null ? result.length() : 0,
+                        maskPolicyName,
+                        maskPolicyUid,
+                        data.substring(0, Math.min(30, data.length())) + (data.length() > 30 ? "..." : ""),
+                        result != null ? (result.substring(0, Math.min(20, result.length())) + (result.length() > 20 ? "..." : "")) : "null");
+            }
+            
             return result;
         }
         
@@ -479,7 +580,8 @@ public class EncryptionAspect {
                 }
                 
                 // 개별 복호화 수행
-                String result = cryptoService.decrypt(data, fieldMaskPolicyName, fieldMaskPolicyUid, decryptAnnotation.includeStats());
+                // includeStats는 AOP 로깅용이며, 엔진에는 전달하지 않음 (엔진은 항상 자동으로 통계 수집)
+                String result = cryptoService.decrypt(data, fieldMaskPolicyName, fieldMaskPolicyUid);
                 if (result != null) {
                     fieldInfo.setValue(obj, result);
                     
@@ -855,6 +957,26 @@ public class EncryptionAspect {
             return collection;
         }
         
+        // 배치 처리 비활성화 옵션 확인 (테스트용)
+        // 환경변수 우선, 없으면 System Property 확인
+        String disableBatch = System.getenv("DADP_AOP_DISABLE_BATCH");
+        if (disableBatch == null) {
+            disableBatch = System.getProperty("DADP_AOP_DISABLE_BATCH");
+        }
+        boolean forceIndividual = disableBatch != null && 
+                ("true".equalsIgnoreCase(disableBatch.trim()) || "1".equals(disableBatch.trim()));
+        
+        if (forceIndividual) {
+            log.info("🔒 배치 처리 비활성화됨 - 개별 처리로 암호화: {}개 항목", collection.size());
+            // 개별 처리로 폴백
+            for (Object item : collection) {
+                if (item != null) {
+                    processEncryption(item, encryptAnnotation);
+                }
+            }
+            return collection;
+        }
+        
         // 첫 번째 항목으로부터 필드 정보 얻기
         Object firstItem = collection.iterator().next();
         if (firstItem == null) {
@@ -911,6 +1033,31 @@ public class EncryptionAspect {
             long collectTime = System.currentTimeMillis() - collectStartTime;
             
             if (dataList.isEmpty()) {
+                continue;
+            }
+            
+            // 작은 데이터셋은 개별 처리로 폴백 (배치 오버헤드가 더 큼)
+            // 또는 배치 처리 비활성화 옵션이 켜져 있으면 무조건 개별 처리
+            // forceIndividual은 메서드 시작 부분에서 이미 선언됨
+            int batchMinSize = forceIndividual ? Integer.MAX_VALUE : getBatchMinSize();
+            if (dataList.size() < batchMinSize) {
+                if (forceIndividual) {
+                    log.info("🔒 배치 처리 비활성화됨 - 개별 처리로 암호화: {}개 필드 데이터 ({}개 항목)", 
+                            dataList.size(), itemList.size());
+                } else {
+                    log.debug("🔒 소규모 데이터 암호화: {}개 필드 데이터 ({}개 항목) - 개별 처리로 폴백", 
+                            dataList.size(), itemList.size());
+                }
+                // 개별 처리로 폴백
+                for (int i = 0; i < indexList.size(); i++) {
+                    int index = indexList.get(i);
+                    Object item = itemList.get(index);
+                    if (item != null && i < dataList.size()) {
+                        String data = dataList.get(i);
+                        String encrypted = cryptoService.encrypt(data, policy);
+                        fieldInfo.setValue(item, encrypted);
+                    }
+                }
                 continue;
             }
             
@@ -1014,32 +1161,94 @@ public class EncryptionAspect {
             return collection;
         }
         
-        // 배치 복호화 수행 (데이터만 전송, 정책/마스크는 엔진에서 처리)
+        // 배치 처리 비활성화 옵션 확인 (테스트용)
+        // 환경변수 우선, 없으면 System Property 확인
+        String disableBatch = System.getenv("DADP_AOP_DISABLE_BATCH");
+        if (disableBatch == null) {
+            disableBatch = System.getProperty("DADP_AOP_DISABLE_BATCH");
+        }
+        boolean forceIndividual = disableBatch != null && 
+                ("true".equalsIgnoreCase(disableBatch.trim()) || "1".equals(disableBatch.trim()));
+        
+        // 작은 데이터셋은 개별 처리로 폴백 (배치 오버헤드가 더 큼)
+        // 또는 배치 처리 비활성화 옵션이 켜져 있으면 무조건 개별 처리
+        int batchMinSize = forceIndividual ? Integer.MAX_VALUE : getBatchMinSize();
+        if (allDataList.size() < batchMinSize) {
+            if (forceIndividual) {
+                log.info("🔓 배치 처리 비활성화됨 - 개별 처리로 복호화: {}개 필드 데이터 ({}개 항목)", 
+                        allDataList.size(), itemList.size());
+            } else {
+                log.debug("🔓 소규모 데이터 복호화: {}개 필드 데이터 ({}개 항목) - 개별 처리로 폴백", 
+                        allDataList.size(), itemList.size());
+            }
+            // 개별 처리로 폴백
+            for (Object item : itemList) {
+                if (item != null) {
+                    processDecryption(item, decryptAnnotation);
+                }
+            }
+            return collection;
+        }
+        
+        // 대량 데이터 처리 시 경고 로그
+        int batchMaxSize = getBatchMaxSize();
+        if (allDataList.size() > batchMaxSize) {
+            log.warn("⚠️ 대량 데이터 복호화 감지: {}개 필드 데이터 ({}개 항목) - 청크 단위로 분할 처리합니다.", 
+                    allDataList.size(), itemList.size());
+        }
+        
+        // 배치 복호화 수행 (대량 데이터는 청크 단위로 분할 처리)
         try {
             long engineStartTime = System.currentTimeMillis();
-            List<String> decryptedDataList = cryptoService.batchDecrypt(
-                allDataList, null, null, false);
-            long engineTime = System.currentTimeMillis() - engineStartTime;
+            long totalEngineTime = 0;
+            long totalMatchTime = 0;
+            int chunkCount = 0;
             
-            // 결과를 순서대로 각 항목에 설정
-            long matchStartTime = System.currentTimeMillis();
-            for (FieldMapping mapping : fieldMappings) {
-                if (mapping.dataIndex < decryptedDataList.size()) {
-                    String decrypted = decryptedDataList.get(mapping.dataIndex);
-                    if (decrypted != null) {
-                        Object item = itemList.get(mapping.itemIndex);
-                        if (item != null) {
-                            mapping.fieldInfo.setValue(item, decrypted);
+            // 청크 단위로 나누어 처리
+            for (int chunkStart = 0; chunkStart < allDataList.size(); chunkStart += batchMaxSize) {
+                int chunkEnd = Math.min(chunkStart + batchMaxSize, allDataList.size());
+                List<String> chunkDataList = allDataList.subList(chunkStart, chunkEnd);
+                
+                chunkCount++;
+                if (chunkCount > 1) {
+                    log.debug("🔓 청크 {} 처리 중: {} ~ {} / {}", 
+                            chunkCount, chunkStart, chunkEnd - 1, allDataList.size());
+                }
+                
+                // 청크 단위 배치 복호화 수행
+                long chunkEngineStart = System.currentTimeMillis();
+                List<String> decryptedChunkList = cryptoService.batchDecrypt(
+                    chunkDataList, null, null, false);
+                long chunkEngineTime = System.currentTimeMillis() - chunkEngineStart;
+                totalEngineTime += chunkEngineTime;
+                
+                // 결과를 순서대로 각 항목에 설정
+                // fieldMappings는 dataIndex 순서대로 저장되어 있으므로 직접 접근 가능
+                long chunkMatchStart = System.currentTimeMillis();
+                for (int i = 0; i < chunkDataList.size(); i++) {
+                    int dataIndex = chunkStart + i;
+                    if (dataIndex < fieldMappings.size() && i < decryptedChunkList.size()) {
+                        FieldMapping mapping = fieldMappings.get(dataIndex);
+                        String decrypted = decryptedChunkList.get(i);
+                        if (decrypted != null) {
+                            Object item = itemList.get(mapping.itemIndex);
+                            if (item != null) {
+                                mapping.fieldInfo.setValue(item, decrypted);
+                            }
                         }
                     }
                 }
+                long chunkMatchTime = System.currentTimeMillis() - chunkMatchStart;
+                totalMatchTime += chunkMatchTime;
             }
-            long matchTime = System.currentTimeMillis() - matchStartTime;
             
+            long engineTime = totalEngineTime;
+            long matchTime = totalMatchTime;
             long totalTime = collectTime + engineTime + matchTime;
+            
             infoIfEnabled(decryptAnnotation.enableLogging(), 
-                "🔓 배치 복호화 완료: {}개 항목, {}개 필드 데이터 - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
-                itemList.size(), allDataList.size(), collectTime, engineTime, matchTime, totalTime);
+                "🔓 배치 복호화 완료: {}개 항목, {}개 필드 데이터 ({}개 청크) - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
+                itemList.size(), allDataList.size(), chunkCount, collectTime, engineTime, matchTime, totalTime);
                 
         } catch (Exception e) {
             log.error("❌ 배치 복호화 실패: {}", e.getMessage(), e);
@@ -1055,6 +1264,111 @@ public class EncryptionAspect {
     }
     
     /**
+     * Page 타입 복호화 처리
+     * 
+     * Page의 content를 추출하여 복호화한 후, 복호화된 content로 새로운 Page를 생성하여 반환합니다.
+     */
+    private Object processPageDecryption(Object pageObj, Decrypt decryptAnnotation) {
+        try {
+            // Page 인터페이스 메서드 호출을 위한 리플렉션
+            Method getContentMethod = pageObj.getClass().getMethod("getContent");
+            @SuppressWarnings("unchecked")
+            List<Object> content = (List<Object>) getContentMethod.invoke(pageObj);
+            
+            if (content == null || content.isEmpty()) {
+                return pageObj;
+            }
+            
+            // content 복호화
+            @SuppressWarnings("unchecked")
+            Collection<Object> collection = (Collection<Object>) content;
+            Collection<Object> decryptedContent = (Collection<Object>) processCollectionDecryption(collection, decryptAnnotation);
+            
+            // 복호화된 content로 새로운 Page 생성
+            // PageImpl 생성자를 사용하여 새로운 Page 인스턴스 생성
+            Class<?> pageImplClass = Class.forName("org.springframework.data.domain.PageImpl");
+            Class<?> pageableClass = Class.forName("org.springframework.data.domain.Pageable");
+            
+            // 원본 Page에서 Pageable과 total 추출
+            Method getPageableMethod = pageObj.getClass().getMethod("getPageable");
+            Method getTotalElementsMethod = pageObj.getClass().getMethod("getTotalElements");
+            
+            Object pageable = getPageableMethod.invoke(pageObj);
+            long totalElements = ((Number) getTotalElementsMethod.invoke(pageObj)).longValue();
+            
+            // PageImpl 생성자: List, Pageable, long
+            java.lang.reflect.Constructor<?> constructor = pageImplClass.getConstructor(
+                List.class, pageableClass, long.class
+            );
+            
+            Object decryptedPage = constructor.newInstance(decryptedContent, pageable, totalElements);
+            
+            log.info("✅ Page 복호화 완료: content size={}, total={}", 
+                    decryptedContent.size(), totalElements);
+            
+            return decryptedPage;
+            
+        } catch (Exception e) {
+            log.error("❌ Page 복호화 실패: {}", e.getMessage(), e);
+            // 실패 시 원본 반환
+            return pageObj;
+        }
+    }
+    
+    /**
+     * Slice 타입 복호화 처리
+     * 
+     * Slice의 content를 추출하여 복호화한 후, 복호화된 content로 새로운 Slice를 생성하여 반환합니다.
+     */
+    private Object processSliceDecryption(Object sliceObj, Decrypt decryptAnnotation) {
+        try {
+            // Slice 인터페이스 메서드 호출을 위한 리플렉션
+            Method getContentMethod = sliceObj.getClass().getMethod("getContent");
+            @SuppressWarnings("unchecked")
+            List<Object> content = (List<Object>) getContentMethod.invoke(sliceObj);
+            
+            if (content == null || content.isEmpty()) {
+                return sliceObj;
+            }
+            
+            // content 복호화
+            @SuppressWarnings("unchecked")
+            Collection<Object> collection = (Collection<Object>) content;
+            Collection<Object> decryptedContent = (Collection<Object>) processCollectionDecryption(collection, decryptAnnotation);
+            
+            // 복호화된 content로 새로운 Slice 생성
+            // PageImpl을 Slice로 사용 (Slice는 Page의 슈퍼 인터페이스)
+            Class<?> pageImplClass = Class.forName("org.springframework.data.domain.PageImpl");
+            Class<?> pageableClass = Class.forName("org.springframework.data.domain.Pageable");
+            
+            // 원본 Slice에서 Pageable 추출
+            Method getPageableMethod = sliceObj.getClass().getMethod("getPageable");
+            Method hasNextMethod = sliceObj.getClass().getMethod("hasNext");
+            
+            Object pageable = getPageableMethod.invoke(sliceObj);
+            boolean hasNext = (Boolean) hasNextMethod.invoke(sliceObj);
+            
+            // PageImpl 생성자: List, Pageable, long (hasNext를 고려하여 total 계산)
+            long totalElements = hasNext ? (decryptedContent.size() + 1) : decryptedContent.size();
+            java.lang.reflect.Constructor<?> constructor = pageImplClass.getConstructor(
+                List.class, pageableClass, long.class
+            );
+            
+            Object decryptedSlice = constructor.newInstance(decryptedContent, pageable, totalElements);
+            
+            log.info("✅ Slice 복호화 완료: content size={}, hasNext={}", 
+                    decryptedContent.size(), hasNext);
+            
+            return decryptedSlice;
+            
+        } catch (Exception e) {
+            log.error("❌ Slice 복호화 실패: {}", e.getMessage(), e);
+            // 실패 시 원본 반환
+            return sliceObj;
+        }
+    }
+    
+    /**
      * 필드 매핑 정보 (배치 복호화용)
      */
     private static class FieldMapping {
@@ -1066,6 +1380,98 @@ public class EncryptionAspect {
             this.itemIndex = itemIndex;
             this.fieldInfo = fieldInfo;
             this.dataIndex = dataIndex;
+        }
+    }
+    
+    /**
+     * Stream 타입인지 확인
+     * 
+     * @param returnType 반환 타입
+     * @return Stream 타입이면 true
+     */
+    private boolean isStreamType(Class<?> returnType) {
+        try {
+            Class<?> streamClass = Class.forName("java.util.stream.Stream");
+            return streamClass.isAssignableFrom(returnType);
+        } catch (ClassNotFoundException e) {
+            // Java 8+ 환경에서는 Stream이 항상 존재하지만, 안전을 위해 예외 처리
+            return false;
+        }
+    }
+    
+    /**
+     * Stream<T> 반환 타입 복호화 처리
+     * 
+     * Stream을 List로 수집 → 복호화 → 다시 Stream으로 변환
+     * 
+     * 주의: Stream은 한 번만 소비 가능하므로, AOP에서 collect()하는 순간 이미 소비됨.
+     * 반환되는 Stream은 in-memory Stream이며, JPA의 lazy-stream이 아님.
+     * 대량 데이터 조회 시 메모리 사용량이 증가할 수 있음.
+     * 
+     * @param result 원본 Stream
+     * @param decryptAnnotation @Decrypt 어노테이션
+     * @return 복호화된 Stream
+     */
+    @SuppressWarnings("unchecked")
+    private Object handleStreamDecryption(Object result, Decrypt decryptAnnotation) {
+        try {
+            java.util.stream.Stream<Object> stream = (java.util.stream.Stream<Object>) result;
+            
+            // Stream 전체를 리스트로 수집 (한 번만 소비 가능하므로 먼저 수집)
+            List<Object> list = stream.collect(Collectors.toList());
+            
+            if (list.isEmpty()) {
+                return java.util.stream.Stream.empty();
+            }
+            
+            // 기존 Collection 배치 복호화 로직 재사용
+            Collection<Object> decryptedList = 
+                    (Collection<Object>) processCollectionDecryption(list, decryptAnnotation);
+            
+            // 복호화된 List를 다시 Stream으로 반환 (in-memory Stream)
+            infoIfEnabled(decryptAnnotation.enableLogging(), 
+                "✅ Stream 복호화 완료: {}개 항목 (in-memory Stream으로 변환)", 
+                decryptedList.size());
+            
+            return decryptedList.stream();
+            
+        } catch (Exception e) {
+            log.error("❌ Stream 복호화 실패: {}", e.getMessage(), e);
+            // 실패 시 원본 반환 (이미 소비된 Stream이므로 빈 Stream 반환)
+            return java.util.stream.Stream.empty();
+        }
+    }
+    
+    /**
+     * @Query(nativeQuery) 어노테이션 감지
+     * 
+     * 로깅/모니터링용으로만 사용하며, 복호화는 건너뛰지 않음.
+     * nativeQuery든 JPQL이든 반환값 처리 방식은 동일함.
+     * 
+     * @param method 메서드
+     * @return nativeQuery이면 true
+     */
+    private boolean detectNativeQuery(Method method) {
+        try {
+            // Spring Data JPA의 @Query 어노테이션 확인
+            Class<?> queryClass = Class.forName("org.springframework.data.jpa.repository.Query");
+            Annotation queryAnnotation = method.getAnnotation((Class<? extends Annotation>) queryClass);
+            
+            if (queryAnnotation == null) {
+                return false;
+            }
+            
+            // nativeQuery 속성 확인
+            Method nativeQueryMethod = queryClass.getMethod("nativeQuery");
+            return (Boolean) nativeQueryMethod.invoke(queryAnnotation);
+            
+        } catch (ClassNotFoundException e) {
+            // Spring Data JPA가 없는 환경 (드물지만 안전을 위해)
+            return false;
+        } catch (NoSuchMethodException | java.lang.reflect.InvocationTargetException | IllegalAccessException e) {
+            // @Query 어노테이션이 있지만 nativeQuery 속성을 확인할 수 없는 경우
+            debugIfEnabled(true, "⚠️ @Query 어노테이션 확인 실패: {}", e.getMessage());
+            return false;
         }
     }
 }

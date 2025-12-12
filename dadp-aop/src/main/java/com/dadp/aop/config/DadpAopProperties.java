@@ -52,9 +52,32 @@ public class DadpAopProperties {
         private boolean enableLogging = true;
         
         /**
+         * 배치 처리 최소 크기 임계값
+         * 이 값보다 작으면 개별 처리로 폴백 (배치 오버헤드가 더 큼)
+         * 환경변수: DADP_AOP_BATCH_MIN_SIZE
+         * 기본값: 100 (100개 필드 데이터 이상일 때만 배치 처리)
+         * 
+         * 실측 결과:
+         * - 60개 필드 데이터: 배치 처리(1.3초) > 개별 처리(0.44초)
+         * - 100개 필드 데이터 이상: 배치 처리 이점 발생 예상
+         */
+        private int batchMinSize = 100;
+        
+        /**
+         * 배치 처리 최대 크기 제한
+         * 한 번에 처리할 수 있는 최대 필드 데이터 개수
+         * 초과 시 청크 단위로 나누어 처리
+         * 환경변수: DADP_AOP_BATCH_MAX_SIZE
+         * 기본값: 10000 (10,000개 필드 데이터)
+         */
+        private int batchMaxSize = 10000;
+        
+        /**
          * 배치 처리 임계값 (이 값보다 작으면 개별 처리)
          * 기본값: 10000 (10000건 이상일 때만 배치 처리)
+         * @deprecated batchMinSize와 batchMaxSize로 대체됨
          */
+        @Deprecated
         private int batchThreshold = 10000;
         
         // Getters and Setters
@@ -118,10 +141,48 @@ public class DadpAopProperties {
             this.enableLogging = enableLogging;
         }
         
+        public int getBatchMinSize() {
+            // 환경 변수 DADP_AOP_BATCH_MIN_SIZE 우선 사용
+            String envMinSize = System.getenv("DADP_AOP_BATCH_MIN_SIZE");
+            if (envMinSize != null && !envMinSize.trim().isEmpty()) {
+                try {
+                    return Integer.parseInt(envMinSize.trim());
+                } catch (NumberFormatException e) {
+                    // 파싱 실패 시 기본값 사용
+                }
+            }
+            // 설정 파일에서 읽은 값 사용
+            return batchMinSize;
+        }
+        
+        public void setBatchMinSize(int batchMinSize) {
+            this.batchMinSize = batchMinSize;
+        }
+        
+        public int getBatchMaxSize() {
+            // 환경 변수 DADP_AOP_BATCH_MAX_SIZE 우선 사용
+            String envMaxSize = System.getenv("DADP_AOP_BATCH_MAX_SIZE");
+            if (envMaxSize != null && !envMaxSize.trim().isEmpty()) {
+                try {
+                    return Integer.parseInt(envMaxSize.trim());
+                } catch (NumberFormatException e) {
+                    // 파싱 실패 시 기본값 사용
+                }
+            }
+            // 설정 파일에서 읽은 값 사용
+            return batchMaxSize;
+        }
+        
+        public void setBatchMaxSize(int batchMaxSize) {
+            this.batchMaxSize = batchMaxSize;
+        }
+        
+        @Deprecated
         public int getBatchThreshold() {
             return batchThreshold;
         }
         
+        @Deprecated
         public void setBatchThreshold(int batchThreshold) {
             this.batchThreshold = batchThreshold;
         }
