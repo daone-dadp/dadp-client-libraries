@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.3.1] - 2025-12-24 (배포 전)
+
+### 🔄 Changed
+
+- **Engine URL 관리 방식 변경**: Hub에서 자동 조회 방식 제거, 환경변수 직접 지정 방식으로 변경
+  - **이전**: `DADP_CRYPTO_BASE_URL`이 없으면 `DADP_HUB_BASE_URL`을 통해 Hub에서 엔진 URL 자동 조회
+  - **현재**: `DADP_CRYPTO_BASE_URL` 환경변수로 직접 지정 (필수)
+  - **이유**: Wrapper와 동일하게 내부망/외부망/도커 환경에서 유연하게 관리 가능하도록 개선
+  - `DadpAopProperties.getEngineBaseUrl()`: Hub 조회 로직 제거
+  - `HubCryptoConfig.hubCryptoService()`: Hub 조회 로직 제거
+
+### ✨ Added
+
+- **환경변수 직접 관리 지원**: `DADP_CRYPTO_BASE_URL` 환경변수로 Engine URL 직접 지정
+  - 내부망, 외부망, 도커 네트워크 등 다양한 환경에서 IP/호스트명 직접 지정 가능
+  - Hub 의존성 없이 독립적으로 동작 가능
+
+### 🗑️ Removed
+
+- **Hub 엔드포인트 자동 조회 기능 제거**: `HubEndpointSyncService`를 통한 Hub에서 엔진 URL 조회 기능 제거
+  - `DADP_AOP_INSTANCE_ID` 환경변수: Engine URL 조회용으로는 더 이상 사용되지 않음 (알림 기능에는 여전히 사용 가능)
+
+### Compatibility
+
+- Product Version: `5.3.1`
+- Hub 최소 버전: `3.17.1` (알림 기능용, 선택)
+- Engine 최소 버전: `5` (Root POM 버전과 동기화, 필수)
+- Java 최소 버전: `Java 17` (변경 없음)
+- Breaking Changes: **Yes** (환경변수 필수 설정 필요)
+  - ⚠️ **마이그레이션 필수**: `DADP_CRYPTO_BASE_URL` 환경변수 반드시 설정 필요
+
+---
+
+## [5.3.0] - 2025-12-19 (배포 전)
+
+### 🔄 Changed
+
+- **버전 체계 전환**: 3.17.1 → 5.3.0
+  - A=5: Root POM 버전과 동기화
+  - B=3: Java 17 최소 요구사항 (매핑 ID)
+  - C=0: 새 체계 시작
+- **기능 및 호환성**: 변경 없음 (버전 번호만 변경)
+
+### Compatibility
+
+- Product Version: `5.3.0`
+- Hub 최소 버전: `3.17.1` (변경 없음)
+- Engine 최소 버전: `5` (Root POM 버전과 동기화)
+- Java 최소 버전: `Java 17` (변경 없음)
+- Breaking Changes: **No**
+
+---
+
 ## [3.17.1] - 2025-12-12 (배포 전)
 
 ### 🎉 릴리즈 정보

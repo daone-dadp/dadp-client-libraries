@@ -8,12 +8,16 @@ import org.springframework.web.client.RestTemplate;
 /**
  * 암복호화 라이브러리 설정
  * 
- * 환경 변수만 사용 (Wrapper와 동일):
- * - DADP_CRYPTO_BASE_URL: 암복호화 URL (엔진 또는 Gateway)
- * - API 경로는 항상 /api 사용
+ * 환경 변수 사용:
+ * - DADP_CRYPTO_BASE_URL: 암복호화 URL 직접 지정 (필수, Engine URL)
+ * - API 경로는 자동 감지 (/hub/api/v1 또는 /api)
+ * 
+ * 동작 방식:
+ * 1. DADP_CRYPTO_BASE_URL 환경변수 확인
+ * 2. 없으면 기본값 사용 (http://localhost:9003)
  * 
  * @author DADP Development Team
- * @version 1.0.0
+ * @version 1.2.0
  * @since 2025-01-01
  */
 @Configuration
@@ -21,22 +25,29 @@ public class HubCryptoConfig {
     
     /**
      * 자동 설정된 HubCryptoService Bean 생성
-     * 환경 변수 DADP_CRYPTO_BASE_URL만 사용 (Wrapper와 동일)
+     * DADP_CRYPTO_BASE_URL 환경변수로 Engine URL을 직접 지정합니다.
      */
     @Bean
     @ConditionalOnMissingBean
     public HubCryptoService hubCryptoService() {
-        // 환경 변수 DADP_CRYPTO_BASE_URL만 사용 (암복호화 URL)
+        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(HubCryptoConfig.class);
+        
+        // 1. DADP_CRYPTO_BASE_URL 환경변수 확인 (직접 지정)
         String cryptoUrl = System.getenv("DADP_CRYPTO_BASE_URL");
+        
+        // 2. 없으면 기본값 사용
         if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
             cryptoUrl = "http://localhost:9003";  // 기본값: 엔진
+            log.warn("⚠️ DADP_CRYPTO_BASE_URL이 설정되지 않아 기본값 사용: {}", cryptoUrl);
+        } else {
+            cryptoUrl = cryptoUrl.trim();
+            log.info("✅ DADP_CRYPTO_BASE_URL 사용: {}", cryptoUrl);
         }
         
-        // API 경로는 항상 /api 사용 (엔진/Gateway 모두 동일)
-        String apiPath = "/api";
+        // API 경로는 HubCryptoService가 자동으로 감지 (null 전달)
+        String apiPath = null;
         
-        org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(HubCryptoConfig.class);
-        log.info("🔔 HubCryptoService 생성: cryptoUrl={}, apiPath={}", cryptoUrl, apiPath);
+        log.info("🔔 HubCryptoService 생성: cryptoUrl={}, apiPath={} (자동 감지)", cryptoUrl, apiPath);
         
         return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, true);
     }

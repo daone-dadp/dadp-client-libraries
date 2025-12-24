@@ -279,8 +279,8 @@ public class HubCryptoService {
         initializeIfNeeded();
         
         if (enableLogging) {
-            log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}, includeStats={}", 
-                    data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy, includeStats);
+            log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}", 
+                    data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy);
         }
         
         try {
@@ -289,7 +289,7 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policy);
-            request.setIncludeStats(includeStats);
+            // includeStats는 엔진에서 제거되었으므로 전달하지 않음
             
             String requestBody;
             try {
@@ -445,9 +445,9 @@ public class HubCryptoService {
         initializeIfNeeded();
         
         if (enableLogging) {
-            log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}, includeStats={}", 
+            log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}", 
                     encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
-                    maskPolicyName, maskPolicyUid, includeStats);
+                    maskPolicyName, maskPolicyUid);
         }
         
         try {
@@ -457,7 +457,7 @@ public class HubCryptoService {
             request.setEncryptedData(encryptedData);
             request.setMaskPolicyName(maskPolicyName);
             request.setMaskPolicyUid(maskPolicyUid);
-            request.setIncludeStats(includeStats);
+            // includeStats는 엔진에서 제거되었으므로 전달하지 않음
             
             String requestBody;
             try {
@@ -662,8 +662,8 @@ public class HubCryptoService {
         }
         
         if (enableLogging) {
-            log.info("🔓 Hub 배치 복호화 요청 시작: itemsCount={}, maskPolicyName={}, maskPolicyUid={}, includeStats={}", 
-                    encryptedDataList.size(), maskPolicyName, maskPolicyUid, includeStats);
+            log.info("🔓 Hub 배치 복호화 요청 시작: itemsCount={}, maskPolicyName={}, maskPolicyUid={}", 
+                    encryptedDataList.size(), maskPolicyName, maskPolicyUid);
         }
         
         try {
@@ -687,7 +687,7 @@ public class HubCryptoService {
             }
             
             batchRequest.put("items", items);
-            batchRequest.put("includeStats", includeStats);
+            // includeStats는 엔진에서 제거되었으므로 전달하지 않음
             
             String requestBody;
             try {

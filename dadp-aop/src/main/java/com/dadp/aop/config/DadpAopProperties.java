@@ -82,16 +82,18 @@ public class DadpAopProperties {
         
         // Getters and Setters
         public String getEngineBaseUrl() {
-            // 환경 변수 DADP_CRYPTO_BASE_URL 우선 사용 (암복호화용)
+            // 1. DADP_CRYPTO_BASE_URL 환경변수 확인 (직접 지정)
             String envCryptoUrl = System.getenv("DADP_CRYPTO_BASE_URL");
             if (envCryptoUrl != null && !envCryptoUrl.trim().isEmpty()) {
-                return envCryptoUrl;
+                return envCryptoUrl.trim();
             }
-            // 설정 파일에서 읽은 값 사용
+            
+            // 2. 설정 파일에서 읽은 값 사용
             if (engineBaseUrl != null && !engineBaseUrl.trim().isEmpty()) {
                 return engineBaseUrl;
             }
-            // 기본값 (Engine 직접 연결)
+            
+            // 3. 기본값 (Engine 직접 연결)
             return "http://localhost:9003";
         }
         

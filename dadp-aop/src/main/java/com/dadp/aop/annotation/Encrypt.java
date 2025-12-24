@@ -49,8 +49,9 @@ public @interface Encrypt {
     boolean enableLogging() default true;
     
     /**
-     * 통계 정보 수집 여부
-     * true일 경우 엔진 응답에 상세 통계 정보가 포함됩니다.
+     * 상세 로그 출력 여부 (AOP 레벨)
+     * true일 경우 AOP에서 암복호화 수행 및 결과에 대한 상세 로그를 출력합니다.
+     * 엔진 통계 수집과는 무관하며, AOP 자체의 로깅 기능입니다.
      * 기본값: false
      */
     boolean includeStats() default false;

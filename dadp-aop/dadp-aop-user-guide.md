@@ -301,9 +301,27 @@ hub:
 
 프로덕션 환경에서는 환경 변수를 사용합니다:
 
+#### 필수 환경 변수
+
 ```bash
+# Hub URL (필수, 알림용 + 암복호화 URL 자동 조회용)
 export DADP_HUB_BASE_URL=http://your-hub-server:9004
 ```
+
+#### 선택적 환경 변수
+
+```bash
+# 암복호화 URL 직접 지정 (선택, 없으면 Hub에서 자동 조회)
+export DADP_CRYPTO_BASE_URL=http://your-gateway:9003
+
+# AOP 인스턴스 ID (선택, Hub 엔드포인트 조회 시 사용)
+export DADP_AOP_INSTANCE_ID=my-app-aop-1
+```
+
+**동작 방식:**
+1. `DADP_CRYPTO_BASE_URL`이 있으면 직접 사용
+2. 없으면 `DADP_HUB_BASE_URL`을 사용하여 Hub에서 엔드포인트 정보 자동 조회
+3. 조회 실패 시 기본값 사용 (`http://localhost:9003`)
 
 ```properties
 # application.properties에서 환경 변수 참조
@@ -346,12 +364,28 @@ export DADP_AOP_DISABLE_BATCH=false
 
 다음 정보를 DADP 운영팀으로부터 제공받아야 합니다:
 
-- **Hub 서버 URL**: 예) `http://your-hub-server:9004`
-- **Hub API 경로**: `/hub/api/v1/encrypt`, `/hub/api/v1/decrypt`
-- **인증 토큰** (필요시)
+- **Hub 서버 URL**: 예) `http://your-hub-server:9004` (필수)
+- **암복호화 URL**: 예) `http://your-gateway:9003` (선택, 없으면 Hub에서 자동 조회)
+- **AOP 인스턴스 ID**: 예) `my-app-aop-1` (선택, Hub 엔드포인트 조회 시 사용)
 - **암호화 정책명**: 예) `dadp`
 
-### 2. 네트워크 연결 확인
+### 2. 환경 변수 설정
+
+**필수:**
+```bash
+export DADP_HUB_BASE_URL=http://your-hub-server:9004
+```
+
+**선택:**
+```bash
+# 암복호화 URL 직접 지정 (없으면 Hub에서 자동 조회)
+export DADP_CRYPTO_BASE_URL=http://your-gateway:9003
+
+# AOP 인스턴스 ID (Hub 엔드포인트 조회 시 사용)
+export DADP_AOP_INSTANCE_ID=my-app-aop-1
+```
+
+### 3. 네트워크 연결 확인
 
 ```bash
 # Hub 서버 연결 확인
@@ -361,7 +395,7 @@ curl http://your-hub-server:9004/hub/actuator/health
 {"status":"UP"}
 ```
 
-### 3. 암호화 정책 확인
+### 4. 암호화 정책 확인
 
 Hub에서 사용할 암호화 정책을 확인합니다:
 

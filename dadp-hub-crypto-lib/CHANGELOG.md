@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-12-19 (배포 전)
+
+### 🔄 Changed
+
+- **버전 업데이트**: 1.1.0 → 1.2.0
+  - Patch 버전 증가 (일반 SemVer)
+- **기능 및 호환성**: 변경 없음 (버전 번호만 변경)
+
+---
+
 ## [1.1.0] - 2025-11-26
 
 ### Added

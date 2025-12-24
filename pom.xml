@@ -7,7 +7,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-client-libraries</artifactId>
-    <version>3.17.0</version>
+    <version>5.3.0</version>
     <packaging>pom</packaging>
 
     <name>DADP Client Libraries</name>
@@ -56,6 +56,8 @@
         <spring-boot.version>3.2.12</spring-boot.version>
         <jackson.version>2.16.1</jackson.version>
         <gpg.skip>true</gpg.skip>
+        <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
+        <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 
     <modules>
@@ -82,7 +84,7 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>1.0.1</version>
+                <version>1.2.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
@@ -95,38 +97,20 @@
     <build>
         <plugins>
             <!-- Central Publishing 플러그인 (공식 문서 기준) -->
+            <!-- 당분간 Maven 배포 비활성화 -->
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
                 <version>0.7.0</version>
                 <extensions>true</extensions>
                 <configuration>
+                    <skip>true</skip>
                     <publishingServerId>central</publishingServerId>
                     <autoPublish>false</autoPublish>
                     <waitUntil>validated</waitUntil>
                 </configuration>
             </plugin>
             
-            <!-- GPG 서명 플러그인 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>3.0.1</version>
-                <configuration>
-                    <useAgent>false</useAgent>
-                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
-                    <skip>${gpg.skip}</skip>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
         </plugins>
         
         <pluginManagement>

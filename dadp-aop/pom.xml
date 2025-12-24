@@ -6,13 +6,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>3.17.0</version>
+        <version>5.3.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-aop</artifactId>
-    <version>3.17.0</version>
+    <version>5.3.0</version>
     <packaging>jar</packaging>
     
     <name>DADP AOP</name>
@@ -76,7 +76,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>1.1.0</version>
+            <version>1.2.0</version>
         </dependency>
         
         <!-- JPA (Optional - 엔티티 detach를 위해 필요) -->
@@ -168,21 +168,9 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
-                <version>3.0.1</version>
                 <configuration>
-                    <useAgent>false</useAgent>
-                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
-                    <skip>${gpg.skip}</skip>
+                    <skip>true</skip>
                 </configuration>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>
