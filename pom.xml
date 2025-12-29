@@ -58,6 +58,8 @@
         <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- GPG 실행을 위한 기본값 (자식 모듈에서 오버라이드 가능) -->
+        <gpg.executable>gpg</gpg.executable>
     </properties>
 
     <modules>
@@ -89,7 +91,7 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-aop</artifactId>
-                <version>3.17.0</version>
+                <version>5.3.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

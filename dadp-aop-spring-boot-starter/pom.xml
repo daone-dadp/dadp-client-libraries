@@ -39,12 +39,19 @@
         <url>https://github.com/daone-dadp/dadp-client-libraries</url>
     </scm>
 
+    <properties>
+        <!-- GPG 서명 비활성화 (당분간 정식 배포 전까지) -->
+        <gpg.skip>true</gpg.skip>
+        <!-- Maven 배포 비활성화 (당분간 정식 배포 전까지) -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
     <dependencies>
         <!-- DADP AOP Core -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-aop</artifactId>
-            <version>3.17.1</version>
+            <version>5.3.0</version>
         </dependency>
         
         <!-- Spring Boot Starter -->

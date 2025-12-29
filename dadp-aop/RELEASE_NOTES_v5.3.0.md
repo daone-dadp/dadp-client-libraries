@@ -3,10 +3,12 @@
 ## 🎉 릴리즈 정보
 
 **버전**: 5.3.0  
-**릴리즈 일자**: 2025-12-19  
-**배포 상태**: ⚠️ **개발 완료, Maven Central 미배포** (배포 전)  
+**릴리즈 일자**: 2025-12-29  
+**배포 일자**: 2025-12-29  
+**배포 상태**: ✅ **Maven Central 배포 완료**  
+**Deployment ID**: `2f9f91f6-3ecc-4b33-82bf-c6d971500abb`  
 **Java 버전**: **Java 17 이상** (권장)  
-**주요 개선사항**: 버전 체계 전환 (기능 변경 없음)
+**주요 개선사항**: 버전 체계 전환, Engine URL 환경변수 직접 관리 지원, Collection 복호화 시 평문 저장 문제 해결
 
 ---
 
@@ -44,19 +46,52 @@
   - A 값 변경: 3 → 5 (Root POM 버전과 동기화)
   - B 값 변경: 17 → 3 (Java 17 매핑 ID로 변경)
   - C 값 초기화: 0 (새 체계 시작)
-- **기능 및 호환성**: 변경 없음 (버전 번호만 변경)
+- **Engine URL 관리 방식 변경**: Hub에서 자동 조회 방식 제거, 환경변수 직접 지정 방식으로 변경
+  - **이전**: `DADP_CRYPTO_BASE_URL`이 없으면 `DADP_HUB_BASE_URL`을 통해 Hub에서 엔진 URL 자동 조회
+  - **현재**: `DADP_CRYPTO_BASE_URL` 환경변수로 직접 지정 (필수)
+  - **이유**: Wrapper와 동일하게 내부망/외부망/도커 환경에서 유연하게 관리 가능하도록 개선
+
+### ✨ New Features
+
+- **환경변수 직접 관리 지원**: `DADP_CRYPTO_BASE_URL` 환경변수로 Engine URL 직접 지정
+  - 내부망, 외부망, 도커 네트워크 등 다양한 환경에서 IP/호스트명 직접 지정 가능
+  - Hub 의존성 없이 독립적으로 동작 가능
+
+### 🗑️ Removed
+
+- **Hub 엔드포인트 자동 조회 기능 제거**: `HubEndpointSyncService`를 통한 Hub에서 엔진 URL 조회 기능 제거
+  - `DadpAopProperties.getEngineBaseUrl()`: Hub 조회 로직 제거
+  - `HubCryptoConfig.hubCryptoService()`: Hub 조회 로직 제거
+  - `DADP_AOP_INSTANCE_ID` 환경변수: Engine URL 조회용으로는 더 이상 사용되지 않음 (알림 기능에는 여전히 사용 가능)
 
 ---
 
 ## 🔧 변경된 API
 
-(변경 없음)
+### 환경변수 우선순위 변경
+
+**이전 (v3.17.1)**:
+1. `DADP_CRYPTO_BASE_URL` 환경변수 확인
+2. 없으면 `DADP_HUB_BASE_URL` + `DADP_AOP_INSTANCE_ID`로 Hub에서 엔진 URL 자동 조회
+3. 조회 실패 시 설정 파일 값 사용
+4. 기본값: `http://localhost:9003`
+
+**현재 (v5.3.0)**:
+1. `DADP_CRYPTO_BASE_URL` 환경변수 확인 (필수)
+2. 없으면 설정 파일 값 사용
+3. 기본값: `http://localhost:9003`
+
+### 제거된 환경변수 의존성
+
+- `DADP_HUB_BASE_URL`: Engine URL 조회용으로는 더 이상 사용되지 않음 (알림 기능에는 여전히 사용)
+- `DADP_AOP_INSTANCE_ID`: Engine URL 조회용으로는 더 이상 사용되지 않음 (알림 기능에는 여전히 사용)
 
 ---
 
 ## 📊 성능 개선
 
-(변경 없음)
+- **초기화 시간 단축**: Hub 엔드포인트 조회 API 호출 제거로 애플리케이션 시작 시간 단축
+- **의존성 감소**: Hub 서비스와의 네트워크 의존성 제거로 더 안정적인 동작
 
 ---
 
@@ -64,9 +99,43 @@
 
 ### 3.17.1 → 5.3.0
 
-**기존 코드는 변경 불필요**:
-- 기존 코드 그대로 사용 가능
-- 의존성 버전만 업데이트
+**필수 변경사항**:
+
+1. **환경변수 추가**: `DADP_CRYPTO_BASE_URL` 환경변수를 반드시 설정해야 합니다.
+
+**이전 설정 (v3.17.1)**:
+```yaml
+# docker-compose.yml 또는 환경변수
+DADP_HUB_BASE_URL: http://dadp-hub:9004
+DADP_AOP_INSTANCE_ID: test-app-aop-1
+# DADP_CRYPTO_BASE_URL은 선택사항 (Hub에서 자동 조회)
+```
+
+**현재 설정 (v5.3.0)**:
+```yaml
+# docker-compose.yml 또는 환경변수
+DADP_HUB_BASE_URL: http://dadp-hub:9004  # 알림 기능용 (선택)
+DADP_CRYPTO_BASE_URL: http://dadp-engine:9003  # 필수: Engine URL 직접 지정
+DADP_AOP_INSTANCE_ID: test-app-aop-1  # 알림 기능용 (선택)
+```
+
+**설정 예시**:
+
+```yaml
+# 로컬 개발 환경 (Docker 네트워크)
+DADP_CRYPTO_BASE_URL: http://dadp-engine:9003
+
+# 내부망 환경 (IP 직접 지정)
+DADP_CRYPTO_BASE_URL: http://192.168.1.100:9003
+
+# 외부망 환경 (외부 IP 또는 도메인)
+DADP_CRYPTO_BASE_URL: http://engine.example.com:9003
+
+# HTTPS 환경
+DADP_CRYPTO_BASE_URL: https://engine.example.com:9003
+```
+
+**코드 변경**: 불필요 (환경변수만 추가)
 
 **의존성 업데이트**:
 ```xml
@@ -77,9 +146,73 @@
 </dependency>
 ```
 
-**호환성**: 완전 호환 (설정 변경 및 코드 변경 불필요)
+**호환성**: 
+- ✅ **하위 호환**: 기존 코드는 변경 불필요
+- ⚠️ **환경변수 필수**: `DADP_CRYPTO_BASE_URL` 환경변수 설정 필수
 
 ---
+
+## 🐛 버그 수정
+
+### Collection 복호화 시 평문 저장 문제 해결 (2025-12-29)
+
+**문제**: 
+- Collection을 복호화할 때(`findAll()`, `findBy*()` 등) 복호화 후 필드 값이 평문으로 변경되어, 나중에 엔티티가 저장될 때 평문이 DB에 저장되는 문제가 있었습니다.
+- 특히 새로고침(전체 조회) 시 복호화 후 평문이 저장되는 현상이 발생했습니다.
+
+**원인**: 
+- `processCollectionDecryption()` 메서드에서 복호화 후 필드 값을 평문으로 설정하지만, 엔티티를 detach하지 않아 Hibernate가 변경사항을 추적하고 있었습니다.
+- `handleResultForReadOnly()`에서 Collection 내부 엔티티를 detach하지만, `processCollectionDecryption()` 내부에서 필드 값을 변경할 때 엔티티가 다시 persistence context에 포함될 수 있었습니다.
+- readOnly/detach 처리는 Hibernate의 변경 추적을 막지만, 실제 필드 값은 평문으로 변경되어 있었습니다.
+
+**해결**:
+- `processCollectionDecryption()` 메서드 시작 부분에 모든 엔티티를 detach하는 로직 추가
+- 복호화 전에 Collection 내부의 모든 JPA 엔티티를 `EntityManager.detach()`로 분리하여 Hibernate 변경 추적 차단
+- 복호화로 인한 필드 변경이 Hibernate의 dirty 체크를 트리거하지 않도록 처리
+- 로그 레벨을 INFO로 변경하여 detach 완료 로그 확인 가능
+
+**영향**:
+- ✅ `findAll()`, `findBy*()` 등 Collection 반환 메서드에서 복호화 후 저장 시 평문이 저장되지 않음
+- ✅ 새로고침(전체 조회) 시에도 평문이 저장되지 않음
+- ✅ 기존 코드 변경 불필요 (자동으로 적용)
+
+**예시**:
+```java
+// 이전: 복호화 후 필드가 평문으로 변경되어 저장 시 평문이 저장됨
+List<User> users = userRepository.findAll(); // 복호화
+// 나중에 엔티티가 저장될 때 ❌ 평문이 저장됨
+
+// 현재: 복호화 전에 엔티티를 detach하여 변경 추적 차단
+List<User> users = userRepository.findAll(); // 복호화 (내부적으로 detach 처리)
+// 나중에 엔티티가 저장될 때 ✅ 원본 암호화 값이 유지됨
+```
+
+**기술적 세부사항**:
+- `processCollectionDecryption()` 메서드에서 Collection을 List로 변환한 직후, 복호화 전에 모든 엔티티를 detach
+- `EntityManager.detach()`를 사용하여 엔티티를 persistence context에서 분리
+- detach된 엔티티는 복호화 후에도 dirty로 마킹되지 않아 read-only 조회에서 UPDATE 방지
+
+### 로그 출력 정책 개선 (2025-12-29)
+
+**변경사항**:
+- `@Encrypt(enableLogging = true)` 또는 `@Decrypt(enableLogging = true)`일 때만 AOP 내부 로그 출력
+- ERROR 로그는 무조건 출력 (예외처리되지 못한 예기치 못한 에러만 ERROR 레벨)
+- 모든 INFO/DEBUG/WARN 로그가 `enableLogging` 플래그를 확인하도록 수정
+
+**수정된 로그**:
+- 트리거 확인 로그: `infoIfEnabled()` 사용
+- processDecryption/processCollectionDecryption 로그: `infoIfEnabled()` 사용
+- 배치 처리 로그: `infoIfEnabled()` / `debugIfEnabled()` 사용
+- 통계 로그: `includeStats()`와 함께 `enableLogging()` 체크 추가
+- 경고 로그: `warnIfEnabled()` 사용
+
+**유지된 로그**:
+- `log.error()`: ERROR 로그는 무조건 출력 (로그 정책 준수)
+
+**영향**:
+- ✅ `enableLogging = false`일 때 불필요한 로그 출력 방지
+- ✅ 로그 정책 문서(`docs/guidelines/logging-policy.md`) 준수
+- ✅ 기존 코드 변경 불필요 (어노테이션 설정만으로 제어 가능)
 
 ## 🐛 알려진 이슈
 
@@ -107,7 +240,7 @@
 
 ### 의존성
 
-- **dadp-hub-crypto-lib**: 1.1.0 (자동 포함)
+- **dadp-hub-crypto-lib**: 1.2.0 (자동 포함)
 - **Spring Boot**: 3.2.12
 - **Spring AOP**: Spring Boot에 포함
 - **AspectJ**: Spring Boot에 포함
@@ -116,8 +249,8 @@
 
 | 컴포넌트 | 최소 버전 | 권장 버전 |
 |----------|----------|----------|
-| **Hub** | 3.17.1 | 3.17.1+ |
-| **Engine** | 5 | 5+ (Root POM 버전과 동기화) |
+| **Hub** | 3.17.1 | 3.17.1+ (알림 기능용, 선택) |
+| **Engine** | 5 | 5+ (Root POM 버전과 동기화, 필수) |
 
 ---
 
@@ -131,18 +264,41 @@
 
 ## 📝 참고사항
 
-### 개발 상태
+### 배포 상태
 
-이 버전은 **개발 중**이며, 아직 Maven Central에 배포되지 않았습니다.
+이 버전은 **Maven Central에 배포 완료**되었습니다.
 
-### 배포 예정
+### 배포 정보
 
-- 배포 일정: (미정)
-- 배포 전 체크리스트:
-  - [ ] 빌드 테스트 완료
-  - [ ] 로컬 테스트 완료
-  - [ ] Java 17 환경 테스트 완료
-  - [ ] 문서 업데이트 완료
+- **배포 일자**: 2025-12-29
+- **Deployment ID**: `2f9f91f6-3ecc-4b33-82bf-c6d971500abb`
+- **배포 상태**: Validated (수동 Publish 완료)
+- **Maven Central URL**: https://central.sonatype.com/publishing/deployments
+- **배포 체크리스트**:
+  - [x] 빌드 테스트 완료
+  - [x] 로컬 테스트 완료
+  - [x] Java 17 환경 테스트 완료
+  - [x] 문서 업데이트 완료
+  - [x] GPG 서명 완료
+  - [x] Maven Central 배포 완료
+  - [x] 배포 검증 완료
+
+### 주요 변경 이유
+
+이번 변경은 **Wrapper와의 일관성** 및 **유연한 환경 관리**를 위해 수행되었습니다:
+
+1. **Wrapper와의 일관성**: Wrapper는 이미 `DADP_HUB_BASE_URL`로 Hub URL을 직접 지정하므로, AOP도 동일하게 Engine URL을 직접 지정하도록 변경
+2. **환경 유연성**: 내부망, 외부망, 도커 네트워크 등 다양한 환경에서 IP/호스트명을 직접 지정하여 유연하게 관리 가능
+3. **의존성 감소**: Hub 서비스와의 네트워크 의존성 제거로 더 안정적인 동작
+
+### 환경변수 설정 가이드
+
+**필수 환경변수**:
+- `DADP_CRYPTO_BASE_URL`: Engine URL (예: `http://dadp-engine:9003`)
+
+**선택 환경변수**:
+- `DADP_HUB_BASE_URL`: Hub URL (알림 기능 사용 시)
+- `DADP_AOP_INSTANCE_ID`: AOP 인스턴스 ID (알림 기능 사용 시)
 
 ### 버전 선택 가이드
 
@@ -165,7 +321,8 @@
 
 ---
 
-**릴리즈 날짜**: 2025-12-19  
+**릴리즈 날짜**: 2025-12-29  
+**배포 날짜**: 2025-12-29  
 **이전 버전**: 3.17.1  
 **Java 버전**: Java 17 이상 (권장)  
-**배포 상태**: ⚠️ 배포 전
+**배포 상태**: ✅ Maven Central 배포 완료

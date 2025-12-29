@@ -930,6 +930,9 @@ public class HubCryptoService {
     /**
      * 데이터가 암호화된 형태인지 확인
      * 
+     * 주의: 이 메서드는 형식 검증만 수행하며, 실제 tag 무결성 검증은 복호화 시점에 수행됩니다.
+     * AES-GCM 복호화 시 tag가 맞지 않으면 자동으로 실패합니다.
+     * 
      * @param data 확인할 데이터
      * @return 암호화된 데이터인지 여부
      */
@@ -937,14 +940,106 @@ public class HubCryptoService {
         if (data == null || data.isEmpty()) {
             return false;
         }
-        // Base64 형식이고 길이가 충분히 긴 경우 암호화된 데이터로 간주
-        // 실제로는 정책 UUID가 포함되어 있는지 확인해야 하지만, 간단한 휴리스틱 사용
+        
+        // 디버그 로그 (암호화 실패 디버깅용)
+        if (enableLogging && log.isDebugEnabled()) {
+            log.debug("🔍 isEncryptedData 체크: dataLength={}, preview={}", 
+                    data.length(), 
+                    data.length() > 50 ? data.substring(0, 50) + "..." : data);
+        }
+        
+        // 부분암호화 형식 처리: "[평문]::ENC::[암호문]"
+        String checkPart = data;
+        if (data.contains("::ENC::")) {
+            int idx = data.indexOf("::ENC::");
+            checkPart = data.substring(idx + "::ENC::".length());
+        }
+        
+        // 새 형식 접두사 기반 감지 및 구조 검증
+        if (checkPart.startsWith("hub:")) {
+            // hub:{policyUuid}:{base64(iv+ciphertext+tag)}
+            // 구조: 최소 3개 부분 (hub, policyUuid, base64Data)
+            String[] parts = checkPart.split(":", 3);
+            if (parts.length >= 3) {
+                String policyUuid = parts[1];
+                String base64Data = parts[2];
+                // Policy UUID 형식 검증 (36자 UUID 형식, 대소문자 모두 허용)
+                if (policyUuid.length() == 36 && policyUuid.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) {
+                    // Base64 데이터 최소 길이 검증 (IV 12 + Tag 16 = 최소 28 bytes, Base64로 약 38 chars)
+                    try {
+                        byte[] decoded = java.util.Base64.getDecoder().decode(base64Data);
+                        // IV(12) + Tag(16) = 최소 28 bytes
+                        return decoded.length >= 28;
+                    } catch (IllegalArgumentException e) {
+                        return false;
+                    }
+                }
+            }
+            return false;
+        } else if (checkPart.startsWith("kms:")) {
+            // kms:{policyUuid}:{base64(edk)}:{base64(iv+ciphertext+tag)}
+            // 구조: 최소 4개 부분 (kms, policyUuid, edk, base64Data)
+            String[] parts = checkPart.split(":", 4);
+            if (parts.length >= 4) {
+                String policyUuid = parts[1];
+                String base64Data = parts[3];
+                // Policy UUID 형식 검증 (대소문자 모두 허용)
+                if (policyUuid.length() == 36 && policyUuid.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) {
+                    // Base64 데이터 최소 길이 검증
+                    try {
+                        byte[] decoded = java.util.Base64.getDecoder().decode(base64Data);
+                        return decoded.length >= 28; // IV(12) + Tag(16)
+                    } catch (IllegalArgumentException e) {
+                        return false;
+                    }
+                }
+            }
+            return false;
+        } else if (checkPart.startsWith("vault:")) {
+            // vault:{keyAlias}:v{version}:{data}
+            // 구조: 최소 4개 부분 (vault, keyAlias, version, data)
+            String[] parts = checkPart.split(":", 4);
+            return parts.length >= 4 && parts[2].startsWith("v");
+        }
+        
+        // 레거시 형식: Base64 형식이고 최소 길이 + Policy UUID 형식 검증
+        // 최소 길이: PolicyUUID(36) + IV(12) + Tag(16) = 64 bytes
+        // Base64 인코딩 시 약 86 chars (64 * 4/3 = 85.33, 패딩 포함)
         try {
-            // Base64 디코딩 시도
-            java.util.Base64.getDecoder().decode(data);
-            // Base64 형식이고 길이가 충분히 긴 경우
-            return data.length() > 50;
+            byte[] decoded = java.util.Base64.getDecoder().decode(checkPart);
+            // 최소 64 bytes (PolicyUUID 36 + IV 12 + Tag 16)
+            if (decoded.length >= 64) {
+                // Policy UUID 형식 검증 (첫 36 bytes가 UUID 형식인지 확인)
+                // UUID 형식: 8-4-4-4-12 (총 36자, 하이픈 포함)
+                if (decoded.length >= 36) {
+                    try {
+                        String uuidCandidate = new String(decoded, 0, 36, java.nio.charset.StandardCharsets.UTF_8);
+                        // UUID 형식 검증: 8-4-4-4-12 (하이픈 포함)
+                        boolean isValidUuid = uuidCandidate.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+                        if (enableLogging && log.isDebugEnabled()) {
+                            log.debug("🔍 레거시 형식 체크: decodedLength={}, uuidCandidate={}, isValidUuid={}, isEncrypted={}", 
+                                    decoded.length, uuidCandidate, isValidUuid, isValidUuid);
+                        }
+                        return isValidUuid; // UUID 형식이 맞아야 암호화된 데이터
+                    } catch (Exception e) {
+                        // UTF-8 디코딩 실패 = 암호화된 데이터가 아님
+                        if (enableLogging && log.isDebugEnabled()) {
+                            log.debug("🔍 UUID 추출 실패 (평문 데이터): {}", e.getMessage());
+                        }
+                        return false;
+                    }
+                }
+            }
+            // 길이가 64 bytes 미만 = 암호화된 데이터가 아님
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug("🔍 레거시 형식 체크: decodedLength={} < 64 (평문 데이터)", decoded.length);
+            }
+            return false;
         } catch (IllegalArgumentException e) {
+            // Base64 디코딩 실패 = 평문 데이터
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug("🔍 Base64 디코딩 실패 (평문 데이터): {}", e.getMessage());
+            }
             return false;
         }
     }

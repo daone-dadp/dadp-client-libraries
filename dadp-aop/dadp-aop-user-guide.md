@@ -30,20 +30,21 @@ DADP AOP는 Spring AOP 기반으로 암복호화 기능을 자동화하는 라�
 
 ### 📦 제공 라이브러리
 
-1. **dadp-hub-crypto-lib** (3.17.0)
+1. **dadp-hub-crypto-lib** (1.2.0) ✅ Maven Central 배포 완료
    - Hub와의 암복호화 통신을 담당하는 핵심 라이브러리
    - `HubCryptoService`를 통해 암복호화 수행
 
-2. **dadp-aop** (3.17.0)
+2. **dadp-aop** (5.3.0) ✅ Maven Central 배포 완료
    - AOP 기반 암복호화 자동화 라이브러리
    - `@Encrypt`, `@Decrypt` 어노테이션 지원
    - 리포지토리 레벨 암복호화 지원
    - **성능 최적화**: `findAll()` 시 배치 복호화 자동 사용 (개별 복호화 대비 약 3배 이상 빠름)
 
-3. **dadp-aop-spring-boot-starter** (3.17.0) ⭐ 권장
+3. **dadp-aop-spring-boot-starter** (5.3.0) ⭐ 권장
    - Spring Boot Starter 패키지
    - 자동 설정 및 의존성 관리
    - 가장 편리한 통합 방법
+   - ⚠️ **참고**: 현재 버전은 Maven Central에 배포되지 않았습니다. `dadp-aop`를 직접 사용하세요.
 
 ---
 
@@ -53,10 +54,13 @@ DADP AOP는 Spring AOP 기반으로 암복호화 기능을 자동화하는 라�
 
 DADP 라이브러리는 **Maven Central**을 통해 배포됩니다 (배포 완료 ✅).
 
-> **배포 상태:** ✅ Maven Central 배포 완료 (2025-11-11)  
+> **배포 상태:** ✅ Maven Central 배포 완료 (2025-12-29)  
 > **Group ID:** `io.github.daone-dadp`  
 > **레포지토리:** [https://github.com/daone-dadp/dadp-client-libraries](https://github.com/daone-dadp/dadp-client-libraries)  
-> **Maven Central 검색:** [https://search.maven.org/search?q=io.github.daone-dadp](https://search.maven.org/search?q=io.github.daone-dadp)
+> **Maven Central 검색:** [https://search.maven.org/search?q=io.github.daone-dadp](https://search.maven.org/search?q=io.github.daone-dadp)  
+> **배포된 버전:**
+> - `dadp-aop:5.3.0` ✅
+> - `dadp-hub-crypto-lib:1.2.0` ✅
 
 #### Maven Central 설정 (권장) ⭐
 
@@ -75,62 +79,90 @@ Maven/Gradle이 기본적으로 Maven Central을 사용하므로 추가 설정 �
 
 ### 2단계: 의존성 추가
 
-#### 방법 1: Spring Boot Starter 사용 (권장) ⭐
+#### 방법 1: AOP 라이브러리 사용 (권장) ⭐
 
-**Maven Central 사용:**
-
-```xml
-<dependencies>
-    <!-- DADP AOP Spring Boot Starter (권장) -->
-    <dependency>
-        <groupId>io.github.daone-dadp</groupId>
-        <artifactId>dadp-aop-spring-boot-starter</artifactId>
-        <version>3.17.0</version>
-    </dependency>
-</dependencies>
-```
-
-**주의사항:**
-- 그룹 ID: `io.github.daone-dadp` (Maven Central)
-- 버전 형식: `3.17.0` (v 접두사 불필요)
-- 배포 완료 후 1-2시간 내 Maven Central에 반영됩니다
-- Maven Central 검색: https://search.maven.org/search?q=io.github.daone-dadp
-
-#### 방법 2: AOP 라이브러리만 사용
+**Maven `pom.xml`에 추가:**
 
 ```xml
-<dependencies>
-    <dependency>
-        <groupId>io.github.daone-dadp</groupId>
-        <artifactId>dadp-aop</artifactId>
-        <version>3.17.0</version>
-    </dependency>
-</dependencies>
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <!-- 프로젝트 정보 -->
+    <groupId>com.example</groupId>
+    <artifactId>my-application</artifactId>
+    <version>1.0.0</version>
+    
+    <dependencies>
+        <!-- DADP AOP 라이브러리 (권장) -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-aop</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+        
+        <!-- Spring Boot 의존성 (필요한 경우) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <version>3.2.12</version>
+        </dependency>
+    </dependencies>
+</project>
 ```
 
-#### 방법 3: Hub 암복호화 라이브러리만 사용
+**의존성 정보:**
+- **Group ID**: `io.github.daone-dadp`
+- **Artifact ID**: `dadp-aop`
+- **Version**: `5.3.0`
+- **자동 포함**: `dadp-hub-crypto-lib:1.2.0`이 자동으로 포함됩니다
+- **리포지토리 설정**: 불필요 (Maven Central 기본 사용)
+
+**Maven Central 검색:**
+- https://search.maven.org/search?q=io.github.daone-dadp:dadp-aop:5.3.0
+
+#### 방법 2: Hub 암복호화 라이브러리만 사용
+
+**Maven `pom.xml`에 추가:**
 
 ```xml
 <dependencies>
     <dependency>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-hub-crypto-lib</artifactId>
-        <version>3.17.0</version>
+        <version>1.2.0</version>
     </dependency>
 </dependencies>
 ```
 
+**의존성 정보:**
+- **Group ID**: `io.github.daone-dadp`
+- **Artifact ID**: `dadp-hub-crypto-lib`
+- **Version**: `1.2.0`
+- **리포지토리 설정**: 불필요 (Maven Central 기본 사용)
+
 **💡 참고:** 
-- ✅ Maven Central 배포 완료 (2025-11-11)
+- ✅ Maven Central 배포 완료 (2025-12-29)
 - ✅ Group ID: `io.github.daone-dadp`
 - ✅ Maven Central만 제공 (JitPack은 더 이상 지원하지 않음)
+- ✅ 배포된 버전: `dadp-aop:5.3.0`, `dadp-hub-crypto-lib:1.2.0`
+- ✅ `dadp-aop:5.3.0`을 사용하면 `dadp-hub-crypto-lib:1.2.0`이 자동으로 포함됩니다
+- ⚠️ `dadp-aop-spring-boot-starter:5.3.0`은 현재 Maven Central에 배포되지 않았습니다
+- ✅ 별도 리포지토리 설정이 필요 없습니다 (Maven Central 기본 사용)
 - Maven Central 검색: https://search.maven.org/search?q=io.github.daone-dadp
 
 ### 3단계: 설정 파일 추가
 
 `application.properties`:
 ```properties
-# Hub 서버 설정
+# Engine URL 설정 (필수)
+# DADP_CRYPTO_BASE_URL 환경변수로도 설정 가능
+dadp.crypto.base-url=${DADP_CRYPTO_BASE_URL:http://localhost:9003}
+
+# Hub 서버 설정 (선택 - 알림 기능 사용 시)
 dadp.hub-base-url=${DADP_HUB_BASE_URL:http://localhost:9004}
 ```
 
@@ -185,41 +217,33 @@ public class UserService {
 
 ### Maven 프로젝트
 
-#### 방법 1: Spring Boot Starter 사용 (권장) ⭐
+#### 방법 1: AOP 라이브러리 사용 (권장) ⭐
 
 **Maven Central 사용 (별도 리포지토리 설정 불필요):**
 
 ```xml
 <dependencies>
-    <!-- DADP AOP Spring Boot Starter (권장) -->
-    <dependency>
-        <groupId>io.github.daone-dadp</groupId>
-        <artifactId>dadp-aop-spring-boot-starter</artifactId>
-        <version>3.17.0</version>
-    </dependency>
-</dependencies>
-```
-
-#### 방법 2: AOP 라이브러리만 사용
-
-```xml
-<dependencies>
+    <!-- DADP AOP 라이브러리 (권장) -->
     <dependency>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-aop</artifactId>
-        <version>3.17.0</version>
+        <version>5.3.0</version>
     </dependency>
 </dependencies>
 ```
 
-#### 방법 3: Hub 암복호화 라이브러리만 사용
+**의존성 정보:**
+- `dadp-aop:5.3.0`은 자동으로 `dadp-hub-crypto-lib:1.2.0`을 포함합니다
+- 별도로 `dadp-hub-crypto-lib`를 추가할 필요가 없습니다
+
+#### 방법 2: Hub 암복호화 라이브러리만 사용
 
 ```xml
 <dependencies>
     <dependency>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-hub-crypto-lib</artifactId>
-        <version>3.17.0</version>
+        <version>1.2.0</version>
     </dependency>
 </dependencies>
 ```
@@ -232,22 +256,26 @@ public class UserService {
 
 ```xml
 <dependencies>
+    <!-- DADP AOP 라이브러리 -->
     <dependency>
         <groupId>io.github.daone-dadp</groupId>
-        <artifactId>dadp-aop-spring-boot-starter</artifactId>
-        <version>3.17.0</version>
+        <artifactId>dadp-aop</artifactId>
+        <version>5.3.0</version>
     </dependency>
 </dependencies>
 ```
 
-> **✅ 배포 완료:** Maven Central 배포 완료 (2025-11-11)  
+> **✅ 배포 완료:** Maven Central 배포 완료 (2025-12-29)  
 > **Group ID:** `io.github.daone-dadp`  
 > **검색:** https://search.maven.org/search?q=io.github.daone-dadp
 
 **사용 가능한 라이브러리:**
-- `io.github.daone-dadp:dadp-aop-spring-boot-starter:3.17.0` ⭐ 권장
-- `io.github.daone-dadp:dadp-aop:3.17.0`
-- `io.github.daone-dadp:dadp-hub-crypto-lib:3.17.0`
+- `io.github.daone-dadp:dadp-aop:5.3.0` ⭐ 권장 (Maven Central 배포 완료)
+- `io.github.daone-dadp:dadp-hub-crypto-lib:1.2.0` (Maven Central 배포 완료)
+
+**⚠️ 참고:**
+- `dadp-aop-spring-boot-starter:5.3.0`은 현재 Maven Central에 배포되지 않았습니다
+- `dadp-aop:5.3.0`을 사용하면 동일한 기능을 사용할 수 있습니다
 
 ---
 
@@ -849,12 +877,12 @@ Could not resolve dependencies for project ...
 
 #### 해결 방법
 
-1. **Spring Boot Starter 사용 확인**
+1. **AOP 라이브러리 사용 확인**
    ```xml
    <dependency>
        <groupId>io.github.daone-dadp</groupId>
-       <artifactId>dadp-aop-spring-boot-starter</artifactId>
-       <version>3.17.0</version>
+       <artifactId>dadp-aop</artifactId>
+       <version>5.3.0</version>
    </dependency>
    ```
 
@@ -942,11 +970,11 @@ ClassNotFoundException 또는 MethodNotFoundException
 
 1. **버전 일치 확인**
    ```xml
-   <!-- 모든 DADP 라이브러리 버전을 일치시킴 -->
+   <!-- DADP AOP 라이브러리 사용 -->
    <dependency>
        <groupId>io.github.daone-dadp</groupId>
-       <artifactId>dadp-aop-spring-boot-starter</artifactId>
-       <version>3.17.0</version>
+       <artifactId>dadp-aop</artifactId>
+       <version>5.3.0</version>
    </dependency>
    ```
 
@@ -1062,7 +1090,7 @@ class ColumnSizeValidationTest {
 
 ### 통합 전 확인사항
 
-- [ ] Maven 의존성 추가 완료 (`io.github.daone-dadp:dadp-aop-spring-boot-starter:3.17.0`)
+- [ ] Maven 의존성 추가 완료 (`io.github.daone-dadp:dadp-aop:5.3.0`)
 - [ ] Maven Central에서 라이브러리 다운로드 확인
 - [ ] `application.properties` 또는 `application.yml` 설정 완료
 - [ ] Hub 서버 URL 확인
@@ -1156,21 +1184,26 @@ class ColumnSizeValidationTest {
 
 ### 현재 배포 상태
 
-✅ **Maven Central 배포 완료** (2025-12-09)
+✅ **Maven Central 배포 완료** (2025-12-29)
 
 - **레포지토리**: [daone-dadp/dadp-client-libraries](https://github.com/daone-dadp/dadp-client-libraries)
 - **Maven Central 검색**: [https://search.maven.org/search?q=io.github.daone-dadp](https://search.maven.org/search?q=io.github.daone-dadp)
-- **배포 버전**: `3.17.0`
-- **Deployment ID**: `7981b39a-2b9e-4766-871f-cbcdd488fc6b`
+- **배포 버전**: 
+  - `dadp-aop:5.3.0` (Deployment ID: `2f9f91f6-3ecc-4b33-82bf-c6d971500abb`)
+  - `dadp-hub-crypto-lib:1.2.0` (Deployment ID: `c38192c9-cc35-42a6-9e76-9da31cfc447b`)
 - **라이선스**: Apache 2.0
 
 ### 사용 가능한 라이브러리
 
-| 라이브러리 | 그룹 ID | 아티팩트 ID | 버전 |
-|----------|--------|------------|------|
-| Spring Boot Starter | `io.github.daone-dadp` | `dadp-aop-spring-boot-starter` | `3.17.0` |
-| AOP 라이브러리 | `io.github.daone-dadp` | `dadp-aop` | `3.17.0` |
-| Hub 암복호화 라이브러리 | `io.github.daone-dadp` | `dadp-hub-crypto-lib` | `1.1.0` |
+| 라이브러리 | 그룹 ID | 아티팩트 ID | 버전 | 배포 상태 |
+|----------|--------|------------|------|----------|
+| AOP 라이브러리 | `io.github.daone-dadp` | `dadp-aop` | `5.3.0` | ✅ 배포 완료 |
+| Hub 암복호화 라이브러리 | `io.github.daone-dadp` | `dadp-hub-crypto-lib` | `1.2.0` | ✅ 배포 완료 |
+| Spring Boot Starter | `io.github.daone-dadp` | `dadp-aop-spring-boot-starter` | `5.3.0` | ⚠️ 배포 전 |
+
+**💡 사용 권장:**
+- `dadp-aop:5.3.0` 사용 권장 (Maven Central 배포 완료)
+- `dadp-aop:5.3.0`은 자동으로 `dadp-hub-crypto-lib:1.2.0`을 포함합니다
 
 ---
 
@@ -1178,35 +1211,29 @@ class ColumnSizeValidationTest {
 
 ### 현재 버전
 
-**v3.17.0** (2025-12-09 배포 완료) ✅
+**v5.3.0** (2025-12-29 배포 완료) ✅
 
-- [릴리즈 노트](./RELEASE_NOTES_v3.17.0.md)
+- [릴리즈 노트](./RELEASE_NOTES_v5.3.0.md)
 - [변경 내역](./CHANGELOG.md)
+- Maven Central 배포 완료
 
-### 개발 중 버전
+### 주요 변경사항 (v5.3.0)
 
-**v3.17.1** (배포 전) ⏳
-
-- [릴리즈 노트](./RELEASE_NOTES_v3.17.1.md)
-- 상태: 개발 완료, Maven Central 미배포
-
-### 주요 변경사항 (v3.17.0)
-
-- ✅ Engine 직접 연결 지원
-- ✅ 리포지토리 레벨 암복호화 지원 (권장)
-- ✅ `findAll()` 배치 복호화 최적화 (약 3배 성능 향상)
-- ✅ 알림 기능 통일
-- ✅ 환경변수 통일
+- ✅ 버전 체계 전환 (3.17.1 → 5.3.0)
+- ✅ Engine URL 환경변수 직접 관리 지원
+- ✅ Collection 복호화 시 평문 저장 문제 해결
+- ✅ 로그 출력 정책 개선
 
 ### 이전 버전
 
+- **v3.17.0** (2025-12-09): Engine 직접 연결, 리포지토리 레벨 암복호화 지원
 - **v2.1.0** (2025-11-06): Maven Central 배포 완료
 - **v2.0.0** (2025-10-17): 초기 릴리즈
 
 ---
 
-**작성일**: 2025-01-26  
-**버전**: 3.17.0  
-**최종 업데이트**: 2025-12-09  
+**작성일**: 2025-12-29  
+**버전**: 5.3.0  
+**최종 업데이트**: 2025-12-29  
 **작성자**: DADP Development Team
 

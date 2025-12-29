@@ -19,6 +19,30 @@
 
     <name>DADP Hub Crypto Library</name>
     <description>DADP Hub 암복호화 통신 라이브러리</description>
+    <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    
+    <!-- 라이선스 정보 (필수) -->
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+    
+    <!-- 개발자 정보 (필수) -->
+    <developers>
+        <developer>
+            <name>dadp team</name>
+            <email>csh@daonecns.co.kr</email>
+        </developer>
+    </developers>
+    
+    <!-- SCM 정보 (필수) -->
+    <scm>
+        <connection>scm:git:git://github.com/daone-dadp/dadp-client-libraries.git</connection>
+        <developerConnection>scm:git:ssh://github.com/daone-dadp/dadp-client-libraries.git</developerConnection>
+        <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    </scm>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -30,6 +54,10 @@
         <junit.version>5.9.3</junit.version>
         <java.version>17</java.version>
         <classifier></classifier>
+        <!-- GPG 서명 설정 (배포 시 false로 변경) -->
+        <gpg.skip>true</gpg.skip>
+        <!-- Maven 배포 설정 (배포 시 false로 변경) -->
+        <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 
     <profiles>
@@ -87,18 +115,21 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+            <version>${spring-boot.version}</version>
         </dependency>
 
         <!-- Spring Web (RestTemplate) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring-boot.version}</version>
         </dependency>
 
         <!-- Spring Boot Configuration Processor -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
+            <version>${spring-boot.version}</version>
             <optional>true</optional>
         </dependency>
 
@@ -128,6 +159,7 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -212,9 +244,25 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.0.1</version>
                 <configuration>
-                    <skip>true</skip>
+                    <useAgent>false</useAgent>
+                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
+                    <skip>${gpg.skip}</skip>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

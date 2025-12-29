@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [5.3.0] - 2025-12-19 (배포 전)
+## [5.3.0] - 2025-12-29 (Maven Central 배포 완료)
 
 ### 🔄 Changed
 
@@ -49,6 +49,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - B=3: Java 17 최소 요구사항 (매핑 ID)
   - C=0: 새 체계 시작
 - **기능 및 호환성**: 변경 없음 (버전 번호만 변경)
+
+### ✅ Fixed
+
+- **Collection 복호화 시 평문 저장 문제 해결** (2025-12-29)
+  - Collection 복호화 시(`findAll()`, `findBy*()` 등) 복호화 후 필드 값이 평문으로 변경되어, 나중에 엔티티가 저장될 때 평문이 DB에 저장되는 문제 해결
+  - 특히 새로고침(전체 조회) 시 복호화 후 평문이 저장되는 현상 해결
+  - `processCollectionDecryption()` 메서드 시작 부분에 모든 엔티티를 detach하는 로직 추가
+  - 복호화 전에 Collection 내부의 모든 JPA 엔티티를 `EntityManager.detach()`로 분리하여 Hibernate 변경 추적 차단
+  - 복호화로 인한 필드 변경이 Hibernate의 dirty 체크를 트리거하지 않도록 처리
+  - 로그 레벨을 INFO로 변경하여 detach 완료 로그 확인 가능
+  - 영향: `findAll()`, `findBy*()` 등 Collection 반환 메서드에서 복호화 후 저장 시 평문이 저장되지 않음
+
+- **로그 출력 정책 개선** (2025-12-29)
+  - `@Encrypt(enableLogging = true)` 또는 `@Decrypt(enableLogging = true)`일 때만 INFO/DEBUG/WARN 로그 출력
+  - ERROR 로그는 무조건 출력 (예외처리되지 못한 예기치 못한 에러)
+  - 모든 AOP 내부 로그가 `enableLogging` 플래그를 확인하도록 수정
+  - 통계 로그(`includeStats`)도 `enableLogging` 체크 추가
+  - 로그 정책 문서(`docs/guidelines/logging-policy.md`) 준수
 
 ### Compatibility
 
