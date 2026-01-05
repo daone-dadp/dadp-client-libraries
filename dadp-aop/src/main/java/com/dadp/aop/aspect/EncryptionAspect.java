@@ -122,6 +122,9 @@ public class EncryptionAspect {
     @Autowired(required = false)
     private com.dadp.aop.metadata.EncryptionMetadataInitializer encryptionMetadataInitializer;
     
+    @Autowired(required = false)
+    private com.dadp.common.sync.policy.PolicyResolver policyResolver;
+    
     // EntityManager는 런타임에 리플렉션으로 가져오기 (JPA가 있는 경우에만)
     private Object entityManager;
     
@@ -356,8 +359,14 @@ public class EncryptionAspect {
                 return data;
             }
             
+            // 정책 조회: PolicyResolver 우선, 없으면 null 전달 (Wrapper와 동일)
+            // String 타입은 직접 암호화하는 경우이므로 정책 매핑 정보가 없음
+            // Engine에서 정책명이 null이면 자동으로 "dadp"로 처리
+            String policy = null;
+            
+            // @Encrypt 어노테이션의 policy()는 deprecated이므로 무시
             // includeStats는 AOP 로깅용이며, 엔진에는 전달하지 않음 (엔진은 항상 자동으로 통계 수집)
-            String encryptedData = cryptoService.encrypt(data, encryptAnnotation.policy());
+            String encryptedData = cryptoService.encrypt(data, policy);
             
             // enableLogging: 기본 로그 출력
             infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 데이터 암호화 완료: {} → {}", 
@@ -423,9 +432,47 @@ public class EncryptionAspect {
                     continue;
                 }
                 
-                String policy = encryptAnnotation.policy();
-                if (fieldInfo.getEncryptField() != null) {
-                    policy = fieldInfo.getEncryptField().policy();
+                // 정책 조회: PolicyResolver 우선, 없으면 기본 정책 "dadp" 사용
+                String policy = null;
+                
+                // 1. PolicyResolver를 사용하여 정책 조회 (table.column 기반)
+                if (policyResolver != null && encryptionMetadataInitializer != null) {
+                    String tableName = encryptionMetadataInitializer.getTableName(obj.getClass());
+                    if (tableName != null) {
+                        // AOP는 스키마 개념이 없으므로 "public" 사용
+                        String schemaName = "public";
+                        // AOP는 datasourceId가 없음
+                        String datasourceId = null;
+                        String columnName = fieldInfo.getFieldName();
+                        
+                        // 정책 조회 시도 전 로그
+                        log.debug("🔍 정책 매핑 조회 시도: schema={}, table={}, column={}", 
+                                schemaName, tableName, columnName);
+                        
+                        policy = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
+                        
+                        if (policy != null && !policy.trim().isEmpty()) {
+                            log.debug("✅ 정책 매핑 조회 성공: {}.{} → {} (조회 키: {}.{}.{})", 
+                                    obj.getClass().getSimpleName(), columnName, policy, 
+                                    schemaName, tableName, columnName);
+                        } else {
+                            log.debug("📋 정책 매핑 조회 실패: {}.{} (조회 키: {}.{}.{})", 
+                                    obj.getClass().getSimpleName(), columnName, 
+                                    schemaName, tableName, columnName);
+                        }
+                    } else {
+                        log.debug("⚠️ 테이블명을 찾을 수 없음: {}", obj.getClass().getSimpleName());
+                    }
+                } else {
+                    log.debug("⚠️ PolicyResolver 또는 EncryptionMetadataInitializer가 없음");
+                }
+                
+                // 2. PolicyResolver에서 정책을 찾지 못한 경우 null 전달 (Wrapper와 동일)
+                // Engine에서 정책명이 null이면 자동으로 "dadp"로 처리
+                if (policy == null || policy.trim().isEmpty()) {
+                    log.debug("📋 정책 매핑 없음, null 전달 (Engine에서 자동으로 dadp 처리): {}.{}", 
+                            obj.getClass().getSimpleName(), fieldInfo.getFieldName());
+                    policy = null; // null로 명시적으로 설정
                 }
                 
                 try {

@@ -1,21 +1,21 @@
 package com.dadp.aop.service;
 
-import com.dadp.hub.crypto.HubCryptoService;
+import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * DADP AOP 암복호화 서비스 (Hub 암복호화 라이브러리 사용)
+ * DADP AOP 암복호화 서비스 (DirectCryptoAdapter 사용 - 공통 라이브러리)
  * 
  * @author DADP Development Team
- * @version 2.0.0
- * @since 2025-01-01
+ * @version 2.1.0
+ * @since 2025-12-31
  */
 @Service
 public class CryptoService {
     
     @Autowired
-    private HubCryptoService hubCryptoService;
+    private DirectCryptoAdapter directCryptoAdapter;
     
     /**
      * 데이터 암호화 (Hub 암복호화 라이브러리 사용)
@@ -25,7 +25,7 @@ public class CryptoService {
      * @return 암호화된 데이터
      */
     public String encrypt(String data, String policy) {
-        return hubCryptoService.encrypt(data, policy);
+        return directCryptoAdapter.encrypt(data, policy);
     }
     
     /**
@@ -35,7 +35,7 @@ public class CryptoService {
      * @return 복호화된 데이터
      */
     public String decrypt(String encryptedData) {
-        return hubCryptoService.decrypt(encryptedData, null, null);
+        return directCryptoAdapter.decrypt(encryptedData, null, null);
     }
     
     /**
@@ -74,7 +74,7 @@ public class CryptoService {
         
         try {
             // Hub/Engine에서 암호화 여부 판단 및 처리
-            String decrypted = hubCryptoService.decrypt(encryptedData, maskPolicyName, maskPolicyUid, includeStats);
+            String decrypted = directCryptoAdapter.decrypt(encryptedData, maskPolicyName, maskPolicyUid, includeStats);
             
             // null 반환 시 "데이터가 암호화되지 않았습니다" 의미 (원본 데이터 반환)
             if (decrypted == null) {
@@ -106,7 +106,7 @@ public class CryptoService {
         }
         
         try {
-            return hubCryptoService.batchDecrypt(encryptedDataList, maskPolicyName, maskPolicyUid, includeStats);
+            return directCryptoAdapter.batchDecrypt(encryptedDataList, maskPolicyName, maskPolicyUid, includeStats);
         } catch (Exception e) {
             // 예외 발생 시 개별 복호화로 폴백 (상위에서 처리)
             throw new RuntimeException("배치 복호화 실패: " + e.getMessage(), e);
@@ -131,7 +131,7 @@ public class CryptoService {
         }
         
         try {
-            return hubCryptoService.batchEncrypt(dataList, policyList);
+            return directCryptoAdapter.batchEncrypt(dataList, policyList);
         } catch (Exception e) {
             // 예외 발생 시 개별 암호화로 폴백 (상위에서 처리)
             throw new RuntimeException("배치 암호화 실패: " + e.getMessage(), e);
@@ -147,16 +147,17 @@ public class CryptoService {
      * @return 암호화된 데이터
      */
     public String encrypt(String data, String policy, boolean includeStats) {
-        return hubCryptoService.encrypt(data, policy, includeStats);
+        // DirectCryptoAdapter는 includeStats를 지원하지 않으므로 기본 encrypt 사용
+        return directCryptoAdapter.encrypt(data, policy);
     }
     
     /**
-     * 데이터가 암호화된 형태인지 확인 (Hub 암복호화 라이브러리 사용)
+     * 데이터가 암호화된 형태인지 확인 (DirectCryptoAdapter 사용)
      * 
      * @param data 확인할 데이터
      * @return 암호화된 데이터인지 여부
      */
     public boolean isEncryptedData(String data) {
-        return hubCryptoService.isEncryptedData(data);
+        return directCryptoAdapter.isEncryptedData(data);
     }
 }

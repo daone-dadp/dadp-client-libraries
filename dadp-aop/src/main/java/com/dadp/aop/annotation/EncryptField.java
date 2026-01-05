@@ -21,7 +21,13 @@ public @interface EncryptField {
     /**
      * 암호화 정책명
      * 기본값: "dadp"
+     * 
+     * @deprecated 이 파라미터는 더 이상 사용되지 않습니다. 
+     * 정책은 Hub에서 스키마(테이블.컬럼)와 매핑하여 관리됩니다.
+     * 기존 코드와의 호환성을 위해 무시되고 기본 정책 "dadp"가 사용됩니다.
+     * IDE에서 이 파라미터를 사용하려고 하면 "제공되지 않는 파라미터"라는 툴팁이 표시됩니다.
      */
+    @Deprecated
     String policy() default "dadp";
     
     /**

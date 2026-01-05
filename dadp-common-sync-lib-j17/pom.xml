@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.daone-dadp</groupId>
+        <artifactId>dadp-client-libraries</artifactId>
+        <version>5.3.1</version>
+    </parent>
+
+    <groupId>io.github.daone-dadp</groupId>
+    <artifactId>dadp-common-sync-lib-j17</artifactId>
+    <version>5.0.5</version>
+    <packaging>jar</packaging>
+
+    <name>DADP Common Sync Library (Java 17+)</name>
+    <description>Common synchronization library for policy mapping and endpoint management (Java 17+)</description>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Web (RestTemplate) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- Jackson -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        
+        <!-- SLF4J API -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.9</version>
+        </dependency>
+        
+        <!-- Hub Crypto Library (DirectCryptoAdapter에서 사용) -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-hub-crypto-lib</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        
+        <!-- Common Logging Library -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-common-logging-lib</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+    </dependencies>
+</project>
+

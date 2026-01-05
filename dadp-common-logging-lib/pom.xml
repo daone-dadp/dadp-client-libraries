@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.daone-dadp</groupId>
+        <artifactId>dadp-client-libraries</artifactId>
+        <version>5.3.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <groupId>io.github.daone-dadp</groupId>
+    <artifactId>dadp-common-logging-lib</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>DADP Common Logging Library</name>
+    <description>Common logging abstraction library for DADP client libraries (Java 8+ compatible)</description>
+
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- SLF4J API (optional - reflection으로 사용) -->
+        <!-- 의존성으로 추가하지 않고 리플렉션으로만 사용하여 선택적 의존성으로 만듦 -->
+    </dependencies>
+</project>
+

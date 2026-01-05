@@ -8,16 +8,11 @@ import org.springframework.web.client.RestTemplate;
 /**
  * 암복호화 라이브러리 설정
  * 
- * 환경 변수 사용:
- * - DADP_CRYPTO_BASE_URL: 암복호화 URL 직접 지정 (필수, Engine URL)
- * - API 경로는 자동 감지 (/hub/api/v1 또는 /api)
- * 
- * 동작 방식:
- * 1. DADP_CRYPTO_BASE_URL 환경변수 확인
- * 2. 없으면 기본값 사용 (http://localhost:9003)
+ * HubCryptoService는 기본값(http://localhost:9003)을 사용합니다.
+ * 실제 사용 시에는 DirectCryptoAdapter를 통해 EndpointStorage에서 URL을 가져옵니다.
  * 
  * @author DADP Development Team
- * @version 1.2.0
+ * @version 1.3.0
  * @since 2025-01-01
  */
 @Configuration
@@ -25,29 +20,18 @@ public class HubCryptoConfig {
     
     /**
      * 자동 설정된 HubCryptoService Bean 생성
-     * DADP_CRYPTO_BASE_URL 환경변수로 Engine URL을 직접 지정합니다.
+     * 기본값을 사용하며, 실제 사용 시에는 DirectCryptoAdapter를 통해 동적으로 URL을 설정합니다.
      */
     @Bean
     @ConditionalOnMissingBean
     public HubCryptoService hubCryptoService() {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(HubCryptoConfig.class);
         
-        // 1. DADP_CRYPTO_BASE_URL 환경변수 확인 (직접 지정)
-        String cryptoUrl = System.getenv("DADP_CRYPTO_BASE_URL");
+        // 기본값 사용 (실제 사용 시 DirectCryptoAdapter가 EndpointStorage에서 URL을 가져옴)
+        String cryptoUrl = "http://localhost:9003";  // 기본값: 엔진
+        String apiPath = null;  // API 경로는 HubCryptoService가 자동으로 감지
         
-        // 2. 없으면 기본값 사용
-        if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-            cryptoUrl = "http://localhost:9003";  // 기본값: 엔진
-            log.warn("⚠️ DADP_CRYPTO_BASE_URL이 설정되지 않아 기본값 사용: {}", cryptoUrl);
-        } else {
-            cryptoUrl = cryptoUrl.trim();
-            log.info("✅ DADP_CRYPTO_BASE_URL 사용: {}", cryptoUrl);
-        }
-        
-        // API 경로는 HubCryptoService가 자동으로 감지 (null 전달)
-        String apiPath = null;
-        
-        log.info("🔔 HubCryptoService 생성: cryptoUrl={}, apiPath={} (자동 감지)", cryptoUrl, apiPath);
+        log.info("🔔 HubCryptoService 생성: cryptoUrl={}, apiPath={} (자동 감지, DirectCryptoAdapter에서 동적 URL 설정)", cryptoUrl, apiPath);
         
         return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, true);
     }

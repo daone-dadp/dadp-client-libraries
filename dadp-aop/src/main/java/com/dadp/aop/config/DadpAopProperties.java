@@ -18,7 +18,15 @@ public class DadpAopProperties {
     private AopConfig aop = new AopConfig();
     
     /**
-     * Hub 기본 URL (알림 전송용)
+     * Hub 기본 URL (스키마 동기화 및 정책 매핑 동기화용)
+     * Wrapper와 동일하게 context-path를 포함하지 않음 (예: http://dadp-hub:9004)
+     * 
+     * 설정 방법:
+     * - 환경변수 DADP_HUB_BASE_URL (최우선)
+     * - application.properties: dadp.hub-base-url 또는 dadp.aop.hub-base-url
+     * 
+     * 주의: hubUrl에는 context-path(/hub)를 포함하지 않습니다.
+     * API 경로는 코드에서 직접 /hub/api/v1/... 형태로 추가합니다.
      */
     private String hubBaseUrl;
     
@@ -28,7 +36,13 @@ public class DadpAopProperties {
     public static class AopConfig {
         /**
          * DADP 엔진 기본 URL
+         * 
+         * @deprecated 이 필드는 더 이상 사용되지 않습니다.
+         *             엔진 URL은 Hub에서 동기화됩니다 (EndpointSyncService를 통해).
+         *             HubCryptoService는 EndpointStorage에서 자동으로 엔진 URL을 가져옵니다.
+         *             이 필드는 하위 호환성을 위해 유지되지만, 실제로는 사용되지 않습니다.
          */
+        @Deprecated
         private String engineBaseUrl = "http://localhost:9003";
         
         /**
@@ -81,22 +95,39 @@ public class DadpAopProperties {
         private int batchThreshold = 10000;
         
         // Getters and Setters
+        /**
+         * DADP 엔진 기본 URL 조회
+         * 
+         * @deprecated 이 메서드는 더 이상 사용되지 않습니다.
+         *             엔진 URL은 Hub에서 동기화됩니다 (EndpointSyncService를 통해).
+         *             HubCryptoService는 EndpointStorage에서 자동으로 엔진 URL을 가져옵니다.
+         *             이 메서드는 하위 호환성을 위해 유지되지만, 실제로는 사용되지 않습니다.
+         * 
+         * @return 엔진 URL (사용되지 않음)
+         */
+        @Deprecated
         public String getEngineBaseUrl() {
-            // 1. DADP_CRYPTO_BASE_URL 환경변수 확인 (직접 지정)
-            String envCryptoUrl = System.getenv("DADP_CRYPTO_BASE_URL");
-            if (envCryptoUrl != null && !envCryptoUrl.trim().isEmpty()) {
-                return envCryptoUrl.trim();
-            }
-            
-            // 2. 설정 파일에서 읽은 값 사용
+            // 설정 파일에서 읽은 값 사용
             if (engineBaseUrl != null && !engineBaseUrl.trim().isEmpty()) {
                 return engineBaseUrl;
             }
             
-            // 3. 기본값 (Engine 직접 연결)
+            // 기본값 (Engine 직접 연결)
+            // 실제로는 EndpointStorage에서 가져온 값을 사용해야 하지만,
+            // 이 메서드는 하위 호환성을 위해 유지 (실제 사용은 HubCryptoConfig에서 EndpointStorage 사용)
             return "http://localhost:9003";
         }
         
+        /**
+         * DADP 엔진 기본 URL 설정
+         * 
+         * @deprecated 이 메서드는 더 이상 사용되지 않습니다.
+         *             엔진 URL은 Hub에서 동기화됩니다 (EndpointSyncService를 통해).
+         *             이 메서드는 하위 호환성을 위해 유지되지만, 실제로는 사용되지 않습니다.
+         * 
+         * @param engineBaseUrl 엔진 URL (사용되지 않음)
+         */
+        @Deprecated
         public void setEngineBaseUrl(String engineBaseUrl) {
             this.engineBaseUrl = engineBaseUrl;
         }
@@ -200,6 +231,17 @@ public class DadpAopProperties {
     }
     
     // 편의 메서드 (기존 코드 호환성)
+    /**
+     * DADP 엔진 기본 URL 조회
+     * 
+     * @deprecated 이 메서드는 더 이상 사용되지 않습니다.
+     *             엔진 URL은 Hub에서 동기화됩니다 (EndpointSyncService를 통해).
+     *             HubCryptoService는 EndpointStorage에서 자동으로 엔진 URL을 가져옵니다.
+     *             이 메서드는 하위 호환성을 위해 유지되지만, 실제로는 사용되지 않습니다.
+     * 
+     * @return 엔진 URL (사용되지 않음)
+     */
+    @Deprecated
     public String getEngineBaseUrl() {
         return aop.getEngineBaseUrl();
     }
@@ -221,20 +263,28 @@ public class DadpAopProperties {
     }
     
     /**
-     * Hub 기본 URL 조회 (알림 전송용)
-     * 환경 변수 DADP_HUB_BASE_URL 우선 사용
+     * Hub 기본 URL 조회 (Wrapper와 동일한 방식)
+     * 
+     * 우선순위:
+     * 1. 환경 변수 DADP_HUB_BASE_URL (최우선)
+     * 2. 설정 파일 dadp.hub-base-url 또는 dadp.aop.hub-base-url
+     * 
+     * 주의: hubUrl에는 context-path(/hub)를 포함하지 않습니다.
+     * API 경로는 코드에서 직접 /hub/api/v1/... 형태로 추가합니다.
+     * 
+     * @return Hub URL (예: http://dadp-hub:9004), 없으면 null
      */
     public String getHubBaseUrl() {
-        // 환경 변수 DADP_HUB_BASE_URL 우선 사용
+        // 1. 환경 변수 DADP_HUB_BASE_URL 우선 사용 (Wrapper와 동일)
         String envHubUrl = System.getenv("DADP_HUB_BASE_URL");
         if (envHubUrl != null && !envHubUrl.trim().isEmpty()) {
-            return envHubUrl;
+            return envHubUrl.trim();
         }
-        // 설정 파일에서 읽은 값 사용
+        // 2. 설정 파일에서 읽은 값 사용
         if (hubBaseUrl != null && !hubBaseUrl.trim().isEmpty()) {
-            return hubBaseUrl;
+            return hubBaseUrl.trim();
         }
-        // 기본값 없음 (알림은 선택적 기능)
+        // 기본값 없음
         return null;
     }
     
