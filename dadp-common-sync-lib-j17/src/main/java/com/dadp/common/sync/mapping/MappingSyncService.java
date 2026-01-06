@@ -1,10 +1,10 @@
 package com.dadp.common.sync.mapping;
 
 import com.dadp.common.sync.policy.PolicyResolver;
+import com.dadp.common.logging.DadpLogger;
+import com.dadp.common.logging.DadpLoggerFactory;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
@@ -30,7 +30,7 @@ import java.util.Map;
  */
 public class MappingSyncService {
     
-    private static final Logger log = LoggerFactory.getLogger(MappingSyncService.class);
+    private static final DadpLogger log = DadpLoggerFactory.getLogger(MappingSyncService.class);
     
     private final String hubUrl;
     private final String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용)

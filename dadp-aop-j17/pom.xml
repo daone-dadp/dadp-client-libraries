@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>io.github.daone-dadp</groupId>
+        <artifactId>dadp-client-libraries</artifactId>
+        <version>5.3.1</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    
+    <groupId>io.github.daone-dadp</groupId>
+    <artifactId>dadp-aop-j17</artifactId>
+    <version>5.0.8</version>
+    <packaging>jar</packaging>
+    
+    <name>DADP AOP (Java 17)</name>
+    <description>DADP AOP 라이브러리 - 암복호화 자동화 (Java 17)</description>
+    <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    
+    <!-- 라이선스 정보 (필수) -->
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+    
+    <!-- 개발자 정보 (필수) -->
+    <developers>
+        <developer>
+            <name>dadp team</name>
+            <email>csh@daonecns.co.kr</email>
+        </developer>
+    </developers>
+    
+    <!-- SCM 정보 (필수) -->
+    <scm>
+        <connection>scm:git:git://github.com/daone-dadp/dadp-client-libraries.git</connection>
+        <developerConnection>scm:git:ssh://github.com/daone-dadp/dadp-client-libraries.git</developerConnection>
+        <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    </scm>
+
+    <properties>
+        <spring-boot.version>3.2.12</spring-boot.version>
+        <jackson.version>2.16.1</jackson.version>
+        <!-- GPG 서명 비활성화 (당분간 정식 배포 전까지) -->
+        <gpg.skip>true</gpg.skip>
+        <!-- Maven 배포 비활성화 (당분간 정식 배포 전까지) -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+    
+    <dependencies>
+        <!-- Spring AOP -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aop</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- Spring Context -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- AspectJ -->
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjrt</artifactId>
+            <version>1.9.22</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>1.9.22</version>
+        </dependency>
+        
+        <!-- Spring Boot Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        
+        <!-- Spring Boot AOP -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        
+        <!-- Spring Aspects -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aspects</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- Jackson for JSON processing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        
+        <!-- Spring Web for HTTP client -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- Spring Scheduling for @Scheduled -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context-support</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+        
+        <!-- DADP Hub 암복호화 라이브러리 -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-hub-crypto-lib</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        
+        <!-- DADP 공통 동기화 라이브러리 (Java 17+) -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-common-sync-lib-j17</artifactId>
+            <version>5.1.0</version>
+        </dependency>
+        
+        <!-- JPA (Optional - 엔티티 detach를 위해 필요) -->
+        <dependency>
+            <groupId>javax.persistence</groupId>
+            <artifactId>javax.persistence-api</artifactId>
+            <version>2.2</version>
+            <optional>true</optional>
+        </dependency>
+        
+        <!-- Jakarta Persistence (Optional - Jakarta EE 9+ 환경) -->
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.1.0</version>
+            <optional>true</optional>
+        </dependency>
+        
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <version>6.1.5</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <doclint>none</doclint>
+                    <failOnError>false</failOnError>
+                    <quiet>true</quiet>
+                    <additionalJOption>-Xdoclint:none</additionalJOption>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs>
+                        <arg>-Xlint:unchecked</arg>
+                    </compilerArgs>
+                    <showWarnings>true</showWarnings>
+                    <showDeprecation>false</showDeprecation>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.0.1</version>
+                <configuration>
+                    <useAgent>false</useAgent>
+                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
+                    <skip>${gpg.skip}</skip>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <!-- Central Publishing 플러그인 (공식 문서 기준) -->
+            <!-- 당분간 Maven 배포 비활성화 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <skip>true</skip>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>false</autoPublish>
+                    <waitUntil>validated</waitUntil>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

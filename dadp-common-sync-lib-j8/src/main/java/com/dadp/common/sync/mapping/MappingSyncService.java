@@ -1,6 +1,7 @@
 package com.dadp.common.sync.mapping;
 
 import com.dadp.common.sync.http.HttpClientAdapter;
+import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,7 +51,7 @@ public class MappingSyncService {
         this.datasourceId = datasourceId;
         this.apiBasePath = apiBasePath != null ? apiBasePath : "/hub/api/v1/proxy";
         // Java 버전에 따라 적절한 HTTP 클라이언트 자동 선택
-        this.httpClient = HttpClientAdapter.Factory.create(5000, 10000);
+        this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.policyResolver = policyResolver;

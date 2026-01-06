@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.daone-dadp</groupId>
+        <artifactId>dadp-client-libraries</artifactId>
+        <version>5.3.1</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <groupId>io.github.daone-dadp</groupId>
+    <artifactId>dadp-jdbc-wrapper-j8</artifactId>
+    <version>5.0.5</version>
+    <packaging>jar</packaging>
+
+    <name>DADP JDBC Wrapper (Java 8)</name>
+    <description>DADP JDBC Wrapper Driver - DB 자동 암복호화 Proxy (Java 8)</description>
+    <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+
+    <!-- 라이선스 정보 (필수) -->
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <!-- 개발자 정보 (필수) -->
+    <developers>
+        <developer>
+            <name>dadp team</name>
+            <email>csh@daonecns.co.kr</email>
+        </developer>
+    </developers>
+
+    <!-- SCM 정보 (필수) -->
+    <scm>
+        <connection>scm:git:git://github.com/daone-dadp/dadp-client-libraries.git</connection>
+        <developerConnection>scm:git:ssh://github.com/daone-dadp/dadp-client-libraries.git</developerConnection>
+        <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    </scm>
+
+    <!-- 배포 설정 (Central Publishing 플러그인이 자동 처리) -->
+    <distributionManagement>
+        <snapshotRepository>
+            <id>central</id>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>central</id>
+            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+
+    <properties>
+        <!-- Java 8 사용 (4.8.0 버전) -->
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>2.7.18</spring-boot.version>
+        <jackson.version>2.13.5</jackson.version>
+        <junit.version>5.9.3</junit.version>
+        <java.version>1.8</java.version>
+        <classifier></classifier>
+        <!-- GPG 서명 건너뛰기 (로컬 빌드 기본값: true, Maven Central 배포 시: false) -->
+        <gpg.skip>true</gpg.skip>
+        <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <profiles>
+        <!-- 프로파일 없음: 4.8.0은 Java 8 전용 버전 -->
+    </profiles>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Boot BOM (Spring Boot 관련 의존성 버전 자동 관리) -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            
+            <!-- Jackson 버전 관리 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            
+            <!-- JUnit 버전 관리 -->
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+            
+        <!-- Internal Dependencies -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-hub-crypto-lib</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+        
+        <!-- Common Sync Library (Java 8) -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-common-sync-lib-j8</artifactId>
+            <version>5.0.5</version>
+        </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Hub 암복호화 라이브러리 (필수) - Java 8 버전 사용 -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-hub-crypto-lib</artifactId>
+            <version>1.1.0</version>
+            <classifier>java8</classifier>
+        </dependency>
+        
+        <!-- Common Sync Library (Java 8) - 정책 매핑 및 엔드포인트 동기화 -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-common-sync-lib-j8</artifactId>
+            <version>5.0.5</version>
+        </dependency>
+        
+        <!-- Jackson for JSON processing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        
+        <!-- 
+        DB 드라이버는 pom.xml에 포함하지 않음
+        고객사가 lib 폴더에 필요한 드라이버 JAR를 직접 배치
+        JDBC ServiceLoader 메커니즘이 클래스패스에서 자동으로 드라이버를 찾음
+        테스트 시에도 lib 폴더의 드라이버를 사용하여 실제 운영 환경과 동일하게 테스트
+        -->
+        
+        <!-- SLF4J for logging (shade+relocate 예정: wrapper 내부 전용) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+        
+        <!-- SLF4J NOP 구현체: 로깅 구현체가 없을 때 NOP 사용 -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <version>1.7.36</version>
+        </dependency>
+        
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- GPG 서명 플러그인 (로컬 빌드 시 건너뛰기: -Dgpg.skip=true 또는 기본값 true) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.0.1</version>
+                <configuration>
+                    <useAgent>false</useAgent>
+                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
+                    <skip>${gpg.skip}</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Central Publishing 플러그인 (공식 문서 기준) -->
+            <!-- 당분간 Maven 배포 비활성화 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <skip>true</skip>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>false</autoPublish>
+                    <waitUntil>validated</waitUntil>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                    <encoding>UTF-8</encoding>
+                    <!-- Java 8 버전이므로 Java11HttpClientAdapter 제외 -->
+                    <excludes>
+                        <exclude>**/Java11HttpClientAdapter.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- JAR 생성 (4.8.0은 classifier 없이 기본 JAR만 생성) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <!-- Fat JAR 빌드 (모든 의존성 포함, DB 드라이버 제외) -->
+            <!-- 재빌드 없이 WAS 공통 라이브러리 디렉토리에 배치하여 사용 가능 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.2</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>all</shadedClassifierName>
+                            
+                            <!-- SLF4J relocate 제거: 자체 로깅 유틸리티 사용 -->
+                            
+                            <filters>
+                                <!-- Spring/Servlet 등은 절대 포함 금지 -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <!-- Spring 관련 클래스 모두 제외 -->
+                                        <exclude>org/springframework/**</exclude>
+                                        <exclude>org/springframework/boot/**</exclude>
+                                        <!-- Spring 관련 리소스 파일 제외 (충돌 방지) -->
+                                        <exclude>META-INF/spring.factories</exclude>
+                                        <exclude>META-INF/spring.handlers</exclude>
+                                        <exclude>META-INF/spring.schemas</exclude>
+                                        <exclude>META-INF/spring.tooling</exclude>
+                                        <exclude>META-INF/spring-configuration-metadata.json</exclude>
+                                        <exclude>META-INF/additional-spring-configuration-metadata.json</exclude>
+                                        <!-- Servlet 관련 클래스 제외 (Java 버전별로 다름) -->
+                                        <exclude>jakarta/servlet/**</exclude>
+                                        <exclude>javax/servlet/**</exclude>
+                                        <!-- Servlet 관련 리소스 제외 (중복 방지) -->
+                                        <exclude>META-INF/web-fragment.xml</exclude>
+                                        <!-- Logback 구현체 제외 (고객사 앱의 로깅 구현체 사용) -->
+                                        <exclude>ch/qos/logback/**</exclude>
+                                        <!-- SLF4J 관련 제외 (자체 로깅 유틸리티 사용) -->
+                                        <exclude>org/slf4j/**</exclude>
+                                        <exclude>META-INF/services/org.slf4j.*</exclude>
+                                        <!-- Java 9+ 모듈 시스템 관련 제외 (중복 방지) -->
+                                        <exclude>META-INF/versions/**/module-info.class</exclude>
+                                        <exclude>module-info.class</exclude>
+                                        <!-- 중복 라이선스 파일 제외 (하나만 유지) -->
+                                        <exclude>META-INF/LICENSE</exclude>
+                                        <exclude>META-INF/LICENSE.txt</exclude>
+                                        <exclude>META-INF/NOTICE</exclude>
+                                        <exclude>META-INF/NOTICE.txt</exclude>
+                                        <exclude>META-INF/license.txt</exclude>
+                                        <exclude>META-INF/notice.txt</exclude>
+                                        <exclude>META-INF/DEPENDENCIES</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <!-- ServiceLoader 지원을 위한 META-INF/services 병합 -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <!-- MANIFEST.MF 병합 -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <manifestEntries>
+                                        <Built-By>DADP Development Team</Built-By>
+                                    </manifestEntries>
+                                </transformer>
+                            </transformers>
+                            <minimizeJar>true</minimizeJar>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

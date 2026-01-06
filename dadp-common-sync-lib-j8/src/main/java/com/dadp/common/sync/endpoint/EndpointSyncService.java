@@ -2,6 +2,7 @@ package com.dadp.common.sync.endpoint;
 
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.http.HttpClientAdapter;
+import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +40,7 @@ public class EndpointSyncService {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
-        this.httpClient = HttpClientAdapter.Factory.create(5000, 10000);
+        this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.endpointStorage = new EndpointStorage(storageDir, fileName);
