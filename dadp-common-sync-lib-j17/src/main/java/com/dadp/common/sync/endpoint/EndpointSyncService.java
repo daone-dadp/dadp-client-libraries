@@ -31,15 +31,31 @@ public class EndpointSyncService {
     private final ObjectMapper objectMapper;
     private final EndpointStorage endpointStorage;
     
+    public EndpointSyncService(String hubUrl, String hubId, String alias) {
+        this(hubUrl, hubId, alias, EndpointStorage.getInstance());
+    }
+    
     public EndpointSyncService(String hubUrl, String hubId, String alias,
                                String storageDir, String fileName) {
+        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName));
+    }
+    
+    /**
+     * EndpointStorage 인스턴스를 직접 받는 생성자 (싱글톤 인스턴스 재사용)
+     * 
+     * @param hubUrl Hub URL
+     * @param hubId Hub가 발급한 고유 ID
+     * @param alias 사용자가 설정한 instanceId (별칭)
+     * @param endpointStorage EndpointStorage 인스턴스 (싱글톤 재사용)
+     */
+    public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        this.endpointStorage = new EndpointStorage(storageDir, fileName);
+        this.endpointStorage = endpointStorage;
     }
     
     /**

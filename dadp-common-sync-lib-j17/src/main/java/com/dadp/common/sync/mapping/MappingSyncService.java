@@ -58,47 +58,56 @@ public class MappingSyncService {
     /**
      * Hub에서 매핑 변경 여부 확인 (경량 요청)
      * 
-     * @param currentVersion 현재 매핑 버전 (null이면 미전달)
+     * @param version 현재 매핑 버전 (null이면 미전달)
      * @return 변경사항이 있으면 true, 없으면 false
      */
-    public boolean checkMappingChange(Long currentVersion) {
-        return checkMappingChange(currentVersion, null);
+    public boolean checkMappingChange(Long version) {
+        return checkMappingChange(version, null);
     }
     
     /**
      * Hub에서 매핑 변경 여부 확인 (경량 요청)
      * 
-     * @param currentVersion 현재 매핑 버전 (null이면 미전달)
+     * @param version 현재 매핑 버전 (null이면 미전달)
      * @param reregisteredHubId 재등록된 hubId를 저장할 배열 (재등록 발생 시 새 hubId 저장)
      * @return 변경사항이 있으면 true, 없으면 false
      */
-    public boolean checkMappingChange(Long currentVersion, String[] reregisteredHubId) {
+    public boolean checkMappingChange(Long version, String[] reregisteredHubId) {
         // checkUrl은 catch 블록에서도 사용하기 위해 메서드 시작 부분에서 선언
         String checkUrl = null;
         try {
-            // 공통 라이브러리로 통합하면서 파라미터 이름을 instanceId로 통일
-            // hubId가 null이면 alias 사용 (AOP 초기 등록 시나리오)
-            String instanceId = (hubId != null && !hubId.trim().isEmpty()) ? hubId : alias;
-            checkUrl = hubUrl + apiBasePath + "/mappings/check?instanceId=" + instanceId;
-            
-            if (currentVersion != null) {
-                checkUrl += "&currentVersion=" + currentVersion;
+            // hubId 필수 검증
+            if (hubId == null || hubId.trim().isEmpty()) {
+                log.warn("⚠️ hubId가 없어 매핑 변경 확인을 수행할 수 없습니다.");
+                throw new IllegalStateException("hubId가 필요합니다. 먼저 인스턴스 등록을 수행하세요.");
             }
             
-            // alias와 datasourceId 추가 (재등록을 위해)
-            if (alias != null && !alias.trim().isEmpty()) {
-                checkUrl += "&alias=" + URLEncoder.encode(alias, StandardCharsets.UTF_8);
+            // version 필수 검증 (영구저장소에서 불러오지 못하면 0으로 초기화)
+            if (version == null) {
+                version = 0L;
             }
-            if (datasourceId != null && !datasourceId.trim().isEmpty()) {
-                checkUrl += "&datasourceId=" + URLEncoder.encode(datasourceId, StandardCharsets.UTF_8);
-            }
+            
+            // Query 파라미터 없음, 헤더의 hubId만 사용
+            checkUrl = hubUrl + apiBasePath + "/mappings/check";
             
             log.trace("🔗 Hub 매핑 변경 확인 URL: {}", checkUrl);
             
-            // Spring RestTemplate 사용
-            ResponseEntity<CheckMappingChangeResponse> response = restTemplate.getForEntity(
-                checkUrl, CheckMappingChangeResponse.class);
+            // 헤더에 hubId와 버전 필수 포함
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-DADP-TENANT", hubId);  // hubId 필수
+            headers.set("X-Current-Version", String.valueOf(version));  // version 필수
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
             
+            // Spring RestTemplate 사용
+            ResponseEntity<CheckMappingChangeResponse> response = restTemplate.exchange(
+                checkUrl, HttpMethod.GET, entity, CheckMappingChangeResponse.class);
+            
+            // 304 Not Modified: 버전 동일 -> 동기화 불필요
+            if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                return false;
+            }
+            
+            // 200 OK: 버전 변경 -> 동기화 필요 (무조건 true 반환)
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 CheckMappingChangeResponse checkResponse = response.getBody();
                 if (checkResponse.isSuccess() && checkResponse.getData() != null) {
@@ -106,7 +115,6 @@ public class MappingSyncService {
                     if (checkResponse.getData() instanceof Map) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> dataMap = (Map<String, Object>) checkResponse.getData();
-                        Boolean hasChange = (Boolean) dataMap.get("hasChange");
                         Boolean reregistered = (Boolean) dataMap.get("reregistered");
                         
                         // 재등록 발생 시 로그 출력 및 hubId 저장
@@ -119,17 +127,20 @@ public class MappingSyncService {
                                 log.info("🔄 Hub에서 재등록 발생 (hubId 정보 없음)");
                             }
                         }
-                        
-                        return hasChange != null && hasChange;
-                    } else if (checkResponse.getData() instanceof Boolean) {
-                        // 하위 호환성: data가 Boolean인 경우
-                        Boolean dataValue = (Boolean) checkResponse.getData();
-                        return dataValue != null && dataValue;
                     }
                 }
+                // 200 OK를 받으면 무조건 true 반환 (갱신 필요)
+                return true;
             }
+            
+            // 기타 상태 코드는 false 반환
+            log.warn("⚠️ 매핑 변경 확인 실패: HTTP {}, URL={}", response.getStatusCode(), checkUrl);
             return false;
         } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // 404 Not Found: hubId를 찾을 수 없음 -> 예외를 다시 던져서 상위에서 등록 처리
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw e; // 예외를 다시 던져서 AopPolicyMappingSyncService에서 registerWithHub() 호출
+            }
             log.warn("⚠️ 매핑 변경 확인 실패: status={}, hubUrl={}, URL={}, message={}", 
                     e.getStatusCode(), hubUrl, checkUrl, e.getMessage());
             if (e.getResponseBodyAsString() != null) {
@@ -152,44 +163,46 @@ public class MappingSyncService {
         // policiesUrl은 catch 블록에서도 사용하기 위해 메서드 시작 부분에서 선언
         String policiesUrl = null;
         try {
-            log.trace("🔄 Hub에서 정책 스냅샷 로드 시작: hubId={}, currentVersion={}", 
-                hubId, currentVersion);
+            log.trace("🔄 Hub에서 정책 스냅샷 로드 시작: hubId={}, alias={}, currentVersion={}", 
+                hubId, alias, currentVersion);
             
-            // 공통 라이브러리로 통합하면서 파라미터 이름을 instanceId로 통일
-            // hubId가 null이면 alias 사용 (AOP 초기 등록 시나리오)
-            String instanceId = (hubId != null && !hubId.trim().isEmpty()) ? hubId : alias;
-            policiesUrl = hubUrl + apiBasePath + "/policies?instanceId=" + instanceId;
-            if (currentVersion != null) {
-                policiesUrl += "&version=" + currentVersion;
+            // instanceId 파라미터는 alias를 사용 (정책 매핑은 alias 기준으로 동기화)
+            // Hub의 getPolicySnapshotByAlias가 alias로 첫 번째 인스턴스를 찾아 정책을 반환
+            String instanceIdParam;
+            if (alias != null && !alias.trim().isEmpty()) {
+                instanceIdParam = alias;  // alias를 instanceId 파라미터로 전달
+            } else if (hubId != null && !hubId.trim().isEmpty()) {
+                instanceIdParam = hubId;  // alias가 없으면 hubId를 fallback으로 사용
+            } else {
+                instanceIdParam = "";  // 둘 다 없으면 빈 문자열 (Hub에서 에러 발생)
+            }
+            policiesUrl = hubUrl + apiBasePath + "/policies?instanceId=" + instanceIdParam;
+            
+            // alias는 항상 별도 파라미터로도 전달 (Hub의 getPolicySnapshotByAlias에서 사용)
+            if (alias != null && !alias.trim().isEmpty()) {
+                policiesUrl += "&alias=" + URLEncoder.encode(alias, StandardCharsets.UTF_8);
             }
             
-            // Spring RestTemplate 사용
+            // 헤더에 hubId와 버전 포함 (버전은 헤더로 전송)
             HttpHeaders headers = new HttpHeaders();
             headers.set("Accept", MediaType.APPLICATION_JSON_VALUE);
+            if (hubId != null && !hubId.trim().isEmpty()) {
+                headers.set("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
+            }
+            if (currentVersion != null) {
+                headers.set("X-Current-Version", String.valueOf(currentVersion));  // 버전은 헤더로 전송
+            }
             HttpEntity<?> entity = new HttpEntity<>(headers);
             
             ResponseEntity<PolicySnapshotResponse> response = restTemplate.exchange(
                 policiesUrl, HttpMethod.GET, entity, PolicySnapshotResponse.class);
             
-            // 304 Not Modified: 변경 없음 (헤더에서 버전 정보 읽기)
+            // 304 Not Modified: 변경 없음 -> 아무것도 하지 않음 (현재 버전 유지)
             if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                // Hub가 응답 헤더에 버전 정보를 포함했는지 확인
-                String versionHeader = response.getHeaders().getFirst("X-Current-Version");
-                if (versionHeader != null && !versionHeader.trim().isEmpty()) {
-                    try {
-                        Long hubVersion = Long.parseLong(versionHeader.trim());
-                        // PolicyResolver에 버전만 업데이트 (매핑은 변경 없음)
-                        policyResolver.setCurrentVersion(hubVersion);
-                        log.trace("⏭️ 정책 스냅샷 변경 없음, 버전만 업데이트: version={} -> {}", currentVersion, hubVersion);
-                    } catch (NumberFormatException e) {
-                        log.warn("⚠️ Hub 응답 헤더의 버전 정보 파싱 실패: X-Current-Version={}", versionHeader);
-                    }
-                } else {
-                    log.trace("⏭️ 정책 스냅샷 변경 없음 (version={}, 헤더 버전 정보 없음)", currentVersion);
-                }
                 return 0;
             }
             
+            // 200 OK: 버전 변경 -> 동기화 필요
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 PolicySnapshotResponse snapshotResponse = response.getBody();
                 
@@ -230,10 +243,14 @@ public class MappingSyncService {
                     }
                     
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨, 버전 정보 포함)
-                    policyResolver.refreshMappings(policyMap, snapshot.getVersion());
+                    Long snapshotVersion = snapshot.getVersion();
+                    if (snapshotVersion == null) {
+                        log.warn("⚠️ Hub에서 받은 정책 스냅샷에 버전 정보가 없음 (version=null), 매핑={}개", policyMap.size());
+                    }
+                    policyResolver.refreshMappings(policyMap, snapshotVersion);
                     
                     log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑 (영구 저장소에 저장됨)", 
-                        snapshot.getVersion(), policyMap.size());
+                        snapshotVersion, policyMap.size());
                     return policyMap.size();
                 }
             }
@@ -243,6 +260,12 @@ public class MappingSyncService {
             return 0;
             
         } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 재등록 필요
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                log.debug("📋 Hub에서 hubId를 찾을 수 없음 (등록되지 않은 hubId): alias={}, 다음 주기에서 재등록 시도", alias);
+                // 0 반환하여 다음 주기에서 재등록 시도
+                return 0;
+            }
             log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: status={}, hubUrl={}, URL={}, message={}", 
                     e.getStatusCode(), hubUrl, policiesUrl, e.getMessage());
             if (e.getResponseBodyAsString() != null) {
@@ -252,6 +275,9 @@ public class MappingSyncService {
             log.info("📂 Hub 연결 실패, 영구 저장소에서 정책 매핑 정보 로드 시도");
             policyResolver.reloadFromStorage();
             return 0;
+        } catch (IllegalStateException e) {
+            // 400 응답으로 인한 초기화 필요 예외는 다시 던짐
+            throw e;
         } catch (Exception e) {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
@@ -275,7 +301,7 @@ public class MappingSyncService {
      * 
      * 문서 플로우 (docs/design/proxy-sync-optimization-flow.md)에 따라 구현:
      * 1. Hub에서 정책 스냅샷 로드
-     * 2. PolicyResolver에 반영 (304 반환 시에도 버전 정보 업데이트됨)
+     * 2. PolicyResolver에 반영 (200 응답 시에만 매핑 및 버전 저장)
      * 3. 동기화 완료 후 Hub에 버전 업데이트
      * 
      * @param currentVersion 현재 버전 (null이면 최신 버전 조회)
@@ -283,33 +309,30 @@ public class MappingSyncService {
      */
     public int syncPolicyMappingsAndUpdateVersion(Long currentVersion) {
         // 1. Hub에서 정책 스냅샷 로드
-        // 304 반환 시에도 loadPolicySnapshotFromHub에서 PolicyResolver 버전이 업데이트됨
         int loadedCount = loadPolicySnapshotFromHub(currentVersion);
         Long newVersion = policyResolver.getCurrentVersion();
         
         if (loadedCount > 0) {
             log.info("✅ 정책 매핑 동기화 완료: {}개 매핑 로드, version={}", loadedCount, newVersion);
         } else {
-            // 304 반환 시에도 버전이 업데이트되었을 수 있음
-            if (newVersion != null && currentVersion != null && !newVersion.equals(currentVersion)) {
-                log.debug("📋 정책 매핑 변경 없음 (304), 버전 업데이트됨: {} -> {}", currentVersion, newVersion);
-            } else {
-                log.debug("📋 정책 매핑 변경 없음 또는 로드 실패");
-            }
+            // 304 응답 시에는 아무것도 하지 않음 (현재 버전 유지)
+            log.debug("📋 정책 매핑 변경 없음 또는 로드 실패");
         }
         
         // 2. 동기화 완료 후 Hub에 버전 업데이트
         // 문서 플로우: 동기화 완료 후 즉시 Hub에 currentVersion 업데이트
-        // newVersion이 있으면 항상 Hub에 업데이트 (304 반환 시에도 버전이 업데이트되었을 수 있음)
+        // checkMappingChange를 호출하면 Hub가 버전을 확인하고, 이미 동기화되어 있으면 304를 반환
         if (newVersion != null) {
             // checkMappingChange를 호출하여 Hub에 currentVersion 업데이트
-            // hasChange는 false일 것이지만, 버전 업데이트가 목적
-            log.info("🔄 Hub에 버전 업데이트 요청: currentVersion={}", newVersion);
-            boolean updated = checkMappingChange(newVersion, null);
-            if (updated) {
-                log.info("✅ Hub에 동기화 완료 버전 업데이트 성공: version={}", newVersion);
+            // 버전이 이미 동기화되어 있으면 false 반환 (304 Not Modified)
+            // 버전이 변경되어 있으면 true 반환 (200 OK, hasChange=true)
+            log.debug("🔄 Hub에 버전 확인 요청: currentVersion={}", newVersion);
+            boolean hasChange = checkMappingChange(newVersion, null);
+            if (hasChange) {
+                log.debug("📋 Hub에서 버전 변경 감지 (다음 동기화 주기에서 처리)");
             } else {
-                log.warn("⚠️ Hub에 동기화 완료 버전 업데이트 실패: version={} (다음 주기에서 재시도)", newVersion);
+                // false 반환은 "이미 동기화 완료"를 의미 (304 Not Modified 또는 hasChange=false)
+                log.debug("✅ Hub 버전 확인 완료: version={} (이미 동기화됨)", newVersion);
             }
         } else {
             log.debug("⏭️ Hub에 버전 업데이트 건너뜀: newVersion={}", newVersion);

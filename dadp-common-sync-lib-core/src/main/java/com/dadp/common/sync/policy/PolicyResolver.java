@@ -1,5 +1,6 @@
 package com.dadp.common.sync.policy;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import com.dadp.common.logging.DadpLogger;
@@ -21,6 +22,10 @@ public class PolicyResolver {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(PolicyResolver.class);
     
+    // 싱글톤 인스턴스 (기본 경로 사용)
+    private static volatile PolicyResolver defaultInstance = null;
+    private static final Object singletonLock = new Object();
+    
     // 캐시: 테이블.컬럼 → 정책명
     private final Map<String, String> policyCache = new ConcurrentHashMap<>();
     
@@ -29,6 +34,22 @@ public class PolicyResolver {
     
     // 영구 저장소 (Hub 다운 시에도 사용)
     private final PolicyMappingStorage storage;
+    
+    /**
+     * 싱글톤 인스턴스 조회 (기본 경로 사용)
+     * 
+     * @return 싱글톤 PolicyResolver 인스턴스
+     */
+    public static PolicyResolver getInstance() {
+        if (defaultInstance == null) {
+            synchronized (singletonLock) {
+                if (defaultInstance == null) {
+                    defaultInstance = new PolicyResolver();
+                }
+            }
+        }
+        return defaultInstance;
+    }
     
     /**
      * 기본 생성자 (영구 저장소 자동 초기화)
@@ -69,11 +90,17 @@ public class PolicyResolver {
             Long storedVersion = storage.loadVersion();
             if (storedVersion != null) {
                 this.currentVersion = storedVersion;
+            } else {
+                // 버전이 없으면 0으로 초기화 (첫 실행 시)
+                this.currentVersion = 0L;
+                log.debug("📋 영구 저장소에 버전 정보 없음, 0으로 초기화");
             }
             log.info("📂 영구 저장소에서 정책 매핑 로드 완료: {}개 매핑, version={}", 
-                    storedMappings.size(), storedVersion);
+                    storedMappings.size(), this.currentVersion);
         } else {
-            log.debug("📋 영구 저장소에 정책 매핑 정보 없음 (Hub에서 로드 예정)");
+            // 매핑이 없어도 버전은 0으로 초기화 (첫 실행 시)
+            this.currentVersion = 0L;
+            log.debug("📋 영구 저장소에 정책 매핑 정보 없음 (Hub에서 로드 예정), version=0으로 초기화");
         }
     }
     
@@ -200,7 +227,8 @@ public class PolicyResolver {
      * 정책 매핑 캐시 갱신
      * Hub API로부터 최신 매핑 정보를 받아 캐시를 갱신하고 영구 저장소에 저장합니다.
      * 
-     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명)
+     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명, null 가능)
+     *                 키가 스키마 정보(table.column)이고, 값이 null이면 스키마는 있지만 정책이 없는 상태
      * @param version 정책 버전 (null 가능)
      */
     public void refreshMappings(Map<String, String> mappings, Long version) {
@@ -208,12 +236,19 @@ public class PolicyResolver {
         policyCache.clear();
         policyCache.putAll(mappings);
         
-        // 버전 정보 저장
+        // 버전 정보 저장 (version이 null이면 0으로 초기화)
+        // 재등록 후 버전이 0으로 초기화되므로 0도 유효한 버전으로 처리
         if (version != null) {
             this.currentVersion = version;
+            log.debug("📋 정책 버전 업데이트: version={}", version);
+        } else {
+            // Hub에서 버전을 받지 못한 경우 0으로 초기화 (첫 실행 시나 재등록 시)
+            this.currentVersion = 0L;
+            log.warn("⚠️ Hub에서 버전 정보를 받지 못함 (version=null), 0으로 초기화");
         }
         
         // 영구 저장소에 저장 (Hub 다운 시에도 사용 가능하도록)
+        // 버전이 null이어도 매핑 정보는 저장 (버전은 별도로 저장)
         boolean saved = storage.saveMappings(mappings, version);
         if (saved) {
             log.info("💾 정책 매핑 정보 영구 저장 완료: {}개 매핑, version={}", mappings.size(), version);
@@ -246,7 +281,7 @@ public class PolicyResolver {
     }
     
     /**
-     * 정책 버전 설정
+     * 정책 버전 설정 (메모리만 업데이트, 영구저장소 저장은 refreshMappings에서 수행)
      * 
      * @param version 정책 버전
      */
@@ -346,6 +381,15 @@ public class PolicyResolver {
      */
     public String getStoragePath() {
         return storage.getStoragePath();
+    }
+    
+    /**
+     * 모든 정책 매핑 조회 (스키마 정책명 업데이트용)
+     * 
+     * @return 정책 매핑 맵 (schema.table.column → policyName)
+     */
+    public Map<String, String> getAllMappings() {
+        return new HashMap<>(policyCache);
     }
 }
 

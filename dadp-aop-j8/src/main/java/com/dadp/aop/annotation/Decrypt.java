@@ -43,9 +43,9 @@ public @interface Decrypt {
     
     /**
      * 복호화 로그 출력 여부
-     * 기본값: true
+     * 기본값: false (명시적으로 true로 설정해야 로그 출력)
      */
-    boolean enableLogging() default true;
+    boolean enableLogging() default false;
     
     /**
      * 마스킹 정책명 (복호화 시 마스킹 적용을 위해 사용)

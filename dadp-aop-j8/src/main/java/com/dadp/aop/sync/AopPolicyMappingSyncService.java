@@ -1,12 +1,17 @@
 package com.dadp.aop.sync;
 
 import com.dadp.aop.config.DadpAopProperties;
+import com.dadp.aop.metadata.EncryptionMetadataInitializer;
 import com.dadp.common.sync.config.EndpointStorage;
+import com.dadp.common.sync.config.HubIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
+import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
 import com.dadp.common.sync.mapping.MappingSyncService;
+import com.dadp.common.sync.mapping.PolicyMappingSyncOrchestrator;
 import com.dadp.common.sync.policy.PolicyResolver;
+import com.dadp.common.sync.schema.SchemaStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
@@ -14,16 +19,20 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AOP 정책 매핑 동기화 서비스
  * 
- * 30초 주기로 Hub에서 정책 매핑 정보와 엔드포인트 정보를 가져와서 저장합니다.
- * 공통 라이브러리의 MappingSyncService와 EndpointSyncService를 사용합니다.
- * EndpointSyncService가 URL을 업데이트하면 DirectCryptoAdapter도 자동으로 업데이트합니다.
- * 
- * Wrapper와 동일한 플로우: hubId가 null이면 스키마 동기화를 먼저 수행하여 hubId를 받습니다.
+ * 플로우:
+ * 1. 스키마 로드 대기 (스키마가 없으면 아무것도 하지 말고 대기)
+ * 2. hubId 획득 (영구저장소에서 1회만 수행. 없으면 hub로부터 획득 - 플로우a 수행)
+ * 3. 1과 2번이 완료된 이후부터는 checkMappingChange만 수행
+ *    - 304 -> 아무것도 안함
+ *    - 200 -> 갱신 (정책 매핑, url, 버전 등)
+ *    - 404 -> hub로부터 획득 (플로우a 수행)
  * 
  * @author DADP Development Team
  * @version 5.0.6
@@ -34,25 +43,38 @@ public class AopPolicyMappingSyncService {
     
     private static final Logger log = LoggerFactory.getLogger(AopPolicyMappingSyncService.class);
     
-    private final MappingSyncService mappingSyncService;
+    private volatile MappingSyncService mappingSyncService;
     private volatile EndpointSyncService endpointSyncService;  // hubId 업데이트를 위해 volatile로 변경
-    private final AopSchemaSyncService aopSchemaSyncService;
+    private final AopSchemaSyncServiceV2 aopSchemaSyncService;
     private final PolicyResolver policyResolver;
     private final DirectCryptoAdapter directCryptoAdapter;
     private final EndpointStorage endpointStorage;
     private final DadpAopProperties properties;
     private final Environment environment;
     private final InstanceConfigStorage configStorage;
+    private final EncryptionMetadataInitializer metadataInitializer;
+    private final SchemaStorage schemaStorage;
     private final AtomicBoolean enabled = new AtomicBoolean(false);
+    
+    // HubId 관리자 (core에서 제공)
+    private final HubIdManager hubIdManager;
+    
+    // 정책 매핑 동기화 오케스트레이터 (core에서 제공)
+    private final PolicyMappingSyncOrchestrator syncOrchestrator;
+    
+    // 초기화 상태 플래그
+    private volatile boolean initialized = false;
+    private final String instanceId;  // 앱 구동 시 한 번만 설정
     
     public AopPolicyMappingSyncService(MappingSyncService mappingSyncService,
                                       EndpointSyncService endpointSyncService,
-                                      AopSchemaSyncService aopSchemaSyncService,
+                                      AopSchemaSyncServiceV2 aopSchemaSyncService,
                                       PolicyResolver policyResolver,
                                       DirectCryptoAdapter directCryptoAdapter,
                                       EndpointStorage endpointStorage,
                                       DadpAopProperties properties,
-                                      Environment environment) {
+                                      Environment environment,
+                                      EncryptionMetadataInitializer metadataInitializer) {
         this.mappingSyncService = mappingSyncService;
         this.endpointSyncService = endpointSyncService;
         this.aopSchemaSyncService = aopSchemaSyncService;
@@ -61,122 +83,119 @@ public class AopPolicyMappingSyncService {
         this.endpointStorage = endpointStorage;
         this.properties = properties;
         this.environment = environment;
+        this.metadataInitializer = metadataInitializer;
         
         // InstanceConfigStorage 초기화 (hubId 확인용)
         String storageDir = System.getProperty("user.home") + "/.dadp-aop";
         this.configStorage = new InstanceConfigStorage(storageDir, "aop-config.json");
-    }
-    
-    /**
-     * 초기화 후 즉시 동기화 수행
-     */
-    @PostConstruct
-    public void init() {
-        if (enabled.get()) {
-            log.info("🔄 AOP 정책 매핑 및 엔드포인트 초기 동기화 시작");
-            syncAll();
-        }
-    }
-    
-    /**
-     * 30초 주기로 정책 매핑 및 엔드포인트 동기화
-     */
-    @Scheduled(fixedDelay = 30000) // 30초
-    public void syncAllPeriodically() {
-        if (!enabled.get()) {
-            return;
-        }
         
-        log.trace("🔄 AOP 정책 매핑 및 엔드포인트 주기 동기화 시작");
-        syncAll();
-    }
-    
-    /**
-     * hubId 확인 및 필요 시 스키마 동기화 수행 (Wrapper와 동일한 플로우)
-     * 
-     * @return hubId, 없으면 null
-     */
-    private String ensureHubId() {
+        // SchemaStorage 초기화 (스키마 정책명 업데이트용)
+        this.schemaStorage = new SchemaStorage(storageDir, "schemas.json");
+        
+        // InstanceIdProvider 초기화 (core에서 instanceId 관리)
+        // AOP용: Spring property 값 전달
+        String springAppName = environment != null ? environment.getProperty("spring.application.name") : null;
+        InstanceIdProvider instanceIdProvider = new InstanceIdProvider(springAppName);
+        this.instanceId = instanceIdProvider.getInstanceId();
+        
+        // HubIdManager 초기화 (hubId 관리 로직을 core로 위임)
         String hubUrl = properties.getHubBaseUrl();
-        if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            return null;
-        }
-        
-        // AOP 인스턴스 ID 조회
-        String instanceId = System.getenv("DADP_AOP_INSTANCE_ID");
-        if (instanceId == null || instanceId.trim().isEmpty()) {
-            if (environment != null) {
-                instanceId = environment.getProperty("spring.application.name", "aop");
-            } else {
-                instanceId = "aop";
-            }
-        }
-        
-        // 저장소에서 hubId 로드 (1회만)
-        InstanceConfigStorage.ConfigData config = configStorage.loadConfig(hubUrl, instanceId);
-        String hubId = (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) 
-                ? config.getHubId() : null;
-        
-        // hubId가 없으면 스키마 동기화를 먼저 수행 (Wrapper와 동일한 플로우)
-        if (hubId == null && aopSchemaSyncService != null) {
-            log.info("📝 hubId가 없습니다. 스키마 동기화를 먼저 수행하여 hubId를 받습니다.");
-            boolean synced = aopSchemaSyncService.syncSchemasToHub();
-            if (synced) {
-                // 스키마 동기화 후 저장소에서 hubId 다시 로드
-                config = configStorage.loadConfig(hubUrl, instanceId);
-                hubId = (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) 
-                        ? config.getHubId() : null;
-                
-                if (hubId != null) {
-                    log.info("✅ hubId 수신 완료: hubId={}", hubId);
-                    // EndpointSyncService 재생성 (hubId 업데이트)
-                    updateEndpointSyncService(hubId, instanceId);
-                    
-                    // 저장된 엔드포인트 데이터 로드 및 DirectCryptoAdapter 초기화 (Wrapper와 동일)
-                    if (endpointSyncService != null && directCryptoAdapter != null) {
-                        try {
-                            // 1. Hub에서 엔드포인트 정보 조회 시도 (최신 정보 가져오기)
-                            boolean syncSuccess = endpointSyncService.syncEndpointsFromHub();
-                            
-                            // 2. 저장된 엔드포인트 정보 로드 (Hub가 없어도 저장된 정보 사용)
-                            EndpointStorage.EndpointData endpointData = endpointSyncService.loadStoredEndpoints();
-                            
-                            if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
-                                // 저장된 정보로 DirectCryptoAdapter 업데이트
-                                directCryptoAdapter.setEndpointData(endpointData);
-                                log.info("✅ DirectCryptoAdapter 초기화 완료: cryptoUrl={}, hubId={}, version={}, syncSuccess={}",
-                                        endpointData.getCryptoUrl(),
-                                        endpointData.getHubId(),
-                                        endpointData.getVersion(),
-                                        syncSuccess);
-                            } else {
-                                log.debug("⏭️ 저장된 엔드포인트 정보가 없습니다. Hub 연결 후 다시 시도하세요.");
-                            }
-                        } catch (Exception e) {
-                            // Hub 동기화 실패해도 저장된 데이터로 동작 가능하도록 시도
-                            log.warn("⚠️ 엔드포인트 동기화 실패, 저장된 데이터 로드 시도: {}", e.getMessage());
-                            try {
-                                EndpointStorage.EndpointData endpointData = endpointSyncService.loadStoredEndpoints();
-                                if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
-                                    directCryptoAdapter.setEndpointData(endpointData);
-                                    log.info("✅ 저장된 엔드포인트 정보로 DirectCryptoAdapter 초기화 완료: cryptoUrl={}", endpointData.getCryptoUrl());
-                                }
-                            } catch (Exception loadEx) {
-                                log.warn("⚠️ 저장된 엔드포인트 정보 로드 실패: {}", loadEx.getMessage());
-                            }
+        // HubIdManager 콜백에서 syncOrchestrator를 참조할 수 있도록 final 변수 사용
+        final AopPolicyMappingSyncService self = this;
+        this.hubIdManager = new HubIdManager(
+            configStorage,
+            hubUrl,
+            instanceIdProvider,
+            new HubIdManager.HubIdChangeCallback() {
+                @Override
+                public void onHubIdChanged(String oldHubId, String newHubId) {
+                    // hubId 변경 시 MappingSyncService 및 EndpointSyncService 재생성
+                    if (newHubId != null && !newHubId.trim().isEmpty()) {
+                        self.updateMappingSyncService(newHubId, instanceId);
+                        self.updateEndpointSyncService(newHubId, instanceId);
+                        // syncOrchestrator의 MappingSyncService도 업데이트
+                        if (self.syncOrchestrator != null) {
+                            self.syncOrchestrator.updateMappingSyncService(self.mappingSyncService);
                         }
                     }
                 }
             }
+        );
+        
+        // PolicyMappingSyncOrchestrator 초기화 (checkMappingChange 플로우를 core로 위임)
+        this.syncOrchestrator = new PolicyMappingSyncOrchestrator(
+            hubIdManager,
+            mappingSyncService,
+            policyResolver,
+            schemaStorage,
+            new PolicyMappingSyncOrchestrator.SyncCallbacks() {
+                @Override
+                public void onRegistrationNeeded() {
+                    registerWithHub();
+                }
+                
+                @Override
+                public void onReregistration(String newHubId) {
+                    // 재등록 시에는 스키마 재전송 불필요
+                    // Hub에서 인스턴스 삭제해도 스키마는 alias 기반으로 유지되므로 재전송할 필요 없음
+                    // 첫 구동시에만 스키마 전송 (AopBootstrapOrchestrator에서 처리)
+                    log.info("✅ 재등록 완료: hubId={} (스키마 재전송 생략, Hub에서 alias 기반으로 유지됨)", newHubId);
+                }
+                
+                @Override
+                public void onEndpointSynced(Object endpointData) {
+                    // 엔드포인트 동기화 후 처리
+                    syncEndpointsAfterPolicyMapping();
+                }
+            }
+        );
+    }
+    
+    /**
+     * 초기화 (오케스트레이터가 호출)
+     * @PostConstruct에서는 허브 관련 초기화를 하지 않음 (오케스트레이터가 담당)
+     */
+    @PostConstruct
+    public void init() {
+        // 허브 관련 초기화는 AopBootstrapOrchestrator가 ApplicationReadyEvent 이후에 수행
+        // 여기서는 필드 초기화만 수행
+        log.debug("📋 AopPolicyMappingSyncService 빈 생성 완료 (초기화는 오케스트레이터가 수행)");
+    }
+    
+    /**
+     * 오케스트레이터가 초기화 완료를 알림
+     * 
+     * @param initialized 초기화 완료 여부
+     * @param hubId 캐시된 hubId
+     */
+    public void setInitialized(boolean initialized, String hubId) {
+        this.initialized = initialized;
+        
+        // HubIdManager를 통해 hubId 설정 (변경 감지 및 콜백 자동 호출)
+        if (hubId != null && !hubId.trim().isEmpty()) {
+            hubIdManager.setHubId(hubId, false); // 이미 저장되어 있으므로 저장 불필요
         }
         
-        return hubId;
+        log.info("✅ AopPolicyMappingSyncService 초기화 완료 알림: initialized={}, hubId={}", initialized, hubId);
+    }
+    
+    /**
+     * 30초 주기로 버전 체크만 수행
+     */
+    @Scheduled(fixedDelay = 30000) // 30초
+    public void checkMappingChangePeriodically() {
+        if (!enabled.get() || !initialized) {
+            return;
+        }
+        
+        log.trace("🔄 AOP 정책 매핑 버전 체크 시작");
+        checkMappingChange();
     }
     
     /**
      * EndpointSyncService 재생성 (hubId 업데이트)
      */
-    private void updateEndpointSyncService(String hubId, String instanceId) {
+    public void updateEndpointSyncService(String hubId, String instanceId) {
         String storageDir = System.getProperty("user.home") + "/.dadp-aop";
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
@@ -185,97 +204,97 @@ public class AopPolicyMappingSyncService {
     }
     
     /**
-     * 정책 매핑 및 엔드포인트 동기화 수행 (Wrapper와 동일한 플로우)
+     * MappingSyncService 재생성 (hubId 업데이트)
      */
-    private void syncAll() {
-        // 0. hubId 확인 및 필요 시 스키마 동기화 (Wrapper와 동일한 플로우)
-        String hubId = ensureHubId();
+    private void updateMappingSyncService(String hubId, String instanceId) {
+        String hubUrl = properties.getHubBaseUrl();
+        String datasourceId = null; // AOP는 datasourceId 없음
+        String apiBasePath = "/hub/api/v1/aop";
+        this.mappingSyncService = new MappingSyncService(
+            hubUrl, hubId, instanceId, datasourceId, apiBasePath, policyResolver);
+        log.info("🔄 MappingSyncService 재생성 완료: hubId={}", hubId);
+    }
+    
+    /**
+     * 3. 버전 체크만 수행 (30초 주기)
+     * - 304 -> 아무것도 안함
+     * - 200 -> 갱신 (정책 매핑, url, 버전 등)
+     * - 404 -> hub로부터 획득 (플로우a 수행)
+     */
+    private void checkMappingChange() {
+        // core의 오케스트레이터에 위임
+        syncOrchestrator.checkMappingChange();
+    }
+    
+    /**
+     * 정책 매핑 동기화 후 엔드포인트 동기화 수행
+     */
+    private void syncEndpointsAfterPolicyMapping() {
+        // hubId가 있으면 endpointSyncService를 재생성 (hubId 업데이트)
+        String currentHubId = hubIdManager.getCachedHubId();
+        if (currentHubId != null && endpointSyncService != null) {
+            updateEndpointSyncService(currentHubId, instanceId);
+        }
         
-        // hubId가 없으면 정책 매핑 동기화 불가
-        if (hubId == null) {
-            log.debug("⏭️ hubId가 없어 정책 매핑 동기화를 건너뜁니다.");
+        if (endpointSyncService != null) {
+            try {
+                boolean endpointSynced = endpointSyncService.syncEndpointsFromHub();
+                
+                if (endpointSynced) {
+                    EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+                    if (endpointData != null) {
+                        // 암복호화 어댑터에 엔드포인트 정보 적용 (캐싱)
+                        if (directCryptoAdapter != null) {
+                            directCryptoAdapter.setEndpointData(endpointData);
+                        }
+                        log.info("✅ 엔드포인트 동기화 완료: cryptoUrl={}, hubId={}, version={}",
+                                endpointData.getCryptoUrl(),
+                                endpointData.getHubId(),
+                                endpointData.getVersion());
+                    }
+                } else {
+                    log.warn("⚠️ 엔드포인트 동기화 실패 (다음 주기에서 재시도)");
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Hub에 등록 (인스턴스 등록 → 스키마 동기화)
+     * 404 응답 시 호출됨
+     */
+    private void registerWithHub() {
+        String hubUrl = properties.getHubBaseUrl();
+        
+        // 1단계: 인스턴스 등록 (hubId 발급)
+        log.info("📝 1단계: Hub 인스턴스 등록 시작: instanceId={}", instanceId);
+        String hubId = aopSchemaSyncService.registerInstance();
+        if (hubId == null || hubId.trim().isEmpty()) {
+            log.warn("⚠️ Hub 인스턴스 등록 실패");
             return;
         }
         
-        try {
-            // 현재 버전 확인
-            Long currentVersion = policyResolver.getCurrentVersion();
-            
-            // 재등록 감지용 배열 (Wrapper와 동일)
-            String[] reregisteredHubId = new String[1];
-            
-            // Hub에서 변경 여부 확인 (재등록 정보도 함께 확인)
-            boolean hasChange = mappingSyncService.checkMappingChange(currentVersion, reregisteredHubId);
-            
-            // 재등록 감지: Hub 응답에서 재등록 정보 확인 (Wrapper와 동일)
-            boolean isReregistered = reregisteredHubId[0] != null;
-            if (isReregistered) {
-                // 재등록 발생: hubId 업데이트 및 스키마 재전송 (Wrapper와 동일)
-                String reregisteredHubIdValue = reregisteredHubId[0];
-                log.info("🔄 재등록 발생: hubId={}, 스키마 재전송", reregisteredHubIdValue);
-                
-                // hubId 업데이트 (저장소에 저장)
-                String hubUrl = properties.getHubBaseUrl();
-                String instanceId = System.getenv("DADP_AOP_INSTANCE_ID");
-                if (instanceId == null || instanceId.trim().isEmpty()) {
-                    if (environment != null) {
-                        instanceId = environment.getProperty("spring.application.name", "aop");
-                    } else {
-                        instanceId = "aop";
-                    }
+        // hubId 저장 (HubIdManager를 통해 저장 및 콜백 자동 호출)
+        hubIdManager.setHubId(hubId, true);
+        log.info("✅ Hub 인스턴스 등록 완료: hubId={}", hubId);
+        
+        // 재등록 시에는 스키마 재전송 불필요 (Hub에서 인스턴스 삭제해도 스키마는 유지됨)
+        // 첫 구동시에만 스키마 전송 (AopBootstrapOrchestrator에서 처리)
+        log.info("✅ Hub 등록 완료: hubId={} (재등록이므로 스키마 재전송 생략)", hubId);
+        
+        // 엔드포인트 동기화
+        if (endpointSyncService != null) {
+            try {
+                endpointSyncService.syncEndpointsFromHub();
+                EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+                if (endpointData != null && directCryptoAdapter != null) {
+                    directCryptoAdapter.setEndpointData(endpointData);
                 }
-                configStorage.saveConfig(reregisteredHubIdValue, hubUrl, instanceId, null);
-                
-                // EndpointSyncService 재생성 (hubId 업데이트)
-                updateEndpointSyncService(reregisteredHubIdValue, instanceId);
-                
-                // 스키마 재전송 (Hub가 이미 재등록 완료)
-                if (aopSchemaSyncService != null) {
-                    aopSchemaSyncService.syncSchemasToHub();
-                }
+            } catch (Exception e) {
+                log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
             }
-            
-            if (hasChange) {
-                // 버전이 다를 경우 모든 데이터 동기화 (공통 라이브러리 사용)
-                log.info("🔄 정책 매핑 변경 감지, Hub에서 최신 정보 로드 시작");
-                
-                // 1. 정책 매핑 동기화 및 버전 업데이트 (공통 로직)
-                int loadedCount = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
-                
-                // 2. Engine URL 동기화 (엔드포인트 동기화) - 정책 매핑 변경 시에만 수행 (Wrapper와 동일)
-                if (endpointSyncService != null) {
-                    try {
-                        log.trace("🔄 AOP 엔드포인트 동기화 시작");
-                        boolean endpointSynced = endpointSyncService.syncEndpointsFromHub();
-                        
-                        if (endpointSynced) {
-                            EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-                            if (endpointData != null) {
-                                // 암복호화 어댑터에 엔드포인트 정보 적용
-                                if (directCryptoAdapter != null) {
-                                    directCryptoAdapter.setEndpointData(endpointData);
-                                }
-                                // 통계 설정도 함께 동기화됨
-                                log.info("🔄 엔드포인트 및 통계 설정 동기화 완료: cryptoUrl={}, hubId={}, version={}, statsEnabled={}, statsUrl={}",
-                                        endpointData.getCryptoUrl(),
-                                        endpointData.getHubId(),
-                                        endpointData.getVersion(),
-                                        endpointData.getStatsAggregatorEnabled(),
-                                        endpointData.getStatsAggregatorUrl());
-                            }
-                        } else {
-                            log.warn("⚠️ 엔드포인트 동기화 실패 (다음 주기에서 재시도)");
-                        }
-                    } catch (Exception e) {
-                        log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
-                    }
-                }
-            } else {
-                log.trace("⏭️ 정책 매핑 변경 없음 (version={})", currentVersion);
-            }
-            
-        } catch (Exception e) {
-            log.warn("⚠️ 정책 매핑 동기화 실패: {}", e.getMessage());
         }
     }
     
@@ -286,8 +305,6 @@ public class AopPolicyMappingSyncService {
         this.enabled.set(enabled);
         if (enabled) {
             log.info("✅ AOP 정책 매핑 동기화 활성화");
-            // 활성화 시 즉시 동기화 수행
-            syncAll();
         } else {
             log.info("⏸️ AOP 정책 매핑 동기화 비활성화");
         }
@@ -300,4 +317,3 @@ public class AopPolicyMappingSyncService {
         return enabled.get();
     }
 }
-

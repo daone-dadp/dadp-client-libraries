@@ -13,7 +13,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-common-sync-lib-j17</artifactId>
-    <version>5.1.0</version>
+    <version>5.2.1</version>
     <packaging>jar</packaging>
 
     <name>DADP Common Sync Library (Java 17+)</name>
@@ -44,8 +44,10 @@
     </scm>
 
     <properties>
-        <gpg.skip>true</gpg.skip>
-        <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- GPG 서명 활성화 -->
+        <gpg.skip>false</gpg.skip>
+        <!-- Maven 배포 활성화 -->
+        <maven.deploy.skip>false</maven.deploy.skip>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -56,7 +58,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-core</artifactId>
-            <version>5.1.0</version>
+            <version>5.2.1</version>
         </dependency>
         
         <!-- Spring Web (RestTemplate) -->
@@ -146,6 +148,21 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            
+            <!-- Central Publishing 플러그인 -->
+            <!-- 당분간 Maven 배포 비활성화 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <skip>true</skip>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>false</autoPublish>
+                    <waitUntil>validated</waitUntil>
+                </configuration>
             </plugin>
         </plugins>
     </build>

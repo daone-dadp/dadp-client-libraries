@@ -73,7 +73,8 @@ public class PolicyMappingStorage {
     /**
      * 정책 매핑 정보 저장
      * 
-     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명)
+     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명, null 가능)
+     *                 키가 스키마 정보(table.column)이고, 값이 null이면 스키마는 있지만 정책이 없는 상태
      * @param version 정책 버전 (null 가능)
      * @return 저장 성공 여부
      */
@@ -107,7 +108,7 @@ public class PolicyMappingStorage {
     /**
      * 정책 매핑 정보 저장 (버전 없음)
      * 
-     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명)
+     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명, null 가능)
      * @return 저장 성공 여부
      */
     public boolean saveMappings(Map<String, String> mappings) {
@@ -223,10 +224,11 @@ public class PolicyMappingStorage {
     
     /**
      * 정책 매핑 데이터 구조
+     * mappings의 키가 스키마 정보(table.column)이고, 값이 null이면 스키마는 있지만 정책이 없는 상태
      */
     public static class PolicyMappingData {
         private long timestamp;
-        private Map<String, String> mappings;
+        private Map<String, String> mappings; // 테이블.컬럼 → 정책명 (null 가능)
         private Long version;
         
         public long getTimestamp() {

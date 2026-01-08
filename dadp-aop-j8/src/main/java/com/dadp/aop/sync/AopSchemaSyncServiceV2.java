@@ -22,8 +22,8 @@ import java.util.List;
  * HubIdSaver를 구현하여 hubId 저장을 처리합니다.
  * 
  * @author DADP Development Team
- * @version 5.1.0
- * @since 2026-01-06
+ * @version 5.2.0
+ * @since 2026-01-07
  */
 public class AopSchemaSyncServiceV2 {
     
@@ -49,9 +49,12 @@ public class AopSchemaSyncServiceV2 {
         );
         
         // HubIdSaver 구현 (hubId 저장 콜백)
-        HubIdSaver hubIdSaver = (receivedHubId, instanceIdParam) -> {
-            configStorage.saveConfig(receivedHubId, hubUrl, instanceIdParam, null);
-            log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}, instanceId={}", receivedHubId, instanceIdParam);
+        HubIdSaver hubIdSaver = new HubIdSaver() {
+            @Override
+            public void saveHubId(String receivedHubId, String instanceIdParam) {
+                configStorage.saveConfig(receivedHubId, hubUrl, instanceIdParam, null);
+                log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}, instanceId={}", receivedHubId, instanceIdParam);
+            }
         };
         
         // 스키마 영구저장소 초기화
@@ -76,6 +79,59 @@ public class AopSchemaSyncServiceV2 {
         RestTemplate restTemplate = new RestTemplate();
         return new com.dadp.common.sync.schema.RestTemplateSchemaSyncExecutor(
             hubUrl, "/hub/api/v1/aop", restTemplate);
+    }
+    
+    /**
+     * Hub에 인스턴스 등록 (hubId 발급)
+     * 
+     * @return 발급받은 hubId, 실패 시 null
+     */
+    public String registerInstance() {
+        try {
+            String registerUrl = hubUrl + "/hub/api/v1/aop/instances/register";
+            
+            // 인스턴스 등록 요청 DTO
+            java.util.Map<String, String> request = new java.util.HashMap<String, String>();
+            request.put("instanceId", instanceId);
+            
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<java.util.Map<String, String>> entity = 
+                new org.springframework.http.HttpEntity<java.util.Map<String, String>>(request, headers);
+            
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            org.springframework.http.ResponseEntity<java.util.Map> response = restTemplate.exchange(
+                registerUrl, 
+                org.springframework.http.HttpMethod.POST, 
+                entity, 
+                java.util.Map.class
+            );
+            
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                java.util.Map<String, Object> responseBody = response.getBody();
+                Boolean success = (Boolean) responseBody.get("success");
+                if (Boolean.TRUE.equals(success)) {
+                    Object dataObj = responseBody.get("data");
+                    if (dataObj instanceof java.util.Map) {
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> data = (java.util.Map<String, Object>) dataObj;
+                        String hubId = (String) data.get("hubId");
+                        if (hubId != null && !hubId.trim().isEmpty()) {
+                            log.info("✅ Hub 인스턴스 등록 성공: hubId={}, instanceId={}", hubId, instanceId);
+                            // hubId 저장
+                            configStorage.saveConfig(hubId, hubUrl, instanceId, null);
+                            return hubId;
+                        }
+                    }
+                }
+            }
+            
+            log.warn("⚠️ Hub 인스턴스 등록 실패: 응답 형식 오류");
+            return null;
+        } catch (Exception e) {
+            log.warn("⚠️ Hub 인스턴스 등록 실패: {}", e.getMessage());
+            return null;
+        }
     }
     
     /**

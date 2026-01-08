@@ -1,5 +1,7 @@
 package com.dadp.common.sync.schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * 스키마 메타데이터 DTO (공통)
  * 
@@ -20,6 +22,16 @@ public class SchemaMetadata {
     private Boolean isNullable;     // Wrapper에서 사용 (AOP에서는 null 가능)
     private String columnDefault;   // Wrapper에서 사용 (AOP에서는 null 가능)
     private String policyName;      // AOP에서 사용 (Wrapper에서는 null 가능)
+    private String status;          // 스키마 상태: "CREATED", "REGISTERED", "DELETED"
+    
+    /**
+     * 스키마 상태 열거형
+     */
+    public static class Status {
+        public static final String CREATED = "CREATED";      // 생성됨 (Hub에 전송 전)
+        public static final String REGISTERED = "REGISTERED"; // 등록됨 (Hub에 전송 완료)
+        public static final String DELETED = "DELETED";      // 삭제됨 (로드에서 제거됨)
+    }
     
     // Getters and Setters
     public String getDatasourceId() {
@@ -100,6 +112,25 @@ public class SchemaMetadata {
     
     public void setPolicyName(String policyName) {
         this.policyName = policyName;
+    }
+    
+    public String getStatus() {
+        return status;
+    }
+    
+    public void setStatus(String status) {
+        this.status = status;
+    }
+    
+    /**
+     * 스키마 키 생성 (schema.table.column)
+     * JSON 직렬화에서 제외
+     */
+    @JsonIgnore
+    public String getKey() {
+        return (schemaName != null ? schemaName : "") + "." +
+               (tableName != null ? tableName : "") + "." +
+               (columnName != null ? columnName : "");
     }
 }
 

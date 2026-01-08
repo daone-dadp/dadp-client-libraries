@@ -5,8 +5,9 @@ import com.dadp.aop.annotation.EncryptField;
 import com.dadp.aop.metadata.EncryptionMetadataInitializer;
 import com.dadp.aop.service.AopNotificationService;
 import com.dadp.aop.service.CryptoService;
+import com.dadp.aop.sync.AopBootstrapOrchestrator;
 import com.dadp.aop.sync.AopPolicyMappingSyncService;
-import com.dadp.aop.sync.AopSchemaSyncService;
+import com.dadp.aop.sync.AopSchemaSyncServiceV2;
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
@@ -36,7 +37,7 @@ import com.dadp.common.sync.policy.PolicyMappingStorage;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.mapping.MappingSyncService;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
-import com.dadp.aop.sync.AopSchemaSyncService;
+import com.dadp.aop.sync.AopSchemaSyncServiceV2;
 import com.dadp.aop.sync.AopPolicyMappingSyncService;
 
 /**
@@ -307,19 +308,19 @@ public class DadpAopAutoConfiguration {
     }
     
     /**
-     * AopSchemaSyncService 빈 등록
+     * AopSchemaSyncServiceV2 빈 등록
      * EncryptionMetadataInitializer에서 수집한 스키마 정보를 Hub로 전송합니다.
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "dadp", name = "hub-base-url")
-    public AopSchemaSyncService aopSchemaSyncService(DadpAopProperties properties,
+    public AopSchemaSyncServiceV2 aopSchemaSyncService(DadpAopProperties properties,
                                                      EncryptionMetadataInitializer metadataInitializer,
                                                      PolicyResolver policyResolver,
                                                      Environment environment) {
         String hubUrl = properties.getHubBaseUrl();
         if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            log.warn("⚠️ Hub URL이 설정되지 않아 AopSchemaSyncService를 생성하지 않습니다. hubUrl={}, 환경변수 DADP_HUB_BASE_URL={}", 
+            log.warn("⚠️ Hub URL이 설정되지 않아 AopSchemaSyncServiceV2를 생성하지 않습니다. hubUrl={}, 환경변수 DADP_HUB_BASE_URL={}", 
                     hubUrl, System.getenv("DADP_HUB_BASE_URL"));
             return null;
         }
@@ -337,9 +338,9 @@ public class DadpAopAutoConfiguration {
         // 영구저장소에서 hubId 로드 (Wrapper의 ProxyConfig와 동일한 로직)
         String hubId = loadHubIdFromStorage(hubUrl, instanceId);
         
-        log.info("✅ AopSchemaSyncService 초기화: hubUrl={}, instanceId={}, hubId={}", 
+        log.info("✅ AopSchemaSyncServiceV2 초기화: hubUrl={}, instanceId={}, hubId={}", 
                 hubUrl, instanceId, hubId != null ? hubId : "(없음)");
-        return new AopSchemaSyncService(hubUrl, instanceId, hubId, metadataInitializer, policyResolver);
+        return new AopSchemaSyncServiceV2(hubUrl, instanceId, hubId, metadataInitializer, policyResolver);
     }
     
     /**
@@ -352,12 +353,13 @@ public class DadpAopAutoConfiguration {
     public AopPolicyMappingSyncService aopPolicyMappingSyncService(
             @Nullable MappingSyncService mappingSyncService,
             @Nullable EndpointSyncService endpointSyncService,
-            @Nullable AopSchemaSyncService aopSchemaSyncService,
+            @Nullable AopSchemaSyncServiceV2 aopSchemaSyncService,
             PolicyResolver policyResolver,
             DirectCryptoAdapter directCryptoAdapter,
             EndpointStorage endpointStorage,
             DadpAopProperties properties,
-            Environment environment) {
+            Environment environment,
+            EncryptionMetadataInitializer metadataInitializer) {
         if (mappingSyncService == null) {
             log.warn("⚠️ MappingSyncService가 없어 AopPolicyMappingSyncService를 생성하지 않습니다.");
             return null;
@@ -366,7 +368,7 @@ public class DadpAopAutoConfiguration {
         AopPolicyMappingSyncService syncService = 
             new AopPolicyMappingSyncService(mappingSyncService, endpointSyncService, aopSchemaSyncService,
                                            policyResolver, directCryptoAdapter, endpointStorage,
-                                           properties, environment);
+                                           properties, environment, metadataInitializer);
         // Hub URL이 설정되어 있으면 활성화
         syncService.setEnabled(true);
         log.info("✅ AopPolicyMappingSyncService 초기화 완료 (30초 주기 동기화 활성화)");
@@ -374,67 +376,35 @@ public class DadpAopAutoConfiguration {
     }
     
     /**
-     * 스키마 동기화 초기화 리스너
-     * ApplicationReadyEvent를 사용하여 애플리케이션이 완전히 시작된 후 스키마를 Hub로 전송합니다.
-     * Wrapper와 달리 AOP는 애플리케이션 시작 시 한 번만 실행합니다.
+     * AOP 부팅 플로우 오케스트레이터 빈 등록
+     * ApplicationReadyEvent 이후 단일 진입점에서 전체 부팅 플로우를 수행합니다.
      */
     @Bean
-    @ConditionalOnMissingBean(name = "aopSchemaSyncInitializer")
+    @ConditionalOnMissingBean(name = "aopBootstrapOrchestrator")
     @ConditionalOnProperty(prefix = "dadp", name = "hub-base-url")
-    public org.springframework.context.ApplicationListener<ApplicationReadyEvent> aopSchemaSyncInitializer(
-            @Nullable AopSchemaSyncService aopSchemaSyncService,
-            EncryptionMetadataInitializer metadataInitializer) {
-        log.info("✅ AopSchemaSyncInitializer 빈 등록: aopSchemaSyncService={}", 
-                aopSchemaSyncService != null ? "존재" : "null");
-        return new AopSchemaSyncInitializer(aopSchemaSyncService, metadataInitializer);
-    }
-    
-    /**
-     * 스키마 동기화 초기화 리스너 클래스
-     * ApplicationListener를 구현하여 ApplicationReadyEvent를 처리합니다.
-     */
-    public static class AopSchemaSyncInitializer implements org.springframework.context.ApplicationListener<ApplicationReadyEvent> {
-        private final AopSchemaSyncService aopSchemaSyncService;
-        private final EncryptionMetadataInitializer metadataInitializer;
-        private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AopSchemaSyncInitializer.class);
-        
-        public AopSchemaSyncInitializer(@Nullable AopSchemaSyncService aopSchemaSyncService,
-                                       EncryptionMetadataInitializer metadataInitializer) {
-            this.aopSchemaSyncService = aopSchemaSyncService;
-            this.metadataInitializer = metadataInitializer;
-        }
-        
-        @Override
-        public void onApplicationEvent(ApplicationReadyEvent event) {
-            if (aopSchemaSyncService == null) {
-                log.warn("⚠️ AopSchemaSyncService가 없어 스키마 동기화를 건너뜁니다. (Hub URL이 설정되지 않았거나 빈 값일 수 있습니다. 환경변수 DADP_HUB_BASE_URL 확인 필요)");
-                return;
-            }
-            
-            // ApplicationReadyEvent는 애플리케이션이 완전히 시작된 후 발생하므로 안전
-            try {
-                // 약간의 지연을 두어 EncryptionMetadataInitializer가 완전히 초기화되도록 함
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(2000); // 2초 대기
-                        log.info("🔄 초기 스키마 동기화 시작");
-                        boolean success = aopSchemaSyncService.syncSchemasToHub();
-                        if (success) {
-                            log.info("✅ 초기 스키마 동기화 완료");
-                        } else {
-                            log.warn("⚠️ 초기 스키마 동기화 실패 (나중에 재시도 예정)");
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        log.warn("⚠️ 초기 스키마 동기화 중단");
-                    } catch (Exception e) {
-                        log.error("❌ 초기 스키마 동기화 실패: {}", e.getMessage(), e);
-                    }
-                }, "aop-schema-sync-initializer").start();
-            } catch (Exception e) {
-                log.error("❌ 스키마 동기화 초기화 실패: {}", e.getMessage(), e);
-            }
-        }
+    public AopBootstrapOrchestrator aopBootstrapOrchestrator(
+            EncryptionMetadataInitializer metadataInitializer,
+            @Nullable MappingSyncService mappingSyncService,
+            @Nullable EndpointSyncService endpointSyncService,
+            @Nullable AopSchemaSyncServiceV2 aopSchemaSyncService,
+            PolicyResolver policyResolver,
+            DirectCryptoAdapter directCryptoAdapter,
+            EndpointStorage endpointStorage,
+            DadpAopProperties properties,
+            Environment environment,
+            AopPolicyMappingSyncService policyMappingSyncService) {
+        log.info("✅ AopBootstrapOrchestrator 빈 등록");
+        return new AopBootstrapOrchestrator(
+            metadataInitializer,
+            mappingSyncService,
+            endpointSyncService,
+            aopSchemaSyncService,
+            policyResolver,
+            directCryptoAdapter,
+            endpointStorage,
+            properties,
+            environment,
+            policyMappingSyncService);
     }
     
 }

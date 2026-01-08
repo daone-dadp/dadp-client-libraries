@@ -27,8 +27,28 @@ public class EndpointStorage {
     private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "crypto-endpoints.json";
     
+    // 싱글톤 인스턴스 (기본 경로 사용)
+    private static volatile EndpointStorage defaultInstance = null;
+    private static final Object singletonLock = new Object();
+    
     private final String storagePath;
     private final ObjectMapper objectMapper;
+    
+    /**
+     * 싱글톤 인스턴스 조회 (기본 경로 사용)
+     * 
+     * @return 싱글톤 EndpointStorage 인스턴스
+     */
+    public static EndpointStorage getInstance() {
+        if (defaultInstance == null) {
+            synchronized (singletonLock) {
+                if (defaultInstance == null) {
+                    defaultInstance = new EndpointStorage();
+                }
+            }
+        }
+        return defaultInstance;
+    }
     
     /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)

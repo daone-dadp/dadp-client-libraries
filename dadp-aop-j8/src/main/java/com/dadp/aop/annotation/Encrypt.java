@@ -8,11 +8,36 @@ import java.lang.annotation.Target;
 /**
  * 메서드 레벨 암호화 어노테이션
  * 
- * 이 어노테이션이 적용된 메서드의 반환값을 자동으로 암호화합니다.
+ * <h3>사용 방법</h3>
+ * <ul>
+ *   <li><b>리포지토리 메서드 (권장)</b>: 파라미터 엔티티의 {@code @EncryptField} 필드를 자동으로 암호화합니다.</li>
+ *   <li><b>서비스 메서드</b>: 반환값 DTO의 {@code @EncryptField} 필드를 암호화합니다. 
+ *       <b>⚠️ 주의</b>: 서비스 메서드의 String 파라미터는 암호화되지 않습니다.</li>
+ * </ul>
+ * 
+ * <h3>권장 사용법</h3>
+ * <pre>{@code
+ * // ✅ 권장: 리포지토리 메서드에 사용
+ * @Repository
+ * public interface UserRepository extends JpaRepository<User, Long> {
+ *     @Encrypt
+ *     <S extends User> S save(S entity);  // 엔티티의 @EncryptField 필드만 암호화
+ * }
+ * 
+ * // ⚠️ 주의: 서비스 메서드에 사용 시
+ * @Service
+ * public class UserService {
+ *     @Encrypt
+ *     public UserDto getUserInfo(Long id) {  // 반환값의 @EncryptField 필드만 암호화
+ *         // String 파라미터는 암호화되지 않음
+ *     }
+ * }
+ * }</pre>
  * 
  * @author DADP Development Team
  * @version 2.0.0
  * @since 2025-01-01
+ * @see com.dadp.aop.annotation.EncryptField
  */
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
@@ -44,9 +69,9 @@ public @interface Encrypt {
     
     /**
      * 암호화 로그 출력 여부
-     * 기본값: true
+     * 기본값: false (명시적으로 true로 설정해야 로그 출력)
      */
-    boolean enableLogging() default true;
+    boolean enableLogging() default false;
     
     /**
      * 상세 로그 출력 여부 (AOP 레벨)

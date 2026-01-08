@@ -2,6 +2,7 @@ package com.dadp.common.sync.schema;
 
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
+import com.dadp.common.sync.config.HubIdSaver;
 
 import java.security.MessageDigest;
 import java.util.List;
@@ -13,11 +14,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * AOP와 Wrapper 모두에서 사용하는 공통 스키마 동기화 서비스입니다.
  * 재시도 로직을 포함하여 스키마가 비어있을 때 자동으로 재시도합니다.
  * 
+ * 모든 공통 로직은 여기에 있고, 통신 부분은 SchemaSyncExecutor 인터페이스를 통해 분리됩니다.
+ * hubId 저장은 HubIdSaver 콜백을 통해 각 최종 모듈에서 처리합니다.
+ * 
  * @author DADP Development Team
  * @version 5.1.0
  * @since 2026-01-06
  */
-public abstract class RetryableSchemaSyncService {
+public class RetryableSchemaSyncService {
     
     protected static final DadpLogger log = DadpLoggerFactory.getLogger(RetryableSchemaSyncService.class);
     
@@ -27,6 +31,8 @@ public abstract class RetryableSchemaSyncService {
     protected final String hubUrl;
     protected final SchemaCollector schemaCollector;
     protected final SchemaSyncExecutor schemaSyncExecutor;
+    protected final HubIdSaver hubIdSaver;  // hubId 저장 콜백 (각 최종 모듈에서 구현)
+    protected final SchemaStorage schemaStorage;  // 스키마 영구 저장소 (null 가능)
     
     // 재시도 설정
     protected final int maxRetries;
@@ -35,22 +41,87 @@ public abstract class RetryableSchemaSyncService {
     
     public RetryableSchemaSyncService(String hubUrl, 
                                      SchemaCollector schemaCollector,
-                                     SchemaSyncExecutor schemaSyncExecutor) {
-        this(hubUrl, schemaCollector, schemaSyncExecutor, 5, 3000, 2000);
+                                     SchemaSyncExecutor schemaSyncExecutor,
+                                     HubIdSaver hubIdSaver) {
+        this(hubUrl, schemaCollector, schemaSyncExecutor, hubIdSaver, null, 5, 3000, 2000);
     }
     
     public RetryableSchemaSyncService(String hubUrl,
                                      SchemaCollector schemaCollector,
                                      SchemaSyncExecutor schemaSyncExecutor,
+                                     HubIdSaver hubIdSaver,
+                                     int maxRetries,
+                                     long initialDelayMs,
+                                     long backoffMs) {
+        this(hubUrl, schemaCollector, schemaSyncExecutor, hubIdSaver, null, maxRetries, initialDelayMs, backoffMs);
+    }
+    
+    public RetryableSchemaSyncService(String hubUrl,
+                                     SchemaCollector schemaCollector,
+                                     SchemaSyncExecutor schemaSyncExecutor,
+                                     HubIdSaver hubIdSaver,
+                                     SchemaStorage schemaStorage,
                                      int maxRetries,
                                      long initialDelayMs,
                                      long backoffMs) {
         this.hubUrl = hubUrl;
         this.schemaCollector = schemaCollector;
         this.schemaSyncExecutor = schemaSyncExecutor;
+        this.hubIdSaver = hubIdSaver;
+        this.schemaStorage = schemaStorage;
         this.maxRetries = maxRetries;
         this.initialDelayMs = initialDelayMs;
         this.backoffMs = backoffMs;
+    }
+    
+    /**
+     * 스키마 수집 완료까지 대기 (재시도 로직 포함)
+     * 
+     * 명시된 플로우 1단계: 스키마 로드 (DB의 스키마 수집 - 0인 경우 반복)
+     * 
+     * @param maxRetries 최대 재시도 횟수
+     * @param retryDelayMs 재시도 간격 (밀리초)
+     * @return 스키마 수집 성공 여부
+     */
+    public boolean waitForSchemaCollection(int maxRetries, long retryDelayMs) {
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                List<SchemaMetadata> schemas = schemaCollector.collectSchemas();
+                if (schemas != null && !schemas.isEmpty()) {
+                    log.debug("✅ 스키마 수집 완료: {}개 컬럼", schemas.size());
+                    return true;
+                } else {
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        log.debug("⏭️ 스키마 수집 결과: 0개 (재시도 {}/{})", retryCount, maxRetries);
+                        Thread.sleep(retryDelayMs);
+                    } else {
+                        log.warn("⚠️ 스키마 수집 실패: 0개 (최대 재시도 횟수 초과)");
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("⚠️ 스키마 수집 중단됨");
+                return false;
+            } catch (Exception e) {
+                retryCount++;
+                if (retryCount < maxRetries) {
+                    log.debug("⏭️ 스키마 수집 실패 (재시도 {}/{}): {}", retryCount, maxRetries, e.getMessage());
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                } else {
+                    log.warn("⚠️ 스키마 수집 실패 (최대 재시도 횟수 초과): {}", e.getMessage());
+                }
+            }
+        }
+        
+        return false;
     }
     
     /**
@@ -85,24 +156,55 @@ public abstract class RetryableSchemaSyncService {
                     }
                     
                     // 2. 스키마 로드 성공
-                    // 스키마 해시 계산 (변경 감지용)
-                    String currentHash = calculateSchemaHash(schemas);
-                    String lastHash = lastSchemaHash.get(hubId);
                     
-                    // 스키마가 변경되지 않았으면 동기화 건너뛰기
-                    if (lastHash != null && currentHash.equals(lastHash)) {
-                        log.trace("⏭️ 스키마 변경 없음, 동기화 건너뜀: hubId={} (해시: {})", 
-                                hubId, currentHash.substring(0, Math.min(8, currentHash.length())) + "...");
-                        return true;
+                    // hubId가 null이면 재등록 중이므로 해시 캐시를 사용하지 않고 바로 동기화 수행
+                    // hubId가 있으면 해시 캐시를 사용하여 중복 동기화 방지
+                    if (hubId != null && !hubId.trim().isEmpty()) {
+                        // 스키마 해시 계산 (변경 감지용)
+                        String currentHash = calculateSchemaHash(schemas);
+                        String lastHash = lastSchemaHash.get(hubId);
+                        
+                        // 스키마가 변경되지 않았으면 동기화 건너뛰기
+                        if (lastHash != null && currentHash.equals(lastHash)) {
+                            log.trace("⏭️ 스키마 변경 없음, 동기화 건너뜀: hubId={} (해시: {})", 
+                                    hubId, currentHash.substring(0, Math.min(8, currentHash.length())) + "...");
+                            return true;
+                        }
                     }
                     
-                    // 3. Hub로 스키마 전송
+                    // 3. Hub로 스키마 전송 (hubId가 null이면 재등록, 있으면 업데이트)
                     boolean synced = schemaSyncExecutor.syncToHub(schemas, hubId, instanceId, currentVersion);
                     
                     if (synced) {
-                        lastSchemaHash.put(hubId, currentHash);
+                        // 응답에서 받은 hubId 추출 (재등록 시 hubId가 응답에 포함됨)
+                        String receivedHubId = schemaSyncExecutor.getReceivedHubId();
+                        
+                        // hubId가 응답에 포함되어 있으면 저장 (재등록 시)
+                        if (receivedHubId != null && !receivedHubId.trim().isEmpty()) {
+                            // hubId 저장 (HubIdSaver 콜백 사용)
+                            if (hubIdSaver != null) {
+                                hubIdSaver.saveHubId(receivedHubId, instanceId);
+                                log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}", receivedHubId);
+                            }
+                            hubId = receivedHubId; // 이후 로직에서 사용할 hubId 업데이트
+                        }
+                        
+                        // ThreadLocal 정리
+                        schemaSyncExecutor.clearReceivedHubId();
+                        
+                        // hubId가 있으면 해시 캐시에 저장 (중복 동기화 방지)
+                        if (hubId != null && !hubId.trim().isEmpty()) {
+                            String currentHash = calculateSchemaHash(schemas);
+                            lastSchemaHash.put(hubId, currentHash);
+                        }
+                        
+                        // 스키마 영구저장소에 저장 (재시작 시 변경 여부 확인용)
+                        if (schemaStorage != null) {
+                            schemaStorage.saveSchemas(schemas);
+                        }
+                        
                         success = true;
-                        log.info("✅ 스키마 메타데이터 동기화 성공: hubId={}, 시도 횟수={}/{}", hubId, retryCount + 1, maxRetries);
+                        log.info("✅ 스키마 메타데이터 동기화 성공: hubId={}, instanceId={}, 시도 횟수={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
                     } else {
                         throw new RuntimeException("Schema sync failed: syncToHub returned false");
                     }
@@ -149,9 +251,16 @@ public abstract class RetryableSchemaSyncService {
      */
     protected String calculateSchemaHash(List<SchemaMetadata> schemas) {
         try {
+            if (schemas == null || schemas.isEmpty()) {
+                return "";
+            }
+            
             // 스키마를 문자열로 직렬화
             StringBuilder sb = new StringBuilder();
             for (SchemaMetadata schema : schemas) {
+                if (schema == null) {
+                    continue; // null 스키마는 건너뜀
+                }
                 sb.append(schema.getDatabaseName() != null ? schema.getDatabaseName() : "").append("|");
                 sb.append(schema.getSchemaName() != null ? schema.getSchemaName() : "").append("|");
                 sb.append(schema.getTableName() != null ? schema.getTableName() : "").append("|");

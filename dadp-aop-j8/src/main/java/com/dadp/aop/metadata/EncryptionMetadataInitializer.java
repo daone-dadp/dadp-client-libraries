@@ -15,6 +15,7 @@ import org.springframework.lang.Nullable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 암호화 메타데이터 초기화 컴포넌트
@@ -44,6 +45,12 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
     private final EntityManagerFactory entityManagerFactory;
     
     private boolean initialized = false;
+    
+    /**
+     * 스키마 로드 완료 신호 (게이트)
+     * 오케스트레이터가 스키마 로드 완료를 기다릴 수 있도록 함
+     */
+    private final CompletableFuture<Void> schemaLoadedFuture = new CompletableFuture<>();
     
     /**
      * 생성자
@@ -118,8 +125,14 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
             
             log.info("✅ 암호화 메타데이터 초기화 완료: {}개 컬럼 매핑", encryptedColumns.size());
             
+            // 스키마 로드 완료 신호 발행 (성공 또는 실패 모두 완료로 간주)
+            // 스키마 정보는 정책 매핑 저장 시 함께 저장됨
+            schemaLoadedFuture.complete(null);
+            
         } catch (Exception e) {
             log.error("❌ 암호화 메타데이터 초기화 실패", e);
+            // 실패해도 완료 신호 발행 (스키마가 없는 상태로 진행)
+            schemaLoadedFuture.complete(null);
         }
     }
     
@@ -189,6 +202,25 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
         }
         
         return result;
+    }
+    
+    /**
+     * 스키마 로드 완료를 기다림
+     * 오케스트레이터가 스키마 로드 완료 후 다음 단계를 진행할 수 있도록 함
+     * 
+     * @return CompletableFuture 스키마 로드 완료 시 완료됨
+     */
+    public CompletableFuture<Void> awaitLoaded() {
+        return schemaLoadedFuture;
+    }
+    
+    /**
+     * 스키마 로드 완료 여부 확인
+     * 
+     * @return 완료되었으면 true
+     */
+    public boolean isLoaded() {
+        return schemaLoadedFuture.isDone();
     }
 }
 

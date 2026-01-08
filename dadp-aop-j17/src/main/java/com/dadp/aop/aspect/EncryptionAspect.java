@@ -144,8 +144,13 @@ public class EncryptionAspect {
         Encrypt encryptAnnotation = method.getAnnotation(Encrypt.class);
         
         String methodName = method.getName();
-        infoIfEnabled(encryptAnnotation.enableLogging(), "✅ [트리거 확인] handleEncrypt 트리거됨: {}.{}",
-                 method.getDeclaringClass().getSimpleName(), methodName);
+        Class<?> declaringClass = method.getDeclaringClass();
+        
+        // 서비스 메서드인지 리포지토리 메서드인지 구분
+        boolean isRepositoryMethod = isRepositoryMethod(declaringClass);
+        
+        infoIfEnabled(encryptAnnotation.enableLogging(), "✅ [트리거 확인] handleEncrypt 트리거됨: {}.{} (isRepository={})",
+                 declaringClass.getSimpleName(), methodName, isRepositoryMethod);
         
         try {
             // 메서드 시그니처에서 파라미터 타입 확인 (복수/단수 판단)
@@ -171,7 +176,7 @@ public class EncryptionAspect {
                         @SuppressWarnings("unchecked")
                         Collection<Object> collection = (Collection<Object>) args[i];
                         infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 saveAll 배치 암호화 시작: size={}", collection.size());
-                        processCollectionEncryption(collection, encryptAnnotation);
+                        processCollectionEncryption(collection, encryptAnnotation, isRepositoryMethod);
                     } else if (args[i] != null && args[i] instanceof Iterable && !(args[i] instanceof String)) {
                         // Iterable을 List로 변환하여 배치 암호화 처리
                         Iterable<?> iterable = (Iterable<?>) args[i];
@@ -180,7 +185,7 @@ public class EncryptionAspect {
                             list.add(item);
                         }
                         infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 saveAll 배치 암호화 시작: size={}", list.size());
-                        processCollectionEncryption(list, encryptAnnotation);
+                        processCollectionEncryption(list, encryptAnnotation, isRepositoryMethod);
                         // 원본 타입 유지
                         if (args[i] instanceof List) {
                             args[i] = list;
@@ -195,7 +200,7 @@ public class EncryptionAspect {
                 // 단수인 경우: Spring Data JPA가 처리하게 둠 (기본 처리만)
                 for (int i = 0; i < args.length; i++) {
                     if (args[i] != null) {
-                        Object encryptedArg = processEncryption(args[i], encryptAnnotation);
+                        Object encryptedArg = processEncryption(args[i], encryptAnnotation, isRepositoryMethod);
                         if (encryptedArg != args[i]) {
                             args[i] = encryptedArg;
                         }
@@ -344,15 +349,69 @@ public class EncryptionAspect {
     }
     
     /**
-     * 암호화 처리
+     * 리포지토리 메서드인지 확인
+     * 
+     * @param declaringClass 메서드가 선언된 클래스
+     * @return 리포지토리 메서드이면 true, 서비스 메서드이면 false
      */
-    private Object processEncryption(Object obj, Encrypt encryptAnnotation) {
+    private boolean isRepositoryMethod(Class<?> declaringClass) {
+        // @Repository 어노테이션이 있는지 확인
+        if (declaringClass.isAnnotationPresent(org.springframework.stereotype.Repository.class)) {
+            return true;
+        }
+        
+        // 클래스 이름에 "Repository"가 포함되어 있는지 확인
+        String className = declaringClass.getSimpleName();
+        if (className.contains("Repository") || className.endsWith("Repo")) {
+            return true;
+        }
+        
+        // 패키지 경로에 "repository"가 포함되어 있는지 확인
+        String packageName = declaringClass.getPackage() != null ? declaringClass.getPackage().getName() : "";
+        if (packageName.toLowerCase().contains("repository")) {
+            return true;
+        }
+        
+        // JpaRepository를 상속하는지 확인
+        try {
+            Class<?>[] interfaces = declaringClass.getInterfaces();
+            for (Class<?> iface : interfaces) {
+                if (iface.getName().contains("Repository") || 
+                    iface.getName().contains("JpaRepository") ||
+                    iface.getName().contains("CrudRepository")) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // 리플렉션 오류 시 무시
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 암호화 처리
+     * 
+     * @param obj 암호화할 객체
+     * @param encryptAnnotation @Encrypt 어노테이션
+     * @param isRepositoryMethod 리포지토리 메서드인지 여부
+     */
+    private Object processEncryption(Object obj, Encrypt encryptAnnotation, boolean isRepositoryMethod) {
         if (obj == null) {
             return obj;
         }
         
-        // String 타입인 경우 직접 암호화
+        // String 타입인 경우 처리
         if (obj instanceof String) {
+            // 리포지토리가 아닌 메서드에서는 암호화하지 않음
+            if (!isRepositoryMethod) {
+                debugIfEnabled(encryptAnnotation.enableLogging(), 
+                    "⚠️ @Encrypt는 리포지토리 메서드에서만 사용할 수 있습니다.");
+                return obj;
+            }
+            
+            // 리포지토리 메서드인 경우에만 String을 직접 암호화
+            // (일반적으로 리포지토리에서는 엔티티 객체를 받지만, 일부 특수한 경우를 위해 유지)
             String data = (String) obj;
             if (cryptoService.isEncryptedData(data)) {
                 debugIfEnabled(encryptAnnotation.enableLogging(), "이미 암호화된 데이터입니다: {}", data.substring(0, Math.min(20, data.length())) + "...");
@@ -400,7 +459,7 @@ public class EncryptionAspect {
             }
             
             // 배치 처리: 동일한 필드(동일한 정책)의 데이터를 수집하여 배치 암호화
-            return processCollectionEncryption(collection, encryptAnnotation);
+            return processCollectionEncryption(collection, encryptAnnotation, isRepositoryMethod);
         } else if (isIterable) {
             // Iterable이지만 Collection이 아닌 경우: List로 변환하여 처리
             Iterable<?> iterable = (Iterable<?>) obj;
@@ -411,7 +470,7 @@ public class EncryptionAspect {
             if (list.isEmpty()) {
                 return obj;
             }
-            return processCollectionEncryption(list, encryptAnnotation);
+            return processCollectionEncryption(list, encryptAnnotation, isRepositoryMethod);
         }
         
         // 객체인 경우 필드별 개별 암호화
@@ -1010,7 +1069,7 @@ public class EncryptionAspect {
      * - batchEncrypt(emailList, policyList) 한 번 호출
      * - 결과를 각 User 객체에 설정
      */
-    private Object processCollectionEncryption(Collection<?> collection, Encrypt encryptAnnotation) {
+    private Object processCollectionEncryption(Collection<?> collection, Encrypt encryptAnnotation, boolean isRepositoryMethod) {
         if (collection.isEmpty()) {
             return collection;
         }
@@ -1029,7 +1088,7 @@ public class EncryptionAspect {
             // 개별 처리로 폴백
             for (Object item : collection) {
                 if (item != null) {
-                    processEncryption(item, encryptAnnotation);
+                    processEncryption(item, encryptAnnotation, isRepositoryMethod);
                 }
             }
             return collection;
@@ -1041,7 +1100,7 @@ public class EncryptionAspect {
             // null 항목이 있으면 개별 처리로 폴백
             for (Object item : collection) {
                 if (item != null) {
-                    processEncryption(item, encryptAnnotation);
+                    processEncryption(item, encryptAnnotation, isRepositoryMethod);
                 }
             }
             return collection;
@@ -1154,7 +1213,7 @@ public class EncryptionAspect {
                 for (int index : indexList) {
                     Object item = itemList.get(index);
                     if (item != null) {
-                        processEncryption(item, encryptAnnotation);
+                        processEncryption(item, encryptAnnotation, isRepositoryMethod);
                     }
                 }
             }

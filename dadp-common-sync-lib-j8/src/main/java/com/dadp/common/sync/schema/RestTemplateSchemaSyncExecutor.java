@@ -9,32 +9,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * HubId를 ThreadLocal에 저장하여 상위 메서드에서 접근 가능하도록 하는 헬퍼 클래스
- */
-class HubIdHolder {
-    private static final ThreadLocal<String> hubIdThreadLocal = new ThreadLocal<>();
-    
-    static void setHubId(String hubId) {
-        hubIdThreadLocal.set(hubId);
-    }
-    
-    static String getHubId() {
-        return hubIdThreadLocal.get();
-    }
-    
-    static void clear() {
-        hubIdThreadLocal.remove();
-    }
-}
-
-/**
- * RestTemplate 기반 스키마 동기화 실행 구현체 (Java 17+)
+ * RestTemplate 기반 스키마 동기화 실행 구현체 (Java 8+)
  * 
  * AOP에서 사용하는 RestTemplate 기반 구현입니다.
  * 
  * @author DADP Development Team
- * @version 5.1.0
- * @since 2026-01-06
+ * @version 5.2.0
+ * @since 2026-01-07
  */
 public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     
@@ -73,7 +54,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         if (currentVersion != null) {
             headers.set("X-Current-Version", String.valueOf(currentVersion));
         }
-        HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<>(request, headers);
+        HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<AopSchemaSyncRequest>(request, headers);
         
         log.debug("📤 요청 본문: {}", request);
         ResponseEntity<Map> response;
@@ -125,16 +106,16 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
      * 공통 SchemaMetadata를 AOP SchemaInfo로 변환
      */
     private List<AopSchemaInfo> convertToAopSchemaInfo(List<SchemaMetadata> schemas) {
-        return schemas.stream()
-            .map(schema -> {
-                AopSchemaInfo info = new AopSchemaInfo();
-                info.setSchemaName(schema.getSchemaName() != null ? schema.getSchemaName() : "public");
-                info.setTableName(schema.getTableName());
-                info.setColumnName(schema.getColumnName());
-                info.setPolicyName(schema.getPolicyName() != null ? schema.getPolicyName() : "dadp");
-                return info;
-            })
-            .collect(java.util.stream.Collectors.toList());
+        java.util.ArrayList<AopSchemaInfo> result = new java.util.ArrayList<AopSchemaInfo>();
+        for (SchemaMetadata schema : schemas) {
+            AopSchemaInfo info = new AopSchemaInfo();
+            info.setSchemaName(schema.getSchemaName() != null ? schema.getSchemaName() : "public");
+            info.setTableName(schema.getTableName());
+            info.setColumnName(schema.getColumnName());
+            info.setPolicyName(schema.getPolicyName() != null ? schema.getPolicyName() : "dadp");
+            result.add(info);
+        }
+        return result;
     }
     
     /**

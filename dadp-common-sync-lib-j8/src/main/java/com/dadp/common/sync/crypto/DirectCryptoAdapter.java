@@ -27,6 +27,9 @@ public class DirectCryptoAdapter {
     // 현재 사용 중인 HubCryptoService (Engine/Gateway 직접 연결)
     private volatile HubCryptoService currentCryptoService;
     
+    // 현재 설정된 cryptoUrl (중복 초기화 방지용)
+    private volatile String currentCryptoUrl;
+    
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
         log.info("✅ 직접 암복호화 어댑터 생성: failOpen={}", failOpen);
@@ -51,12 +54,20 @@ public class DirectCryptoAdapter {
                 return;
             }
             
+            // 이미 같은 cryptoUrl로 초기화되어 있으면 다시 초기화하지 않음
+            String trimmedCryptoUrl = cryptoUrl.trim();
+            if (currentCryptoService != null && currentCryptoUrl != null && currentCryptoUrl.equals(trimmedCryptoUrl)) {
+                log.trace("✅ 암복호화 서비스가 이미 초기화되어 있음: cryptoUrl={}", trimmedCryptoUrl);
+                return;
+            }
+            
             // apiBasePath는 기본값 "/api" 사용
             String apiBasePath = "/api";
             
             // cryptoUrl로 암복호화 서비스 초기화
-            this.currentCryptoService = HubCryptoService.createInstance(cryptoUrl.trim(), apiBasePath, 5000, true);
-            log.info("✅ 암복호화 서비스 초기화: cryptoUrl={}, apiBasePath={}", cryptoUrl, apiBasePath);
+            this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, true);
+            this.currentCryptoUrl = trimmedCryptoUrl;
+            log.info("✅ 암복호화 서비스 초기화: cryptoUrl={}, apiBasePath={}", trimmedCryptoUrl, apiBasePath);
             
             endpointAvailable = true;
             

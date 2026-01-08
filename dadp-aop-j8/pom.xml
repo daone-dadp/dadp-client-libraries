@@ -12,7 +12,7 @@
     
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-aop-j8</artifactId>
-    <version>5.0.8</version>
+    <version>5.2.1</version>
     <packaging>jar</packaging>
     
     <name>DADP AOP (Java 8)</name>
@@ -48,10 +48,10 @@
         <java.version>1.8</java.version>
         <spring-boot.version>2.7.18</spring-boot.version>
         <jackson.version>2.13.5</jackson.version>
-        <!-- GPG 서명 비활성화 (당분간 정식 배포 전까지) -->
-        <gpg.skip>true</gpg.skip>
-        <!-- Maven 배포 비활성화 (당분간 정식 배포 전까지) -->
-        <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- GPG 서명 활성화 -->
+        <gpg.skip>false</gpg.skip>
+        <!-- Maven 배포 활성화 -->
+        <maven.deploy.skip>false</maven.deploy.skip>
     </properties>
     
     <dependencies>
@@ -136,7 +136,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
-            <version>5.1.0</version>
+            <version>5.2.1</version>
         </dependency>
         
         <!-- JPA (Optional - 엔티티 detach를 위해 필요) -->
