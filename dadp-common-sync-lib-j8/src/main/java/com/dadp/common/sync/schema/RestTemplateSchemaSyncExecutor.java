@@ -22,20 +22,29 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(RestTemplateSchemaSyncExecutor.class);
     
     private final String hubUrl;
-    private final String apiBasePath;  // "/hub/api/v1/aop"
+    private final String apiBasePath;  // "/hub/api/v1/aop" 또는 "/hub/api/v1/proxy"
+    private final String instanceType;  // "PROXY" 또는 "AOP" (새 API 사용 시 필수)
     private final RestTemplate restTemplate;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     
     public RestTemplateSchemaSyncExecutor(String hubUrl, String apiBasePath, RestTemplate restTemplate) {
+        this(hubUrl, apiBasePath, null, restTemplate);
+    }
+    
+    public RestTemplateSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType, RestTemplate restTemplate) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
+        this.instanceType = instanceType;
         this.restTemplate = restTemplate;
         this.objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
     }
     
     @Override
     public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String instanceId, Long currentVersion) throws Exception {
-        String syncUrl = hubUrl + apiBasePath + "/schemas/sync";
+        // AOP는 복수형(/schemas/sync), Wrapper는 단수형(/schema/sync)
+        boolean isAop = apiBasePath != null && apiBasePath.contains("/aop");
+        String syncPath = isAop ? "/schemas/sync" : "/schema/sync";
+        String syncUrl = hubUrl + apiBasePath + syncPath;
         
         // hubId 필수 검증
         if (hubId == null || hubId.trim().isEmpty()) {
@@ -43,10 +52,19 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
             throw new IllegalStateException("hubId가 필요합니다. 먼저 인스턴스 등록을 수행하세요.");
         }
         
-        // AOP 스키마 동기화 요청 DTO 생성
-        // Body에 스키마 정보만 포함 (instanceId, hubId 불필요)
-        AopSchemaSyncRequest request = new AopSchemaSyncRequest();
-        request.setSchemas(convertToAopSchemaInfo(schemas));
+        // AOP는 AopSchemaSyncRequest 사용, Wrapper는 SchemaSyncRequest 사용
+        Object request;
+        if (isAop) {
+            AopSchemaSyncRequest aopRequest = new AopSchemaSyncRequest();
+            aopRequest.setInstanceId(instanceId);  // instanceId 포함 (hubId가 없을 때 자동 생성용)
+            aopRequest.setSchemas(convertToAopSchemaInfo(schemas));
+            request = aopRequest;
+        } else {
+            SchemaSyncRequest schemaRequest = new SchemaSyncRequest();
+            schemaRequest.setInstanceId(instanceId);  // instanceId 포함 (hubId가 없을 때 자동 생성용)
+            schemaRequest.setSchemas(schemas);
+            request = schemaRequest;
+        }
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -54,12 +72,18 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         if (currentVersion != null) {
             headers.set("X-Current-Version", String.valueOf(currentVersion));
         }
-        HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<AopSchemaSyncRequest>(request, headers);
+        // Wrapper 사용 시 X-Instance-Type 헤더 추가
+        if (!isAop && instanceType != null && !instanceType.trim().isEmpty()) {
+            headers.set("X-Instance-Type", instanceType);
+        }
+        HttpEntity<Object> entity = new HttpEntity<Object>(request, headers);
         
         log.debug("📤 요청 본문: {}", request);
-        ResponseEntity<Map> response;
+        ResponseEntity<Map<String, Object>> response;
         try {
-            response = restTemplate.exchange(syncUrl, HttpMethod.POST, entity, Map.class);
+            org.springframework.core.ParameterizedTypeReference<Map<String, Object>> typeRef = 
+                new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {};
+            response = restTemplate.exchange(syncUrl, HttpMethod.POST, entity, typeRef);
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 예외를 다시 던져서 상위에서 등록 처리
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
@@ -121,11 +145,15 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     /**
      * AOP 스키마 동기화 요청 DTO
      * 
-     * Body에 스키마 정보만 포함 (instanceId, hubId 불필요)
+     * Body에 instanceId와 스키마 정보 포함
      * hubId는 헤더(X-DADP-TENANT)로 전송됨
      */
     public static class AopSchemaSyncRequest {
+        private String instanceId;  // 인스턴스 별칭 (hubId가 없을 때 자동 생성용)
         private List<AopSchemaInfo> schemas;
+        
+        public String getInstanceId() { return instanceId; }
+        public void setInstanceId(String instanceId) { this.instanceId = instanceId; }
         
         public List<AopSchemaInfo> getSchemas() { return schemas; }
         public void setSchemas(List<AopSchemaInfo> schemas) { this.schemas = schemas; }

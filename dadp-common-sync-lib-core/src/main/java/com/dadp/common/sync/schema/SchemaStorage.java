@@ -27,17 +27,40 @@ public class SchemaStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(SchemaStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "schemas.json";
     
     private final String storagePath;
     private final ObjectMapper objectMapper;
     
     /**
+     * 기본 저장 디렉토리 조회
+     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * 
+     * @return 저장 디렉토리 경로
+     */
+    private static String getDefaultStorageDir() {
+        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
+        String storageDir = System.getProperty("dadp.storage.dir");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
+        storageDir = System.getenv("DADP_STORAGE_DIR");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 3. 기본값 사용 (~/.dadp-wrapper)
+        return System.getProperty("user.home") + "/.dadp-wrapper";
+    }
+    
+    /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      */
     public SchemaStorage() {
-        this(DEFAULT_STORAGE_DIR, DEFAULT_STORAGE_FILE);
+        this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);
     }
     
     /**
@@ -57,10 +80,11 @@ public class SchemaStorage {
             log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
             // 기본 경로로 폴백
             try {
-                Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
-                finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
+                String fallbackDir = getDefaultStorageDir();
+                Files.createDirectories(Paths.get(fallbackDir));
+                finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
@@ -132,11 +156,26 @@ public class SchemaStorage {
                 return new ArrayList<>();
             }
             
+            // 저장소 포맷 버전 확인 및 하위 호환성 처리
+            int version = data.getStorageSchemaVersion();
+            if (version == 0) {
+                // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
+                log.info("📋 구버전 스키마 포맷 감지 (버전 필드 없음) -> 버전 1로 처리");
+                version = 1;
+            }
+            
+            // 향후 버전 호환성 체크
+            if (version > SchemaData.CURRENT_STORAGE_SCHEMA_VERSION) {
+                log.warn("⚠️ 알 수 없는 스키마 포맷 버전: {} (현재 지원 버전: {}), " +
+                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                    version, SchemaData.CURRENT_STORAGE_SCHEMA_VERSION);
+            }
+            
             List<SchemaMetadata> schemas = data.getSchemas();
             long timestamp = data.getTimestamp();
             
-            log.info("📂 스키마 메타데이터 로드 완료: {}개 스키마 (저장 시각: {})", 
-                    schemas.size(), new java.util.Date(timestamp));
+            log.info("📂 스키마 메타데이터 로드 완료: {}개 스키마 (저장 시각: {}, 포맷 버전: {})", 
+                    schemas.size(), new java.util.Date(timestamp), version);
             return schemas;
             
         } catch (IOException e) {
@@ -204,10 +243,10 @@ public class SchemaStorage {
                 continue;
             }
             
-            // 키 생성: schema.table.column
-            String key = (schema.getSchemaName() != null ? schema.getSchemaName() : "") + "." +
-                         (schema.getTableName() != null ? schema.getTableName() : "") + "." +
-                         (schema.getColumnName() != null ? schema.getColumnName() : "");
+            // 키 생성: getKey() 메서드 사용 (datasourceId 고려)
+            // Wrapper: datasourceId:schema.table.column
+            // AOP: schema.table.column
+            String key = schema.getKey();
             
             // 정책 매핑에서 정책명 찾기
             String policyName = policyMappings.get(key);
@@ -416,8 +455,19 @@ public class SchemaStorage {
      * 스키마 데이터 구조
      */
     public static class SchemaData {
+        private static final int CURRENT_STORAGE_SCHEMA_VERSION = 1;  // 현재 저장소 포맷 버전
+        
+        private int storageSchemaVersion = CURRENT_STORAGE_SCHEMA_VERSION;  // 저장소 포맷 버전
         private long timestamp;
         private List<SchemaMetadata> schemas;
+        
+        public int getStorageSchemaVersion() {
+            return storageSchemaVersion;
+        }
+        
+        public void setStorageSchemaVersion(int storageSchemaVersion) {
+            this.storageSchemaVersion = storageSchemaVersion;
+        }
         
         public long getTimestamp() {
             return timestamp;

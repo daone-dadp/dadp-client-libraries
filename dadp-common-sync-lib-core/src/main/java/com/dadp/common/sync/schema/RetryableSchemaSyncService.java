@@ -212,6 +212,14 @@ public class RetryableSchemaSyncService {
                 } catch (Exception e) {
                     retryCount++;
                     boolean isSchemaEmpty = schemaSyncExecutor.isSchemaEmptyException(e);
+                    boolean is404 = is404Exception(e);
+                    
+                    // 404 응답: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
+                    if (is404) {
+                        log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 재등록 필요");
+                        // false 반환하여 호출하는 쪽에서 재등록 처리
+                        return false;
+                    }
                     
                     if (retryCount < maxRetries) {
                         if (isSchemaEmpty) {
@@ -296,6 +304,25 @@ public class RetryableSchemaSyncService {
      */
     public void clearSchemaHash(String hubId) {
         lastSchemaHash.remove(hubId);
+    }
+    
+    /**
+     * 404 예외인지 확인 (정상적인 응답 코드이지만 재등록이 필요함을 표시)
+     * 
+     * @param e 예외
+     * @return 404 예외면 true
+     */
+    protected boolean is404Exception(Exception e) {
+        if (e == null) {
+            return false;
+        }
+        // SchemaSync404Exception 또는 메시지에 "404"가 포함된 경우
+        String className = e.getClass().getSimpleName();
+        if ("SchemaSync404Exception".equals(className)) {
+            return true;
+        }
+        String errorMsg = e.getMessage();
+        return errorMsg != null && (errorMsg.contains("404") || errorMsg.contains("재등록이 필요합니다"));
     }
 }
 

@@ -8,17 +8,17 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>5.3.1</version>
+        <version>5.4.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
-    <artifactId>dadp-jdbc-wrapper-j8</artifactId>
-    <version>5.0.5</version>
+    <artifactId>dadp-jdbc-wrapper</artifactId>
+    <version>5.4.0</version>
     <packaging>jar</packaging>
 
-    <name>DADP JDBC Wrapper (Java 8)</name>
-    <description>DADP JDBC Wrapper Driver - DB 자동 암복호화 Proxy (Java 8)</description>
+    <name>DADP JDBC Wrapper</name>
+    <description>DADP JDBC Wrapper Driver - DB 자동 암복호화 Proxy (Java 8 only, No Spring dependency)</description>
     <url>https://github.com/daone-dadp/dadp-client-libraries</url>
 
     <!-- 라이선스 정보 (필수) -->
@@ -101,36 +101,33 @@
                 <version>${junit.version}</version>
             </dependency>
             
-        <!-- Internal Dependencies -->
-        <dependency>
-            <groupId>io.github.daone-dadp</groupId>
-            <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>1.1.0</version>
-        </dependency>
-        
-        <!-- Common Sync Library (Java 8) -->
-        <dependency>
-            <groupId>io.github.daone-dadp</groupId>
-            <artifactId>dadp-common-sync-lib-j8</artifactId>
-            <version>5.0.5</version>
-        </dependency>
+            <!-- Internal Dependencies는 부모 pom.xml의 dependencyManagement에서 관리 -->
+            <!-- 버전을 여기서 지정하지 않으면 부모의 버전(5.4.0)이 자동으로 사용됨 -->
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <!-- Hub 암복호화 라이브러리 (필수) - Java 8 버전 사용 -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>1.1.0</version>
+            <version>5.4.0</version>
             <classifier>java8</classifier>
         </dependency>
         
         <!-- Common Sync Library (Java 8) - 정책 매핑 및 엔드포인트 동기화 -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
-            <version>5.0.5</version>
+        </dependency>
+        
+        <!-- Common Sync Library Core (Java 8) - 스키마 동기화 공통 로직 -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-common-sync-lib-core</artifactId>
         </dependency>
         
         <!-- Jackson for JSON processing -->
@@ -283,6 +280,14 @@
                             <shadedClassifierName>all</shadedClassifierName>
                             
                             <!-- SLF4J relocate 제거: 자체 로깅 유틸리티 사용 -->
+                            
+                            <!-- Jackson relocate: 고객사 앱의 Jackson과 충돌 방지 -->
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.fasterxml.jackson</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.jackson</shadedPattern>
+                                </relocation>
+                            </relocations>
                             
                             <filters>
                                 <!-- Spring/Servlet 등은 절대 포함 금지 -->

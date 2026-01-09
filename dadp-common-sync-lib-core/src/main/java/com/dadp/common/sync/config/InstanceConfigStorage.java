@@ -52,7 +52,8 @@ public class InstanceConfigStorage {
         this.storagePath = finalStoragePath;
         this.objectMapper = new ObjectMapper();
         if (finalStoragePath != null) {
-            log.info("✅ 인스턴스 설정 저장소 초기화: {}", this.storagePath);
+            // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
+            log.trace("✅ 인스턴스 설정 저장소 초기화: {}", this.storagePath);
         } else {
             log.warn("⚠️ 인스턴스 설정 저장소 초기화 실패: 저장 불가");
         }

@@ -7,7 +7,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-client-libraries</artifactId>
-    <version>5.3.1</version>
+    <version>5.4.0</version>
     <packaging>pom</packaging>
 
     <name>DADP Client Libraries</name>
@@ -55,24 +55,25 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>3.2.12</spring-boot.version>
         <jackson.version>2.16.1</jackson.version>
-        <gpg.skip>true</gpg.skip>
-        <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
-        <maven.deploy.skip>true</maven.deploy.skip>
+        <gpg.skip>false</gpg.skip>
+        <!-- Maven 배포 활성화 -->
+        <maven.deploy.skip>false</maven.deploy.skip>
         <!-- GPG 실행을 위한 기본값 (자식 모듈에서 오버라이드 가능) -->
         <gpg.executable>gpg</gpg.executable>
     </properties>
 
     <modules>
         <module>dadp-hub-crypto-lib</module>
-        <module>dadp-aop-j8</module>
-        <module>dadp-aop-j17</module>
-        <module>dadp-aop-spring-boot-starter</module>
+        <module>dadp-aop-spring5</module>
+        <module>dadp-aop-spring6</module>
+        <module>dadp-aop-spring5-starter</module>
+        <module>dadp-aop-spring6-starter</module>
         <module>dadp-common-logging-lib</module>
         <module>dadp-common-sync-lib-core</module>
         <module>dadp-common-sync-lib-j17</module>
         <module>dadp-common-sync-lib-j8</module>
-        <module>dadp-jdbc-wrapper-j8</module>
-        <module>dadp-jdbc-wrapper-j17</module>
+        <module>dadp-jdbc-wrapper</module>
+        <module>dadp-client-bom</module>
     </modules>
     
     <!-- 참고: dadp-hub-crypto-lib-java8, dadp-hub-crypto-lib-java11은 통일되어 
@@ -93,57 +94,93 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>1.2.0</version>
+                <version>5.4.0</version>
+            </dependency>
+            <!-- dadp-hub-crypto-lib with java8 classifier (for wrapper module) -->
+            <dependency>
+                <groupId>io.github.daone-dadp</groupId>
+                <artifactId>dadp-hub-crypto-lib</artifactId>
+                <version>5.4.0</version>
+                <classifier>java8</classifier>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
-                <artifactId>dadp-aop-j8</artifactId>
-                <version>5.0.8</version>
+                <artifactId>dadp-aop-spring5</artifactId>
+                <version>1.0.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
-                <artifactId>dadp-aop-j17</artifactId>
-                <version>5.0.8</version>
+                <artifactId>dadp-aop-spring6</artifactId>
+                <version>1.0.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
-                <artifactId>dadp-jdbc-wrapper-j8</artifactId>
-                <version>5.0.8</version>
+                <artifactId>dadp-aop-spring5-starter</artifactId>
+                <version>1.0.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
-                <artifactId>dadp-jdbc-wrapper-j17</artifactId>
-                <version>5.0.8</version>
+                <artifactId>dadp-aop-spring6-starter</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.daone-dadp</groupId>
+                <artifactId>dadp-jdbc-wrapper</artifactId>
+                <version>5.4.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-core</artifactId>
-                <version>5.1.0</version>
+                <version>5.4.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j17</artifactId>
-                <version>5.1.0</version>
+                <version>5.4.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j8</artifactId>
-                <version>5.1.0</version>
+                <version>5.4.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
 
     <build>
         <plugins>
+            <!-- GPG 서명 플러그인 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.0.1</version>
+                <configuration>
+                    <useAgent>false</useAgent>
+                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
+                    <skip>${gpg.skip}</skip>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
             <!-- Central Publishing 플러그인 (공식 문서 기준) -->
-            <!-- 당분간 Maven 배포 비활성화 -->
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
                 <version>0.7.0</version>
                 <extensions>true</extensions>
                 <configuration>
-                    <skip>true</skip>
+                    <skip>false</skip>
                     <publishingServerId>central</publishingServerId>
                     <autoPublish>false</autoPublish>
                     <waitUntil>validated</waitUntil>

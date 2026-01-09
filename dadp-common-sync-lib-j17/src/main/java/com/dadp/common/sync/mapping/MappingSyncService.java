@@ -36,10 +36,11 @@ public class MappingSyncService {
     private final String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
     private final String datasourceId;  // Datasource ID (WRAPPER용, AOP는 null)
-    private final String apiBasePath;   // API 기본 경로 ("/hub/api/v1/proxy" 또는 "/hub/api/v1/aop")
+    private final String apiBasePath;   // API 기본 경로 ("/hub/api/v1/aop" 또는 "/hub/api/v1/proxy")
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final PolicyResolver policyResolver;
+    private volatile Map<String, Object> lastEndpointInfo;  // 마지막으로 받은 엔드포인트 정보
     
     public MappingSyncService(String hubUrl, String hubId, String alias, 
                              String datasourceId, String apiBasePath,
@@ -88,7 +89,8 @@ public class MappingSyncService {
             }
             
             // Query 파라미터 없음, 헤더의 hubId만 사용
-            checkUrl = hubUrl + apiBasePath + "/mappings/check";
+            String checkPath = apiBasePath + "/mappings/check";
+            checkUrl = hubUrl + checkPath;
             
             log.trace("🔗 Hub 매핑 변경 확인 URL: {}", checkUrl);
             
@@ -99,8 +101,23 @@ public class MappingSyncService {
             HttpEntity<Void> entity = new HttpEntity<>(headers);
             
             // Spring RestTemplate 사용
-            ResponseEntity<CheckMappingChangeResponse> response = restTemplate.exchange(
-                checkUrl, HttpMethod.GET, entity, CheckMappingChangeResponse.class);
+            ResponseEntity<CheckMappingChangeResponse> response;
+            try {
+                response = restTemplate.exchange(
+                    checkUrl, HttpMethod.GET, entity, CheckMappingChangeResponse.class);
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                // 404 Not Found: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
+                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록 필요", hubId);
+                    // 404는 특별한 값으로 표시하기 위해 reregisteredHubId 배열에 특별한 값 설정
+                    if (reregisteredHubId != null) {
+                        reregisteredHubId[0] = "NEED_REGISTRATION"; // 재등록 필요 표시
+                    }
+                    return false; // false 반환하여 재등록 처리 유도
+                }
+                // 다른 4xx/5xx 에러는 예외로 처리
+                throw e;
+            }
             
             // 304 Not Modified: 버전 동일 -> 동기화 불필요
             if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
@@ -137,10 +154,7 @@ public class MappingSyncService {
             log.warn("⚠️ 매핑 변경 확인 실패: HTTP {}, URL={}", response.getStatusCode(), checkUrl);
             return false;
         } catch (org.springframework.web.client.HttpClientErrorException e) {
-            // 404 Not Found: hubId를 찾을 수 없음 -> 예외를 다시 던져서 상위에서 등록 처리
-            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                throw e; // 예외를 다시 던져서 AopPolicyMappingSyncService에서 registerWithHub() 호출
-            }
+            // 404는 이미 위에서 처리했으므로 여기서는 다른 4xx/5xx 에러만 처리
             log.warn("⚠️ 매핑 변경 확인 실패: status={}, hubUrl={}, URL={}, message={}", 
                     e.getStatusCode(), hubUrl, checkUrl, e.getMessage());
             if (e.getResponseBodyAsString() != null) {
@@ -176,7 +190,8 @@ public class MappingSyncService {
             } else {
                 instanceIdParam = "";  // 둘 다 없으면 빈 문자열 (Hub에서 에러 발생)
             }
-            policiesUrl = hubUrl + apiBasePath + "/policies?instanceId=" + instanceIdParam;
+            String policiesPath = apiBasePath + "/policies";
+            policiesUrl = hubUrl + policiesPath + "?instanceId=" + instanceIdParam;
             
             // alias는 항상 별도 파라미터로도 전달 (Hub의 getPolicySnapshotByAlias에서 사용)
             if (alias != null && !alias.trim().isEmpty()) {
@@ -194,8 +209,19 @@ public class MappingSyncService {
             }
             HttpEntity<?> entity = new HttpEntity<>(headers);
             
-            ResponseEntity<PolicySnapshotResponse> response = restTemplate.exchange(
-                policiesUrl, HttpMethod.GET, entity, PolicySnapshotResponse.class);
+            ResponseEntity<PolicySnapshotResponse> response;
+            try {
+                response = restTemplate.exchange(
+                    policiesUrl, HttpMethod.GET, entity, PolicySnapshotResponse.class);
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                // 404 Not Found: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
+                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록 필요", hubId);
+                    return -1; // -1을 반환하여 재등록 필요를 표시
+                }
+                // 다른 4xx/5xx 에러는 예외로 처리
+                throw e;
+            }
             
             // 304 Not Modified: 변경 없음 -> 아무것도 하지 않음 (현재 버전 유지)
             if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
@@ -249,6 +275,14 @@ public class MappingSyncService {
                     }
                     policyResolver.refreshMappings(policyMap, snapshotVersion);
                     
+                    // 엔드포인트 정보 저장 (정책 스냅샷 응답에 포함된 경우)
+                    Map<String, Object> endpointInfo = snapshot.getEndpoint();
+                    if (endpointInfo != null && !endpointInfo.isEmpty()) {
+                        // 엔드포인트 정보를 저장 (PolicyMappingSyncOrchestrator에서 사용)
+                        this.lastEndpointInfo = endpointInfo;
+                        log.debug("📋 정책 스냅샷에서 엔드포인트 정보 수신: {}", endpointInfo);
+                    }
+                    
                     log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑 (영구 저장소에 저장됨)", 
                         snapshotVersion, policyMap.size());
                     return policyMap.size();
@@ -260,12 +294,7 @@ public class MappingSyncService {
             return 0;
             
         } catch (org.springframework.web.client.HttpClientErrorException e) {
-            // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 재등록 필요
-            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                log.debug("📋 Hub에서 hubId를 찾을 수 없음 (등록되지 않은 hubId): alias={}, 다음 주기에서 재등록 시도", alias);
-                // 0 반환하여 다음 주기에서 재등록 시도
-                return 0;
-            }
+            // 404는 이미 위에서 처리했으므로 여기서는 다른 4xx/5xx 에러만 처리
             log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: status={}, hubUrl={}, URL={}, message={}", 
                     e.getStatusCode(), hubUrl, policiesUrl, e.getMessage());
             if (e.getResponseBodyAsString() != null) {
@@ -297,6 +326,13 @@ public class MappingSyncService {
     }
     
     /**
+     * 마지막으로 받은 엔드포인트 정보 반환
+     */
+    public Map<String, Object> getLastEndpointInfo() {
+        return lastEndpointInfo;
+    }
+    
+    /**
      * 정책 매핑 동기화 및 버전 업데이트 (AOP와 Wrapper 공통 로직)
      * 
      * 문서 플로우 (docs/design/proxy-sync-optimization-flow.md)에 따라 구현:
@@ -308,37 +344,58 @@ public class MappingSyncService {
      * @return 동기화된 매핑 개수 (0이면 동기화 실패 또는 변경 없음)
      */
     public int syncPolicyMappingsAndUpdateVersion(Long currentVersion) {
-        // 1. Hub에서 정책 스냅샷 로드
-        int loadedCount = loadPolicySnapshotFromHub(currentVersion);
-        Long newVersion = policyResolver.getCurrentVersion();
-        
-        if (loadedCount > 0) {
-            log.info("✅ 정책 매핑 동기화 완료: {}개 매핑 로드, version={}", loadedCount, newVersion);
-        } else {
-            // 304 응답 시에는 아무것도 하지 않음 (현재 버전 유지)
-            log.debug("📋 정책 매핑 변경 없음 또는 로드 실패");
-        }
-        
-        // 2. 동기화 완료 후 Hub에 버전 업데이트
-        // 문서 플로우: 동기화 완료 후 즉시 Hub에 currentVersion 업데이트
-        // checkMappingChange를 호출하면 Hub가 버전을 확인하고, 이미 동기화되어 있으면 304를 반환
-        if (newVersion != null) {
-            // checkMappingChange를 호출하여 Hub에 currentVersion 업데이트
-            // 버전이 이미 동기화되어 있으면 false 반환 (304 Not Modified)
-            // 버전이 변경되어 있으면 true 반환 (200 OK, hasChange=true)
-            log.debug("🔄 Hub에 버전 확인 요청: currentVersion={}", newVersion);
-            boolean hasChange = checkMappingChange(newVersion, null);
-            if (hasChange) {
-                log.debug("📋 Hub에서 버전 변경 감지 (다음 동기화 주기에서 처리)");
-            } else {
-                // false 반환은 "이미 동기화 완료"를 의미 (304 Not Modified 또는 hasChange=false)
-                log.debug("✅ Hub 버전 확인 완료: version={} (이미 동기화됨)", newVersion);
+        try {
+            // 1. Hub에서 정책 스냅샷 로드
+            int loadedCount = loadPolicySnapshotFromHub(currentVersion);
+            
+            // 404 응답 처리: -1이 반환되면 재등록 필요
+            if (loadedCount == -1) {
+                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 재등록 필요");
+                // 예외를 던져서 PolicyMappingSyncOrchestrator에서 재등록 처리
+                throw new IllegalStateException("Hub에서 hubId를 찾을 수 없음 (404 Not Found): 재등록이 필요합니다.");
             }
-        } else {
-            log.debug("⏭️ Hub에 버전 업데이트 건너뜀: newVersion={}", newVersion);
+            
+            Long newVersion = policyResolver.getCurrentVersion();
+            
+            if (loadedCount > 0) {
+                log.info("✅ 정책 매핑 동기화 완료: {}개 매핑 로드, version={}", loadedCount, newVersion);
+            } else {
+                // 304 응답 시에는 아무것도 하지 않음 (현재 버전 유지)
+                log.debug("📋 정책 매핑 변경 없음 또는 로드 실패");
+            }
+            
+            // 2. 동기화 완료 후 Hub에 버전 업데이트
+            // 문서 플로우: 동기화 완료 후 즉시 Hub에 currentVersion 업데이트
+            // checkMappingChange를 호출하면 Hub가 버전을 확인하고, 이미 동기화되어 있으면 304를 반환
+            if (newVersion != null) {
+                // checkMappingChange를 호출하여 Hub에 currentVersion 업데이트
+                // 버전이 이미 동기화되어 있으면 false 반환 (304 Not Modified)
+                // 버전이 변경되어 있으면 true 반환 (200 OK, hasChange=true)
+                log.debug("🔄 Hub에 버전 확인 요청: currentVersion={}", newVersion);
+                boolean hasChange = checkMappingChange(newVersion, null);
+                if (hasChange) {
+                    log.debug("📋 Hub에서 버전 변경 감지 (다음 동기화 주기에서 처리)");
+                } else {
+                    // false 반환은 "이미 동기화 완료"를 의미 (304 Not Modified 또는 hasChange=false)
+                    log.debug("✅ Hub 버전 확인 완료: version={} (이미 동기화됨)", newVersion);
+                }
+            } else {
+                log.debug("⏭️ Hub에 버전 업데이트 건너뜀: newVersion={}", newVersion);
+            }
+            
+            return loadedCount;
+        } catch (IllegalStateException e) {
+            // 404로 인한 재등록 필요 예외는 다시 던짐
+            if (e.getMessage() != null && e.getMessage().contains("404")) {
+                throw e;
+            }
+            log.warn("⚠️ 정책 매핑 동기화 실패: {}", e.getMessage());
+            return 0;
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            // 다른 4xx/5xx 에러 처리
+            log.warn("⚠️ 정책 매핑 동기화 실패: HTTP {}, message={}", e.getStatusCode(), e.getMessage());
+            return 0;
         }
-        
-        return loadedCount;
     }
     
     /**
@@ -414,6 +471,7 @@ public class MappingSyncService {
         private Long version;
         private String updatedAt;
         private List<PolicyMapping> mappings;
+        private Map<String, Object> endpoint;  // 엔드포인트 정보 (cryptoUrl 등)
         
         public Long getVersion() {
             return version;
@@ -437,6 +495,14 @@ public class MappingSyncService {
         
         public void setMappings(List<PolicyMapping> mappings) {
             this.mappings = mappings;
+        }
+        
+        public Map<String, Object> getEndpoint() {
+            return endpoint;
+        }
+        
+        public void setEndpoint(Map<String, Object> endpoint) {
+            this.endpoint = endpoint;
         }
     }
     

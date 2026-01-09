@@ -1,4 +1,0 @@
-# Spring Boot 2.x 호환성 (하위 호환성 유지)
-# Spring Boot 3.x는 META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports 파일을 사용합니다.
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.dadp.aop.config.DadpAopSpringBootStarterAutoConfiguration

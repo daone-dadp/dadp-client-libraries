@@ -1,0 +1,24 @@
+# DADP JDBC Wrapper 설정 예시
+
+# JDBC URL (dadp: 접두사 추가)
+spring.datasource.url=jdbc:dadp:mysql://localhost:3306/mydb
+spring.datasource.driver-class-name=com.dadp.jdbc.DadpJdbcDriver
+spring.datasource.username=root
+spring.datasource.password=password
+
+# Hub 설정 (선택)
+# 설정 우선순위: 시스템 프로퍼티(-D) > 환경변수(DADP_HUB_BASE_URL) > JDBC URL 파라미터(hubUrl=) > 기본값
+# 예: java -Ddadp.proxy.hub-url=http://your-hub:9004 -jar app.jar
+# 예: export DADP_HUB_BASE_URL=http://your-hub:9004
+# 예: jdbc:dadp:mysql://localhost:3306/mydb?hubUrl=http://your-hub:9004
+dadp.proxy.hub-url=http://localhost:9004
+dadp.proxy.instance-id=proxy-1
+
+# 캐시 설정 (선택)
+dadp.proxy.cache.schema-ttl=3600000
+dadp.proxy.cache.policy-ttl=300000
+
+# Fail-open 모드 (기본값: true)
+# Hub API 실패 시 원본 데이터 그대로 전달
+dadp.proxy.fail-open=true
+

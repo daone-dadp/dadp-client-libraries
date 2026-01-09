@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>io.github.daone-dadp</groupId>
+        <artifactId>dadp-client-libraries</artifactId>
+        <version>5.4.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    
+    <groupId>io.github.daone-dadp</groupId>
+    <artifactId>dadp-aop-spring6-starter</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <name>DADP AOP Spring Boot Starter (Spring 6)</name>
+    <description>DADP AOP Spring Boot Starter - 자동 설정 및 의존성 관리 (Java 17, Spring 6)</description>
+    <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+    
+    <developers>
+        <developer>
+            <name>dadp team</name>
+            <email>csh@daonecns.co.kr</email>
+        </developer>
+    </developers>
+    
+    <scm>
+        <connection>scm:git:git://github.com/daone-dadp/dadp-client-libraries.git</connection>
+        <developerConnection>scm:git:ssh://github.com/daone-dadp/dadp-client-libraries.git</developerConnection>
+        <url>https://github.com/daone-dadp/dadp-client-libraries</url>
+    </scm>
+
+    <properties>
+        <spring-boot.version>3.2.12</spring-boot.version>
+        <!-- GPG 서명 활성화 -->
+        <gpg.skip>false</gpg.skip>
+        <!-- Maven 배포 활성화 -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+
+    <dependencies>
+        <!-- DADP AOP Spring 6 모듈 -->
+        <dependency>
+            <groupId>io.github.daone-dadp</groupId>
+            <artifactId>dadp-aop-spring6</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        
+        <!-- Spring Boot Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        
+        <!-- Spring Boot AOP -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        
+        <!-- Spring Boot Configuration Processor -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <version>${spring-boot.version}</version>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <skip>false</skip>
+                    <failOnError>false</failOnError>
+                    <doclint>none</doclint>
+                    <quiet>true</quiet>
+                    <nohelp>true</nohelp>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.0.1</version>
+                <configuration>
+                    <useAgent>false</useAgent>
+                    <passphrase>${env.GPG_PASSPHRASE}</passphrase>
+                    <skip>${gpg.skip}</skip>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <!-- Central Publishing 플러그인 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.7.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <skip>true</skip>
+                    <publishingServerId>central</publishingServerId>
+                    <autoPublish>false</autoPublish>
+                    <waitUntil>validated</waitUntil>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+

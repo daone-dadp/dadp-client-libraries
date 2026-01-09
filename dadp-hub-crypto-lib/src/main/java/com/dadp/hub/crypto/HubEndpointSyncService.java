@@ -46,7 +46,9 @@ public class HubEndpointSyncService {
         try {
             log.info("🔄 Hub에서 암복호화 엔드포인트 정보 조회 시작: hubUrl={}, instanceId={}", hubUrl, instanceId);
             
-            String endpointUrl = hubUrl + "/hub/api/v1/engines/endpoint";
+            // V1 API 사용: /hub/api/v1/engines/endpoint
+            String endpointPath = "/hub/api/v1/engines/endpoint";
+            String endpointUrl = hubUrl + endpointPath;
             log.debug("🔗 Hub 엔드포인트 조회 URL: {}", endpointUrl);
             
             // X-DADP-TENANT 헤더 설정 (선택적)

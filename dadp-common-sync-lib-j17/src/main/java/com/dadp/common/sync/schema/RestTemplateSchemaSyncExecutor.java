@@ -54,7 +54,8 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     
     @Override
     public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String instanceId, Long currentVersion) throws Exception {
-        String syncUrl = hubUrl + apiBasePath + "/schemas/sync";
+        String syncUrl = hubUrl + apiBasePath + "/schema/sync";
+        log.info("🔗 스키마 동기화 URL 생성: hubUrl={}, apiBasePath={}, syncUrl={}", hubUrl, apiBasePath, syncUrl);
         
         // hubId 필수 검증
         if (hubId == null || hubId.trim().isEmpty()) {
@@ -63,8 +64,9 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         }
         
         // AOP 스키마 동기화 요청 DTO 생성
-        // Body에 스키마 정보만 포함 (instanceId, hubId 불필요)
+        // Body에 instanceId와 스키마 정보 포함 (hubId는 헤더로 전송)
         AopSchemaSyncRequest request = new AopSchemaSyncRequest();
+        request.setInstanceId(instanceId);  // instanceId 포함 (hubId가 없을 때 자동 생성용)
         request.setSchemas(convertToAopSchemaInfo(schemas));
         
         HttpHeaders headers = new HttpHeaders();
@@ -76,9 +78,12 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<>(request, headers);
         
         log.debug("📤 요청 본문: {}", request);
-        ResponseEntity<Map> response;
+        log.info("📤 RestTemplate.exchange() 호출: syncUrl={}, HttpMethod=POST", syncUrl);
+        ResponseEntity<Map<String, Object>> response;
         try {
-            response = restTemplate.exchange(syncUrl, HttpMethod.POST, entity, Map.class);
+            org.springframework.core.ParameterizedTypeReference<Map<String, Object>> typeRef = 
+                new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() {};
+            response = restTemplate.exchange(syncUrl, HttpMethod.POST, entity, typeRef);
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 예외를 다시 던져서 상위에서 등록 처리
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
@@ -140,11 +145,15 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     /**
      * AOP 스키마 동기화 요청 DTO
      * 
-     * Body에 스키마 정보만 포함 (instanceId, hubId 불필요)
+     * Body에 instanceId와 스키마 정보 포함
      * hubId는 헤더(X-DADP-TENANT)로 전송됨
      */
     public static class AopSchemaSyncRequest {
+        private String instanceId;  // 인스턴스 별칭 (hubId가 없을 때 자동 생성용)
         private List<AopSchemaInfo> schemas;
+        
+        public String getInstanceId() { return instanceId; }
+        public void setInstanceId(String instanceId) { this.instanceId = instanceId; }
         
         public List<AopSchemaInfo> getSchemas() { return schemas; }
         public void setSchemas(List<AopSchemaInfo> schemas) { this.schemas = schemas; }

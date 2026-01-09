@@ -26,17 +26,40 @@ public class PolicyMappingStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(PolicyMappingStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "policy-mappings.json";
     
     private final String storagePath;
     private final ObjectMapper objectMapper;
     
     /**
+     * 기본 저장 디렉토리 조회
+     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * 
+     * @return 저장 디렉토리 경로
+     */
+    private static String getDefaultStorageDir() {
+        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
+        String storageDir = System.getProperty("dadp.storage.dir");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
+        storageDir = System.getenv("DADP_STORAGE_DIR");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 3. 기본값 사용 (~/.dadp-wrapper)
+        return System.getProperty("user.home") + "/.dadp-wrapper";
+    }
+    
+    /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      */
     public PolicyMappingStorage() {
-        this(DEFAULT_STORAGE_DIR, DEFAULT_STORAGE_FILE);
+        this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);
     }
     
     /**
@@ -56,10 +79,11 @@ public class PolicyMappingStorage {
             log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
             // 기본 경로로 폴백
             try {
-                Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
-                finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
+                String fallbackDir = getDefaultStorageDir();
+                Files.createDirectories(Paths.get(fallbackDir));
+                finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
@@ -87,6 +111,7 @@ public class PolicyMappingStorage {
         try {
             // 저장 데이터 구조
             PolicyMappingData data = new PolicyMappingData();
+            data.setStorageSchemaVersion(PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION);
             data.setTimestamp(System.currentTimeMillis());
             data.setMappings(mappings);
             data.setVersion(version);
@@ -95,8 +120,8 @@ public class PolicyMappingStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 정책 매핑 정보 저장 완료: {}개 매핑, version={} → {}", 
-                    mappings.size(), version, storagePath);
+            log.info("💾 정책 매핑 정보 저장 완료: {}개 매핑, version={}, storageSchemaVersion={} → {}", 
+                    mappings.size(), version, PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
             return true;
             
         } catch (IOException e) {
@@ -140,12 +165,27 @@ public class PolicyMappingStorage {
                 return new HashMap<>();
             }
             
+            // 저장소 포맷 버전 확인 및 하위 호환성 처리
+            int storageVersion = data.getStorageSchemaVersion();
+            if (storageVersion == 0) {
+                // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
+                log.info("📋 구버전 정책 매핑 포맷 감지 (버전 필드 없음) -> 버전 1으로 처리");
+                storageVersion = 1;
+            }
+            
+            // 향후 버전 호환성 체크
+            if (storageVersion > PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION) {
+                log.warn("⚠️ 알 수 없는 정책 매핑 포맷 버전: {} (현재 지원 버전: {}), " +
+                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                    storageVersion, PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION);
+            }
+            
             Map<String, String> mappings = data.getMappings();
             long timestamp = data.getTimestamp();
             Long version = data.getVersion();
             
-            log.info("📂 정책 매핑 정보 로드 완료: {}개 매핑, version={} (저장 시각: {})", 
-                    mappings.size(), version, new java.util.Date(timestamp));
+            log.info("📂 정책 매핑 정보 로드 완료: {}개 매핑, version={}, storageSchemaVersion={} (저장 시각: {})", 
+                    mappings.size(), version, storageVersion, new java.util.Date(timestamp));
             return mappings;
             
         } catch (IOException e) {
@@ -227,9 +267,20 @@ public class PolicyMappingStorage {
      * mappings의 키가 스키마 정보(table.column)이고, 값이 null이면 스키마는 있지만 정책이 없는 상태
      */
     public static class PolicyMappingData {
+        private static final int CURRENT_STORAGE_SCHEMA_VERSION = 1;  // 현재 저장소 포맷 버전
+        
+        private int storageSchemaVersion = CURRENT_STORAGE_SCHEMA_VERSION;  // 저장소 포맷 버전
         private long timestamp;
         private Map<String, String> mappings; // 테이블.컬럼 → 정책명 (null 가능)
         private Long version;
+        
+        public int getStorageSchemaVersion() {
+            return storageSchemaVersion;
+        }
+        
+        public void setStorageSchemaVersion(int storageSchemaVersion) {
+            this.storageSchemaVersion = storageSchemaVersion;
+        }
         
         public long getTimestamp() {
             return timestamp;

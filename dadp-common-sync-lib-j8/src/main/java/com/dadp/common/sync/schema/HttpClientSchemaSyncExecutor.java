@@ -25,13 +25,19 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(HttpClientSchemaSyncExecutor.class);
     
     private final String hubUrl;
-    private final String apiBasePath;  // "/hub/api/v1/proxy" 또는 "/hub/api/v1/aop"
+    private final String apiBasePath;  // "/hub/api/v1/aop" 또는 "/hub/api/v1/proxy"
+    private final String instanceType;  // "PROXY" 또는 "AOP" (새 API 사용 시 필수)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, HttpClientAdapter httpClient) {
+        this(hubUrl, apiBasePath, null, httpClient);
+    }
+    
+    public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType, HttpClientAdapter httpClient) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
+        this.instanceType = instanceType;
         this.httpClient = httpClient;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -39,22 +45,22 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     
     @Override
     public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String instanceId, Long currentVersion) throws Exception {
-        String syncUrl = hubUrl + apiBasePath + "/schema/sync";
+        // AOP는 복수형(/schemas/sync), Wrapper는 단수형(/schema/sync)
+        boolean isAop = apiBasePath != null && apiBasePath.contains("/aop");
+        String syncPath = isAop ? "/schemas/sync" : "/schema/sync";
+        String syncUrl = hubUrl + apiBasePath + syncPath;
         log.debug("🔗 Hub 스키마 동기화 URL: {}", syncUrl);
         
         SchemaSyncRequest request = new SchemaSyncRequest();
-        // 스키마 동기화: 헤더에 hubId를 넣고 body에 스키마만 전송
-        // hubId가 없으면 재등록을 위해 body에 instanceId(별칭) 포함
-        if (hubId == null || hubId.trim().isEmpty()) {
-            // hubId가 없으면 재등록을 위해 별칭(instanceId)를 body에 포함
-            request.setInstanceId(instanceId);
-        }
+        // 스키마 동기화: 헤더에 hubId를 넣고 body에 instanceId와 스키마 전송
         // hubId는 헤더(X-DADP-TENANT)로 전송
+        // instanceId는 body에 포함 (hubId가 없을 때 자동 생성용)
+        request.setInstanceId(instanceId);
         request.setSchemas(schemas);
         
         String requestBody = objectMapper.writeValueAsString(request);
         
-        // 헤더에 hubId와 버전 포함 (Hub가 hubId를 헤더에서도 받을 수 있도록)
+        // 헤더에 hubId, 버전, instanceType 포함 (새 API 사용 시)
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         if (hubId != null && !hubId.trim().isEmpty()) {
@@ -63,6 +69,15 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         if (currentVersion != null) {
             headers.put("X-Current-Version", String.valueOf(currentVersion));
         }
+        // Wrapper 사용 시 X-Instance-Type 헤더 추가
+        if (!isAop && instanceType != null && !instanceType.trim().isEmpty()) {
+            headers.put("X-Instance-Type", instanceType);
+        }
+        
+        // 요청 로깅 (디버깅용)
+        log.debug("📤 Hub 스키마 동기화 요청: URL={}, hubId={}, 스키마 개수={}", syncUrl, hubId, schemas != null ? schemas.size() : 0);
+        log.debug("📤 요청 헤더: {}", headers);
+        log.debug("📤 요청 바디: {}", requestBody);
         
         // HTTP POST 요청
         URI uri = URI.create(syncUrl);
@@ -77,63 +92,11 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
             return true;
         }
         
-        // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 재등록 필요
-        // Hub가 instanceId(별칭)와 datasourceId를 받으면 자동으로 재등록을 시도하므로,
-        // 클라이언트는 재요청을 통해 재등록된 새로운 hubId를 받을 수 있음
+        // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 재등록 필요 (예외가 아닌 정상 응답 코드)
         if (statusCode == 404) {
-            // hubId가 있어도 Hub에서 제거되었을 수 있으므로, 재등록 시도
-            // 재등록 시에는 hubId가 없는 것처럼 instanceId(별칭)를 사용
-            String alias = instanceId; // instanceId는 별칭(alias)임
-            String datasourceIdFromSchema = null;
-            if (schemas != null && !schemas.isEmpty()) {
-                datasourceIdFromSchema = schemas.get(0).getDatasourceId();
-            }
-            
-            if (alias != null && !alias.trim().isEmpty() && 
-                datasourceIdFromSchema != null && !datasourceIdFromSchema.trim().isEmpty()) {
-                log.info("🔄 Hub에서 hubId 제거됨 (구 hubId), 재등록 시도: alias={}, datasourceId={}", alias, datasourceIdFromSchema);
-                
-                // 재등록 요청: hubId가 없는 것처럼 처리 (헤더에서 hubId 제거)
-                SchemaSyncRequest retryRequest = new SchemaSyncRequest();
-                retryRequest.setInstanceId(alias);  // 별칭 사용
-                retryRequest.setHubId(null);  // 재등록 시 hubId는 null
-                retryRequest.setSchemas(schemas);
-                
-                // 재등록 시에는 헤더에서 hubId 제거 (hubId가 없는 것처럼 처리)
-                Map<String, String> retryHeaders = new HashMap<>();
-                retryHeaders.put("Content-Type", "application/json");
-                if (currentVersion != null) {
-                    retryHeaders.put("X-Current-Version", String.valueOf(currentVersion));
-                }
-                // X-DADP-TENANT 헤더는 제거 (hubId가 없는 것처럼 처리)
-                
-                String retryRequestBody = objectMapper.writeValueAsString(retryRequest);
-                HttpClientAdapter.HttpResponse retryResponse = httpClient.post(uri, retryRequestBody, retryHeaders);
-                int retryStatusCode = retryResponse.getStatusCode();
-                String retryResponseBody = retryResponse.getBody();
-                
-                if (retryStatusCode >= 200 && retryStatusCode < 300 && retryResponseBody != null) {
-                    // 재등록 성공, 정상 응답 처리
-                    Map<String, Object> retryApiResponse = objectMapper.readValue(retryResponseBody, 
-                            objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class));
-                    
-                    if (retryApiResponse != null && Boolean.TRUE.equals(retryApiResponse.get("success"))) {
-                        // 재등록 응답에서 hubId 추출
-                        String receivedHubId = extractHubIdFromResponse(retryApiResponse);
-                        if (receivedHubId != null && !receivedHubId.trim().isEmpty()) {
-                            log.info("✅ Hub에서 재등록 완료 후 스키마 동기화 성공: {}개 컬럼, hubId={}", schemas.size(), receivedHubId);
-                            HubIdHolder.setHubId(receivedHubId);
-                        } else {
-                            log.info("✅ Hub에서 재등록 완료 후 스키마 동기화 성공: {}개 컬럼", schemas.size());
-                        }
-                        return true;
-                    }
-                }
-            }
-            
-            // 재등록 실패 또는 alias/datasourceId가 없는 경우
-            log.warn("⚠️ Hub로 스키마 메타데이터 동기화 실패: HTTP 400 (재등록 필요)");
-            throw new RuntimeException("Hub 스키마 동기화 실패: HTTP 400 - 재등록이 필요합니다. alias=" + instanceId);
+            log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록 필요", hubId);
+            // 404는 정상적인 응답 코드이므로 특별한 예외를 던져서 호출하는 쪽에서 재등록 처리
+            throw new SchemaSync404Exception("Hub 스키마 동기화 실패: HTTP 404 - hubId를 찾을 수 없습니다. 재등록이 필요합니다. hubId=" + hubId);
         }
         
         if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
@@ -209,6 +172,15 @@ class HubIdHolder {
     
     static void clear() {
         hubIdThreadLocal.remove();
+    }
+}
+
+/**
+ * 404 응답을 나타내는 예외 (정상적인 응답 코드이지만 재등록이 필요함을 표시)
+ */
+class SchemaSync404Exception extends RuntimeException {
+    SchemaSync404Exception(String message) {
+        super(message);
     }
 }
 

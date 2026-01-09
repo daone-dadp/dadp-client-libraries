@@ -8,7 +8,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * AOP와 Wrapper 모두에서 사용하는 공통 스키마 메타데이터 DTO입니다.
  * 
  * @author DADP Development Team
- * @version 5.0.9
+ * @version 5.2.2
  * @since 2026-01-06
  */
 public class SchemaMetadata {
@@ -21,8 +21,11 @@ public class SchemaMetadata {
     private String columnType;      // Wrapper에서 사용 (AOP에서는 null 가능)
     private Boolean isNullable;     // Wrapper에서 사용 (AOP에서는 null 가능)
     private String columnDefault;   // Wrapper에서 사용 (AOP에서는 null 가능)
-    private String policyName;      // AOP에서 사용 (Wrapper에서는 null 가능)
-    private String status;          // 스키마 상태: "CREATED", "REGISTERED", "DELETED"
+    
+    @JsonIgnore
+    private String policyName;      // AOP에서 사용 (Wrapper에서는 null 가능) - Hub 전송 시 제외
+    @JsonIgnore
+    private String status;          // 스키마 상태: "CREATED", "REGISTERED", "DELETED" - Hub 전송 시 제외
     
     /**
      * 스키마 상태 열거형
@@ -123,12 +126,21 @@ public class SchemaMetadata {
     }
     
     /**
-     * 스키마 키 생성 (schema.table.column)
+     * 스키마 키 생성 (datasourceId:schema.table.column 또는 schema.table.column)
+     * 
+     * Wrapper: datasourceId가 있으면 "datasourceId:schema.table.column" 형식
+     * AOP: datasourceId가 없으면 "schema.table.column" 형식
+     * 
      * JSON 직렬화에서 제외
      */
     @JsonIgnore
     public String getKey() {
-        return (schemaName != null ? schemaName : "") + "." +
+        String effectiveSchemaName = schemaName;
+        if (datasourceId != null && !datasourceId.trim().isEmpty()) {
+            // Wrapper: datasourceId:schema.table.column
+            effectiveSchemaName = datasourceId + ":" + (schemaName != null ? schemaName : "");
+        }
+        return (effectiveSchemaName != null ? effectiveSchemaName : "") + "." +
                (tableName != null ? tableName : "") + "." +
                (columnName != null ? columnName : "");
     }

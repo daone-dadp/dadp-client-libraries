@@ -39,14 +39,19 @@ public class HubCryptoService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private String hubUrl;
-    private String apiBasePath = "/api";  // 기본값: Engine 경로 (AOP는 엔진에 직접 연결)
+    private String apiBasePath = "/api";  // 기본값: Engine 경로만 허용
     private int timeout;
     private boolean enableLogging;
     private boolean initialized = false;
     
-    // Hub 경로 상수
+    // Hub 경로 상수 (deprecated - 사용 불가)
+    @Deprecated
     private static final String HUB_API_PATH = "/hub/api/v1";
     private static final String ENGINE_API_PATH = "/api";
+    
+    // Telemetry: 암복호화 엔드포인트 추적
+    private volatile String lastUsedEndpoint = null;
+    private volatile long endpointUsageCount = 0;
 
     /**
      * 생성자
@@ -115,11 +120,12 @@ public class HubCryptoService {
     
     /**
      * 자동 초기화 메서드 - API 경로 포함
-     * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003 또는 http://hub:9004/hub)
-     * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
-     *                   null이면 자동 감지 (Hub인 경우 "/hub/api/v1", 그 외 "/api")
+     * @param hubUrl Engine URL (예: http://localhost:9003)
+     * @param apiBasePath API 기본 경로 (Engine: "/api"만 허용)
+     *                   null이면 "/api"로 설정 (Hub 경로는 사용 불가)
      * @param timeout 타임아웃 (ms)
      * @param enableLogging 로깅 활성화
+     * @throws IllegalStateException Hub 경로가 감지된 경우
      */
     public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, boolean enableLogging) {
         HubCryptoService instance = new HubCryptoService();
@@ -128,14 +134,20 @@ public class HubCryptoService {
         String baseUrl = extractBaseUrl(hubUrl);
         instance.hubUrl = baseUrl;
         
-        // apiBasePath가 null이면 자동 감지
+        // apiBasePath가 null이면 Engine 경로로 설정
         if (apiBasePath == null || apiBasePath.trim().isEmpty()) {
-            // 원본 URL에 "/hub"가 포함되어 있으면 Hub로 간주
-            if (hubUrl != null && hubUrl.contains("/hub")) {
-                apiBasePath = HUB_API_PATH;
-            } else {
-                apiBasePath = ENGINE_API_PATH;
-            }
+            apiBasePath = ENGINE_API_PATH;
+        }
+        
+        // Hub 경로 사용 시 예외 발생 (런타임 가드)
+        if (apiBasePath.contains("/hub/api") || apiBasePath.equals(HUB_API_PATH)) {
+            String errorMsg = String.format(
+                "Hub 직접 암복호화 경로는 사용할 수 없습니다. Engine 경로(/api)만 허용됩니다. " +
+                "감지된 경로: %s. Hub를 통한 암복호화는 제거되었습니다. Engine에 직접 연결하세요.",
+                apiBasePath
+            );
+            log.error("❌ {}", errorMsg);
+            throw new IllegalStateException(errorMsg);
         }
         
         instance.apiBasePath = apiBasePath;
@@ -153,10 +165,24 @@ public class HubCryptoService {
     
     /**
      * API 기본 경로 설정
-     * @param apiBasePath API 기본 경로 (Hub: "/hub/api/v1", Engine: "/api")
+     * @param apiBasePath API 기본 경로 (Engine: "/api"만 허용, Hub 경로는 사용 불가)
+     * @throws IllegalStateException Hub 경로가 감지된 경우
      */
     public void setApiBasePath(String apiBasePath) {
-        this.apiBasePath = apiBasePath != null ? apiBasePath : "/api";
+        String path = apiBasePath != null ? apiBasePath : "/api";
+        
+        // Hub 경로 사용 시 예외 발생 (런타임 가드)
+        if (path.contains("/hub/api") || path.equals(HUB_API_PATH)) {
+            String errorMsg = String.format(
+                "Hub 직접 암복호화 경로는 사용할 수 없습니다. Engine 경로(/api)만 허용됩니다. " +
+                "감지된 경로: %s. Hub를 통한 암복호화는 제거되었습니다. Engine에 직접 연결하세요.",
+                path
+            );
+            log.error("❌ {}", errorMsg);
+            throw new IllegalStateException(errorMsg);
+        }
+        
+        this.apiBasePath = path;
     }
     
     /**
@@ -278,6 +304,9 @@ public class HubCryptoService {
         // 초기화 확인
         initializeIfNeeded();
         
+        // Hub 경로 사용 시 예외 발생 (런타임 가드)
+        validateNotHubPath();
+        
         if (enableLogging) {
             log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}", 
                     data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy);
@@ -285,6 +314,9 @@ public class HubCryptoService {
         
         try {
             String url = hubUrl + apiBasePath + "/encrypt";
+            
+            // Telemetry: 엔드포인트 추적
+            recordEndpointUsage(url);
             
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
@@ -444,6 +476,9 @@ public class HubCryptoService {
         // 초기화 확인
         initializeIfNeeded();
         
+        // Hub 경로 사용 시 예외 발생 (런타임 가드)
+        validateNotHubPath();
+        
         if (enableLogging) {
             log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}", 
                     encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
@@ -452,6 +487,9 @@ public class HubCryptoService {
         
         try {
             String url = hubUrl + apiBasePath + "/decrypt";
+            
+            // Telemetry: 엔드포인트 추적
+            recordEndpointUsage(url);
             
             DecryptRequest request = new DecryptRequest();
             request.setEncryptedData(encryptedData);
@@ -667,8 +705,14 @@ public class HubCryptoService {
         }
         
         try {
+            // Hub 경로 사용 시 예외 발생 (런타임 가드)
+            validateNotHubPath();
+            
             // Engine의 배치 복호화 API 호출
             String url = hubUrl + apiBasePath + "/decrypt/batch";
+            
+            // Telemetry: 엔드포인트 추적
+            recordEndpointUsage(url);
             
             // 배치 요청 생성
             java.util.Map<String, Object> batchRequest = new java.util.HashMap<>();
@@ -812,9 +856,15 @@ public class HubCryptoService {
         }
         
         try {
+            // Hub 경로 사용 시 예외 발생 (런타임 가드)
+            validateNotHubPath();
+            
             // Engine의 배치 암호화 API 호출
             String url = hubUrl + apiBasePath + "/encrypt/batch";
             log.debug("Hub batchEncrypt URL: {}", url);
+            
+            // Telemetry: 엔드포인트 추적
+            recordEndpointUsage(url);
             
             // 배치 요청 생성
             java.util.Map<String, Object> batchRequest = new java.util.HashMap<>();
@@ -1042,5 +1092,52 @@ public class HubCryptoService {
             }
             return false;
         }
+    }
+    
+    /**
+     * Hub 경로 사용 여부 검증 (런타임 가드)
+     * @throws IllegalStateException Hub 경로가 감지된 경우
+     */
+    private void validateNotHubPath() {
+        if (apiBasePath != null && (apiBasePath.contains("/hub/api") || apiBasePath.equals(HUB_API_PATH))) {
+            String errorMsg = String.format(
+                "Hub 직접 암복호화 경로는 사용할 수 없습니다. Engine 경로(/api)만 허용됩니다. " +
+                "현재 경로: %s. Hub를 통한 암복호화는 제거되었습니다. Engine에 직접 연결하세요.",
+                apiBasePath
+            );
+            log.error("❌ {}", errorMsg);
+            throw new IllegalStateException(errorMsg);
+        }
+    }
+    
+    /**
+     * Telemetry: 암복호화 엔드포인트 추적
+     * @param endpoint 사용된 엔드포인트 URL
+     */
+    private void recordEndpointUsage(String endpoint) {
+        this.lastUsedEndpoint = endpoint;
+        this.endpointUsageCount++;
+        
+        // 첫 사용 시 또는 100회마다 로깅
+        if (enableLogging && (endpointUsageCount == 1 || endpointUsageCount % 100 == 0)) {
+            log.info("📊 Telemetry: 암복호화 엔드포인트 사용 - endpoint={}, 사용 횟수={}", 
+                    endpoint, endpointUsageCount);
+        }
+    }
+    
+    /**
+     * 마지막으로 사용된 엔드포인트 조회 (Telemetry)
+     * @return 마지막 사용 엔드포인트 URL
+     */
+    public String getLastUsedEndpoint() {
+        return lastUsedEndpoint;
+    }
+    
+    /**
+     * 엔드포인트 사용 횟수 조회 (Telemetry)
+     * @return 사용 횟수
+     */
+    public long getEndpointUsageCount() {
+        return endpointUsageCount;
     }
 }

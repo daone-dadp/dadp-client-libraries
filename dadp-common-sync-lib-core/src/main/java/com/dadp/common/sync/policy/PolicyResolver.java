@@ -36,7 +36,31 @@ public class PolicyResolver {
     private final PolicyMappingStorage storage;
     
     /**
+     * 기본 저장 디렉토리 조회
+     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * 
+     * @return 저장 디렉토리 경로
+     */
+    private static String getDefaultStorageDir() {
+        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
+        String storageDir = System.getProperty("dadp.storage.dir");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
+        storageDir = System.getenv("DADP_STORAGE_DIR");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 3. 기본값 사용 (~/.dadp-wrapper)
+        return System.getProperty("user.home") + "/.dadp-wrapper";
+    }
+    
+    /**
      * 싱글톤 인스턴스 조회 (기본 경로 사용)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      * 
      * @return 싱글톤 PolicyResolver 인스턴스
      */
@@ -53,9 +77,10 @@ public class PolicyResolver {
     
     /**
      * 기본 생성자 (영구 저장소 자동 초기화)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      */
     public PolicyResolver() {
-        this(System.getProperty("user.home") + "/.dadp-wrapper", "policy-mappings.json");
+        this(getDefaultStorageDir(), "policy-mappings.json");
     }
     
     /**

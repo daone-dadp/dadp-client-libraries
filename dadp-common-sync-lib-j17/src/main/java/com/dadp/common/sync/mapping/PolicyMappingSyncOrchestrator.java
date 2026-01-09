@@ -118,6 +118,15 @@ public class PolicyMappingSyncOrchestrator {
             // Hub에서 버전 변경 여부 확인
             boolean hasChange = mappingSyncService.checkMappingChange(currentVersion, reregisteredHubId);
             
+            // 404 응답 처리: NEED_REGISTRATION이면 재등록 필요
+            if (reregisteredHubId[0] != null && "NEED_REGISTRATION".equals(reregisteredHubId[0])) {
+                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
+                if (callbacks != null) {
+                    callbacks.onRegistrationNeeded();
+                }
+                return;
+            }
+            
             // 재등록 처리
             boolean isReregistered = reregisteredHubId[0] != null;
             if (isReregistered) {
@@ -149,9 +158,11 @@ public class PolicyMappingSyncOrchestrator {
                 updateSchemaPolicyNames();
                 
                 // 3. 엔드포인트 동기화 콜백 호출 (버전 변경 시 정책 매핑, url, 버전 모두 동기화)
+                // 엔드포인트 정보는 정책 스냅샷 응답에서 받아옴
                 if (callbacks != null) {
                     try {
-                        callbacks.onEndpointSynced(null); // endpointData는 콜백에서 직접 로드
+                        Map<String, Object> endpointInfo = mappingSyncService.getLastEndpointInfo();
+                        callbacks.onEndpointSynced(endpointInfo); // 정책 스냅샷에서 받은 엔드포인트 정보 전달
                     } catch (Exception e) {
                         log.warn("⚠️ 엔드포인트 동기화 콜백 호출 실패: {}", e.getMessage());
                     }
@@ -163,16 +174,17 @@ public class PolicyMappingSyncOrchestrator {
                 log.trace("⏭️ 정책 매핑 변경 없음 (version={}, 304 Not Modified)", currentVersion);
             }
             
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            // 404 Not Found: hubId를 찾을 수 없음 -> 등록 수행
-            if (e.getStatusCode() == org.springframework.http.HttpStatus.NOT_FOUND) {
+        } catch (IllegalStateException e) {
+            // 404로 인한 재등록 필요 예외 처리
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && errorMessage.contains("404")) {
                 log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
                 if (callbacks != null) {
                     callbacks.onRegistrationNeeded();
                 }
-            } else {
-                log.warn("⚠️ 버전 체크 실패: HTTP {}, message={}", e.getStatusCode(), e.getMessage());
+                return;
             }
+            log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
         } catch (Exception e) {
             log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
         }

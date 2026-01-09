@@ -24,7 +24,6 @@ public class EndpointStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "crypto-endpoints.json";
     
     // 싱글톤 인스턴스 (기본 경로 사용)
@@ -35,7 +34,31 @@ public class EndpointStorage {
     private final ObjectMapper objectMapper;
     
     /**
+     * 기본 저장 디렉토리 조회
+     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * 
+     * @return 저장 디렉토리 경로
+     */
+    private static String getDefaultStorageDir() {
+        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
+        String storageDir = System.getProperty("dadp.storage.dir");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
+        storageDir = System.getenv("DADP_STORAGE_DIR");
+        if (storageDir != null && !storageDir.trim().isEmpty()) {
+            return storageDir;
+        }
+        
+        // 3. 기본값 사용 (~/.dadp-wrapper)
+        return System.getProperty("user.home") + "/.dadp-wrapper";
+    }
+    
+    /**
      * 싱글톤 인스턴스 조회 (기본 경로 사용)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      * 
      * @return 싱글톤 EndpointStorage 인스턴스
      */
@@ -52,9 +75,10 @@ public class EndpointStorage {
     
     /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
+     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
      */
     public EndpointStorage() {
-        this(DEFAULT_STORAGE_DIR, DEFAULT_STORAGE_FILE);
+        this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);
     }
     
     /**
@@ -74,10 +98,11 @@ public class EndpointStorage {
             log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
             // 기본 경로로 폴백
             try {
-                Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
-                finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
+                String fallbackDir = getDefaultStorageDir();
+                Files.createDirectories(Paths.get(fallbackDir));
+                finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
@@ -111,6 +136,7 @@ public class EndpointStorage {
         try {
             // 저장 데이터 구조
             EndpointData data = new EndpointData();
+            data.setStorageSchemaVersion(EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
             data.setCryptoUrl(cryptoUrl);
             data.setHubId(hubId);
             data.setVersion(version);
@@ -123,8 +149,8 @@ public class EndpointStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 엔드포인트 및 통계 설정 정보 저장 완료: cryptoUrl={}, hubId={}, version={} → {}", 
-                    cryptoUrl, hubId, version, storagePath);
+            log.info("💾 엔드포인트 및 통계 설정 정보 저장 완료: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={} → {}", 
+                    cryptoUrl, hubId, version, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
             return true;
             
         } catch (IOException e) {
@@ -158,8 +184,23 @@ public class EndpointStorage {
                 return null;
             }
             
-            log.debug("📂 암복호화 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}", 
-                    data.getCryptoUrl(), data.getHubId(), data.getVersion());
+            // 저장소 포맷 버전 확인 및 하위 호환성 처리
+            int storageVersion = data.getStorageSchemaVersion();
+            if (storageVersion == 0) {
+                // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
+                log.info("📋 구버전 엔드포인트 포맷 감지 (버전 필드 없음) -> 버전 1로 처리");
+                storageVersion = 1;
+            }
+            
+            // 향후 버전 호환성 체크
+            if (storageVersion > EndpointData.CURRENT_STORAGE_SCHEMA_VERSION) {
+                log.warn("⚠️ 알 수 없는 엔드포인트 포맷 버전: {} (현재 지원 버전: {}), " +
+                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                    storageVersion, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
+            }
+            
+            log.debug("📂 암복호화 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={}", 
+                    data.getCryptoUrl(), data.getHubId(), data.getVersion(), storageVersion);
             return data;
             
         } catch (IOException e) {
@@ -216,6 +257,7 @@ public class EndpointStorage {
      * 엔드포인트 데이터 구조
      * 
      * 저장 필수 데이터:
+     * - storageSchemaVersion: 저장소 포맷 버전
      * - cryptoUrl: 암복호화에 사용할 단일 URL
      * - hubId: Hub가 발급한 인스턴스 고유 ID
      * - version: Hub의 최신 버전 (hubVersion)
@@ -224,6 +266,9 @@ public class EndpointStorage {
      * - statsAggregatorMode: 전송 모드 (DIRECT/GATEWAY)
      */
     public static class EndpointData {
+        private static final int CURRENT_STORAGE_SCHEMA_VERSION = 1;  // 현재 저장소 포맷 버전
+        
+        private int storageSchemaVersion = CURRENT_STORAGE_SCHEMA_VERSION;  // 저장소 포맷 버전
         // 필수 필드
         private String cryptoUrl;  // 암복호화에 사용할 단일 URL
         private String hubId;      // Hub가 발급한 인스턴스 고유 ID
@@ -247,6 +292,15 @@ public class EndpointStorage {
         private Integer httpReadTimeoutMillis;
         private Integer retryOnFailure;
         private Integer slowThresholdMs;  // Slow SQL threshold (ms)
+        
+        // 저장소 포맷 버전 Getters and Setters
+        public int getStorageSchemaVersion() {
+            return storageSchemaVersion;
+        }
+        
+        public void setStorageSchemaVersion(int storageSchemaVersion) {
+            this.storageSchemaVersion = storageSchemaVersion;
+        }
         
         // 필수 필드 Getters and Setters
         public String getCryptoUrl() {

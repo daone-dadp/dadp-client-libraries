@@ -118,6 +118,15 @@ public class PolicyMappingSyncOrchestrator {
             // Hub에서 버전 변경 여부 확인
             boolean hasChange = mappingSyncService.checkMappingChange(currentVersion, reregisteredHubId);
             
+            // 404 응답 처리: NEED_REGISTRATION이면 재등록 필요
+            if (reregisteredHubId[0] != null && "NEED_REGISTRATION".equals(reregisteredHubId[0])) {
+                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
+                if (callbacks != null) {
+                    callbacks.onRegistrationNeeded();
+                }
+                return;
+            }
+            
             // 재등록 처리
             boolean isReregistered = reregisteredHubId[0] != null;
             if (isReregistered) {
@@ -149,9 +158,21 @@ public class PolicyMappingSyncOrchestrator {
                 updateSchemaPolicyNames();
                 
                 // 3. 엔드포인트 동기화 콜백 호출 (버전 변경 시 정책 매핑, url, 버전 모두 동기화)
+                // 마지막 스냅샷에서 엔드포인트 정보 추출
+                MappingSyncService.PolicySnapshot lastSnapshot = mappingSyncService.getLastSnapshot();
                 if (callbacks != null) {
                     try {
-                        callbacks.onEndpointSynced(null); // endpointData는 콜백에서 직접 로드
+                        // 엔드포인트 정보가 있으면 콜백으로 전달
+                        if (lastSnapshot != null && lastSnapshot.getEndpoint() != null) {
+                            MappingSyncService.EndpointInfo endpointInfo = lastSnapshot.getEndpoint();
+                            // EndpointInfo를 콜백으로 전달 (콜백에서 EndpointStorage에 저장)
+                            callbacks.onEndpointSynced(endpointInfo);
+                            log.debug("✅ 엔드포인트 정보 콜백 전달: cryptoUrl={}, apiBasePath={}", 
+                                    endpointInfo.getCryptoUrl(), endpointInfo.getApiBasePath());
+                        } else {
+                            // 엔드포인트 정보가 없으면 null 전달 (콜백에서 직접 로드)
+                            callbacks.onEndpointSynced(null);
+                        }
                     } catch (Exception e) {
                         log.warn("⚠️ 엔드포인트 동기화 콜백 호출 실패: {}", e.getMessage());
                     }
@@ -163,16 +184,17 @@ public class PolicyMappingSyncOrchestrator {
                 log.trace("⏭️ 정책 매핑 변경 없음 (version={}, 304 Not Modified)", currentVersion);
             }
             
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            // 404 Not Found: hubId를 찾을 수 없음 -> 등록 수행
-            if (e.getStatusCode() == org.springframework.http.HttpStatus.NOT_FOUND) {
+        } catch (IllegalStateException e) {
+            // 404로 인한 재등록 필요 예외 처리
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && errorMessage.contains("404")) {
                 log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
                 if (callbacks != null) {
                     callbacks.onRegistrationNeeded();
                 }
-            } else {
-                log.warn("⚠️ 버전 체크 실패: HTTP {}, message={}", e.getStatusCode(), e.getMessage());
+                return;
             }
+            log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
         } catch (Exception e) {
             log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
         }
