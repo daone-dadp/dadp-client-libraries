@@ -28,7 +28,7 @@ public class EndpointStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
+    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.dir") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "crypto-endpoints.json";
     
     private final String storagePath;

@@ -235,7 +235,8 @@ public class JdbcPolicyMappingSyncService {
      * EndpointSyncService 재생성 (hubId 업데이트)
      */
     public void updateEndpointSyncService(String hubId, String instanceId) {
-        String storageDir = System.getProperty("user.home") + "/.dadp-wrapper";
+        // instanceId를 사용하여 경로 생성 (./dadp/wrapper/instanceId)
+        String storageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(), hubId, instanceId, storageDir, fileName);

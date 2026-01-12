@@ -21,7 +21,7 @@ import java.util.Map;
 public class DatasourceStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DatasourceStorage.class);
-    private static final String STORAGE_FILE = System.getProperty("user.home") + "/.dadp-wrapper/datasources.json";
+    private static final String STORAGE_FILE = System.getProperty("user.dir") + "/.dadp-wrapper/datasources.json";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     
     /**

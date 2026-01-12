@@ -40,6 +40,17 @@ public class EndpointStorage {
      * @return 저장 디렉토리 경로
      */
     private static String getDefaultStorageDir() {
+        return getDefaultStorageDir(null);
+    }
+    
+    /**
+     * 기본 저장 디렉토리 조회 (instanceId 사용)
+     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
+     * 
+     * @param instanceId 인스턴스 ID (별칭, 앱 구동 시점에 알 수 있음)
+     * @return 저장 디렉토리 경로
+     */
+    private static String getDefaultStorageDir(String instanceId) {
         // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
         String storageDir = System.getProperty("dadp.storage.dir");
         if (storageDir != null && !storageDir.trim().isEmpty()) {
@@ -52,8 +63,14 @@ public class EndpointStorage {
             return storageDir;
         }
         
-        // 3. 기본값 사용 (~/.dadp-wrapper)
-        return System.getProperty("user.home") + "/.dadp-wrapper";
+        // 3. instanceId를 사용하여 경로 생성
+        if (instanceId != null && !instanceId.trim().isEmpty()) {
+            // ./dadp/wrapper/instanceId 형태로 생성
+            return System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId.trim();
+        }
+        
+        // 4. 기본값 사용 (앱 구동 위치/.dadp-wrapper)
+        return System.getProperty("user.dir") + "/.dadp-wrapper";
     }
     
     /**
@@ -79,6 +96,15 @@ public class EndpointStorage {
      */
     public EndpointStorage() {
         this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);
+    }
+    
+    /**
+     * instanceId를 사용한 생성자
+     * 
+     * @param instanceId 인스턴스 ID (별칭, 앱 구동 시점에 알 수 있음)
+     */
+    public EndpointStorage(String instanceId) {
+        this(getDefaultStorageDir(instanceId), DEFAULT_STORAGE_FILE);
     }
     
     /**

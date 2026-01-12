@@ -73,13 +73,25 @@ public class DadpJdbcDriver implements Driver {
             log.trace("🔗 실제 DB URL: {}", actualUrl);
             
             // 실제 Driver로 연결
-            Connection actualConnection = DriverManager.getConnection(actualUrl, info);
+            Connection actualConnection;
+            try {
+                actualConnection = DriverManager.getConnection(actualUrl, info);
+            } catch (SQLException e) {
+                // 연결 실패 시 변환된 URL 정보를 로그에 출력 (디버깅용)
+                if (e.getMessage() != null && e.getMessage().contains("too many")) {
+                    log.warn("⚠️ JDBC URL 변환 오류 - 원본 DADP URL: {}", url);
+                    log.warn("⚠️ 변환된 실제 DB URL: {}", actualUrl);
+                    log.warn("⚠️ URL 슬래시 개수: {}", countSlashes(actualUrl));
+                    log.warn("⚠️ 드라이버 에러 메시지: {}", e.getMessage());
+                }
+                throw e;
+            }
             
             // Proxy Connection으로 래핑 (Proxy 설정 전달)
             return new DadpProxyConnection(actualConnection, url, proxyParams);
             
         } catch (SQLException e) {
-            log.error("❌ DADP JDBC Driver 연결 실패: {}", e.getMessage(), e);
+            log.warn("⚠️ DADP JDBC Driver 연결 실패: {}", e.getMessage(), e);
             throw e;
         }
     }
@@ -92,12 +104,25 @@ public class DadpJdbcDriver implements Driver {
     private java.util.Map<String, String> extractProxyParams(String dadpUrl) {
         java.util.Map<String, String> params = new java.util.HashMap<>();
         
+        // ? 또는 &로 시작하는 쿼리 파라미터 처리
         int queryIndex = dadpUrl.indexOf('?');
-        if (queryIndex == -1) {
+        int ampIndex = dadpUrl.indexOf('&');
+        
+        // ? 또는 & 중 먼저 나오는 것을 쿼리 시작점으로 사용
+        int paramStartIndex = -1;
+        if (queryIndex != -1 && ampIndex != -1) {
+            paramStartIndex = Math.min(queryIndex, ampIndex);
+        } else if (queryIndex != -1) {
+            paramStartIndex = queryIndex;
+        } else if (ampIndex != -1) {
+            paramStartIndex = ampIndex;
+        }
+        
+        if (paramStartIndex == -1) {
             return params; // 쿼리 파라미터 없음
         }
         
-        String queryString = dadpUrl.substring(queryIndex + 1);
+        String queryString = dadpUrl.substring(paramStartIndex + 1);
         String[] pairs = queryString.split("&");
         
         for (String pair : pairs) {
@@ -107,7 +132,7 @@ public class DadpJdbcDriver implements Driver {
                 String value = pair.substring(eqIndex + 1).trim();
                 
                 // Proxy 설정 파라미터만 추출
-                if ("hubUrl".equals(key) || "instanceId".equals(key) || "failOpen".equals(key)) {
+                if ("hubUrl".equals(key) || "instanceId".equals(key) || "failOpen".equals(key) || "enableLogging".equals(key)) {
                     try {
                         // URL 디코딩
                         value = java.net.URLDecoder.decode(value, "UTF-8");
@@ -136,10 +161,23 @@ public class DadpJdbcDriver implements Driver {
         String urlWithoutPrefix = dadpUrl.substring(DADP_URL_PREFIX.length());
         
         // Proxy 파라미터 제거 (hubUrl, instanceId, failOpen)
+        // ? 또는 &로 시작하는 쿼리 파라미터 처리
         int queryIndex = urlWithoutPrefix.indexOf('?');
-        if (queryIndex != -1) {
-            String baseUrl = urlWithoutPrefix.substring(0, queryIndex);
-            String queryString = urlWithoutPrefix.substring(queryIndex + 1);
+        int ampIndex = urlWithoutPrefix.indexOf('&');
+        
+        // ? 또는 & 중 먼저 나오는 것을 쿼리 시작점으로 사용
+        int paramStartIndex = -1;
+        if (queryIndex != -1 && ampIndex != -1) {
+            paramStartIndex = Math.min(queryIndex, ampIndex);
+        } else if (queryIndex != -1) {
+            paramStartIndex = queryIndex;
+        } else if (ampIndex != -1) {
+            paramStartIndex = ampIndex;
+        }
+        
+        if (paramStartIndex != -1) {
+            String baseUrl = urlWithoutPrefix.substring(0, paramStartIndex);
+            String queryString = urlWithoutPrefix.substring(paramStartIndex + 1);
             
             // Proxy 파라미터를 제외한 쿼리 파라미터만 유지
             java.util.List<String> validParams = new java.util.ArrayList<>();
@@ -150,7 +188,7 @@ public class DadpJdbcDriver implements Driver {
                 if (eqIndex > 0) {
                     String key = pair.substring(0, eqIndex).trim();
                     // Proxy 파라미터가 아니면 유지
-                    if (!"hubUrl".equals(key) && !"instanceId".equals(key) && !"failOpen".equals(key)) {
+                    if (!"hubUrl".equals(key) && !"instanceId".equals(key) && !"failOpen".equals(key) && !"enableLogging".equals(key)) {
                         validParams.add(pair);
                     }
                 } else {
@@ -168,7 +206,29 @@ public class DadpJdbcDriver implements Driver {
         }
         
         // jdbc: 접두사 추가
-        return "jdbc:" + urlWithoutPrefix;
+        String actualUrl = "jdbc:" + urlWithoutPrefix;
+        
+        // 변환된 URL 검증: 슬래시 개수 체크 (디버깅용)
+        int slashCount = countSlashes(actualUrl);
+        if (slashCount > 5) { // jdbc:postgresql://host:port/db 형식은 최대 5개 (jdbc:, //, /)
+            log.warn("⚠️ 변환된 JDBC URL에 슬래시가 많습니다 ({}개). URL: {}", slashCount, actualUrl);
+            log.warn("⚠️ 원본 DADP URL: {}", dadpUrl);
+        }
+        
+        return actualUrl;
+    }
+    
+    /**
+     * URL에서 슬래시 개수 카운트 (디버깅용)
+     */
+    private int countSlashes(String url) {
+        int count = 0;
+        for (int i = 0; i < url.length(); i++) {
+            if (url.charAt(i) == '/') {
+                count++;
+            }
+        }
+        return count;
     }
     
     @Override

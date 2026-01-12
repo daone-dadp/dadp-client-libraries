@@ -32,7 +32,7 @@ public class ProxyConfigStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfigStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.home") + "/.dadp-wrapper";
+    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.dir") + "/.dadp-wrapper";
     private static final String DEFAULT_STORAGE_FILE = "proxy-config.json";
     
     private final String storagePath;

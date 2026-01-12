@@ -54,8 +54,8 @@ public class PolicyResolver {
             return storageDir;
         }
         
-        // 3. 기본값 사용 (~/.dadp-wrapper)
-        return System.getProperty("user.home") + "/.dadp-wrapper";
+        // 3. 기본값 사용 (앱 구동 위치/.dadp-wrapper)
+        return System.getProperty("user.dir") + "/.dadp-wrapper";
     }
     
     /**

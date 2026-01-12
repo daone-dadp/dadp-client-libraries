@@ -60,6 +60,7 @@ public class JdbcBootstrapOrchestrator {
     private final SchemaStorage schemaStorage;
     private DirectCryptoAdapter directCryptoAdapter;
     private final HubIdManager hubIdManager; // 전역 hubId 관리
+    private final InstanceIdProvider instanceIdProvider; // core에서 제공하는 instanceId 관리
     
     // Wrapper 전용
     private JdbcSchemaSyncService schemaSyncService;
@@ -84,16 +85,19 @@ public class JdbcBootstrapOrchestrator {
         this.originalUrl = originalUrl;
         this.config = config;
         
-        // InstanceConfigStorage 초기화
-        String storageDir = System.getProperty("user.home") + "/.dadp-wrapper";
-        this.configStorage = new InstanceConfigStorage(storageDir, "proxy-config.json");
-        
-        // SchemaStorage 초기화
-        this.schemaStorage = new SchemaStorage(storageDir, "schemas.json");
-        
         // HubIdManager 초기화 (전역 hubId 관리)
         java.util.Map<String, String> urlParams = config.getUrlParams();
-        InstanceIdProvider instanceIdProvider = new InstanceIdProvider(urlParams);
+        this.instanceIdProvider = new InstanceIdProvider(urlParams);
+        String instanceId = this.instanceIdProvider.getInstanceId();
+        
+        // InstanceConfigStorage 초기화 (instanceId 사용)
+        this.configStorage = new InstanceConfigStorage(
+            System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId, 
+            "proxy-config.json"
+        );
+        
+        // SchemaStorage 초기화 (instanceId 사용)
+        this.schemaStorage = new SchemaStorage(instanceId);
         this.hubIdManager = new HubIdManager(
             configStorage,
             config.getHubUrl(),
@@ -110,8 +114,8 @@ public class JdbcBootstrapOrchestrator {
         // PolicyResolver 초기화 (싱글톤)
         this.policyResolver = PolicyResolver.getInstance();
         
-        // EndpointStorage 초기화 (싱글톤)
-        this.endpointStorage = EndpointStorage.getInstance();
+        // EndpointStorage 초기화 (instanceId를 사용하여 경로 생성: ./dadp/wrapper/instanceId)
+        this.endpointStorage = new EndpointStorage(instanceId);
         
         // 스키마 수집기 초기화 (datasourceId는 나중에 설정, ProxyConfig 전달)
         this.schemaCollector = new JdbcSchemaCollector(connection, null, config);
@@ -140,8 +144,8 @@ public class JdbcBootstrapOrchestrator {
      * @return 초기화 완료 여부
      */
     public boolean runBootstrapFlow() {
-        // instanceId 기반으로 전역 1회 실행 보장
-        String instanceId = config.getInstanceId();
+        // instanceId 기반으로 전역 1회 실행 보장 (core의 InstanceIdProvider 사용)
+        String instanceId = instanceIdProvider.getInstanceId();
         AtomicBoolean instanceStarted = instanceStartedMap.computeIfAbsent(instanceId, k -> new AtomicBoolean(false));
         
         if (!instanceStarted.compareAndSet(false, true)) {
@@ -280,7 +284,7 @@ public class JdbcBootstrapOrchestrator {
             log.info("📂 영구저장소에서 정책 매핑 로드 완료: version={}", loadedPolicyVersion);
         }
         
-        // EndpointStorage는 싱글톤이므로 이미 로드됨
+        // EndpointStorage에서 엔드포인트 정보 로드
         EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
         if (endpointData != null) {
             log.info("📂 영구저장소에서 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}", 
@@ -320,7 +324,7 @@ public class JdbcBootstrapOrchestrator {
      */
     private boolean registerWithHub() {
         String hubUrl = config.getHubUrl();
-        String instanceId = config.getInstanceId();
+        String instanceId = instanceIdProvider.getInstanceId();
         
         // V1 API: Datasource 등록에서 hubId와 datasourceId를 동시에 받음
         log.info("📝 Hub Datasource 등록 시작: instanceId={}", instanceId);
@@ -341,12 +345,15 @@ public class JdbcBootstrapOrchestrator {
         hubIdManager.setHubId(hubId, true);
         log.info("✅ Hub Datasource 등록 완료: hubId={}, datasourceId={}", hubId, datasourceInfo.getDatasourceId());
         
-        // EndpointSyncService 초기화
+        // EndpointSyncService 초기화 (instanceId를 사용하여 경로 생성)
+        String endpointStorageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+        String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),
             hubId,
             instanceId,
-            endpointStorage
+            endpointStorageDir,
+            endpointFileName
         );
         
         // datasourceId가 설정된 후 schemaCollector와 schemaSyncService 재생성 (Wrapper는 datasourceId 필수)
@@ -459,7 +466,7 @@ public class JdbcBootstrapOrchestrator {
             }
             
             DatasourceRegistrationService registrationService = 
-                new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
+                new DatasourceRegistrationService(config.getHubUrl(), instanceIdProvider.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
                 dbVendor, host, port, database, schema, currentVersion
             );
@@ -474,12 +481,12 @@ public class JdbcBootstrapOrchestrator {
                 return datasourceInfo;
             } else {
                 log.warn("⚠️ Datasource 등록 실패: Hub 연결 불가 또는 응답이 null. hubUrl={}, instanceId={}", 
-                    config.getHubUrl(), config.getInstanceId());
+                    config.getHubUrl(), instanceIdProvider.getInstanceId());
                 return null;
             }
         } catch (Exception e) {
             log.warn("⚠️ Datasource 등록 실패: hubUrl={}, instanceId={}, error={}", 
-                config.getHubUrl(), config.getInstanceId(), e.getMessage(), e);
+                config.getHubUrl(), instanceIdProvider.getInstanceId(), e.getMessage(), e);
             return null;
         }
     }
@@ -600,21 +607,25 @@ public class JdbcBootstrapOrchestrator {
     private void initializeServicesWithHubId(String hubId) {
         // MappingSyncService 초기화
         // V1 API 사용: "/hub/api/v1/proxy"
+        String instanceId = instanceIdProvider.getInstanceId();
         this.mappingSyncService = new MappingSyncService(
             config.getHubUrl(),
             hubId,
-            config.getInstanceId(),
+            instanceId,
             cachedDatasourceId,
             "/hub/api/v1/proxy",  // V1 API 경로
             policyResolver
         );
         
-        // EndpointSyncService 초기화
+        // EndpointSyncService 초기화 (instanceId를 사용하여 경로 생성)
+        String endpointStorageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+        String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),
             hubId,
-            config.getInstanceId(),
-            endpointStorage
+            instanceId,
+            endpointStorageDir,
+            endpointFileName
         );
         
         // DirectCryptoAdapter 초기화
