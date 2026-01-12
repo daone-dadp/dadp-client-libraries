@@ -44,8 +44,8 @@
     </scm>
 
     <properties>
-        <!-- GPG 서명 활성화 -->
-        <gpg.skip>false</gpg.skip>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 비활성화 (당분간 정식 배포 전까지) -->
         <maven.deploy.skip>true</maven.deploy.skip>
         <!-- Java 8 호환 (최소 버전) -->
@@ -66,7 +66,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-logging-lib</artifactId>
-            <version>1.0.0</version>
+            <version>2.0.0</version>
         </dependency>
     </dependencies>
     

@@ -54,7 +54,7 @@
         <junit.version>5.9.3</junit.version>
         <java.version>17</java.version>
         <classifier></classifier>
-        <!-- GPG 서명 설정 (배포 시 false로 변경) -->
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
         <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 설정 (배포 시 false로 변경) -->
         <maven.deploy.skip>true</maven.deploy.skip>

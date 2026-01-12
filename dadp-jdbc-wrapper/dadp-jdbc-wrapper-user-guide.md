@@ -191,7 +191,7 @@ dadp.proxy.hub-url=http://localhost:9004
 dadp.proxy.instance-id=proxy-1
 
 # Wrapper 설정 (선택)
-dadp.proxy.enable-logging=true
+dadp.enable-logging=true
 dadp.proxy.schema-sync-enabled=true
 ```
 
@@ -208,10 +208,10 @@ spring:
     password: 1234
 
 dadp:
+  enable-logging: true
   proxy:
     hub-url: http://localhost:9004
     instance-id: proxy-1
-    enable-logging: true
     schema-sync-enabled: true
 ```
 
@@ -939,7 +939,11 @@ HubConnectionException: Hub 연결 실패
 
 3. **로깅 활성화**
    ```properties
-   dadp.proxy.enable-logging=true
+   dadp.enable-logging=true
+   ```
+   또는 환경 변수:
+   ```bash
+   DADP_ENABLE_LOGGING=true
    ```
 
 ### 4. 암호화 정책 오류

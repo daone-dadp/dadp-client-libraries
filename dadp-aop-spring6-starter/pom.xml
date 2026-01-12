@@ -41,8 +41,8 @@
 
     <properties>
         <spring-boot.version>3.2.12</spring-boot.version>
-        <!-- GPG 서명 활성화 -->
-        <gpg.skip>false</gpg.skip>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 활성화 -->
         <maven.deploy.skip>false</maven.deploy.skip>
     </properties>

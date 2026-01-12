@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-common-logging-lib</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <packaging>jar</packaging>
 
     <name>DADP Common Logging Library</name>
@@ -45,6 +45,7 @@
     </scm>
 
     <properties>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
         <gpg.skip>true</gpg.skip>
         <maven.deploy.skip>true</maven.deploy.skip>
         <maven.compiler.source>1.8</maven.compiler.source>

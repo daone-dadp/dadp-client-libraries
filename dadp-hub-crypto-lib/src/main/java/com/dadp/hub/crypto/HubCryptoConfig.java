@@ -33,7 +33,8 @@ public class HubCryptoConfig {
         
         log.info("🔔 HubCryptoService 생성: cryptoUrl={}, apiPath={} (자동 감지, DirectCryptoAdapter에서 동적 URL 설정)", cryptoUrl, apiPath);
         
-        return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, true);
+        // DADP_ENABLE_LOGGING 환경 변수를 자동으로 확인하도록 null 전달
+        return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, null);
     }
     
     /**

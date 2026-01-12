@@ -48,8 +48,8 @@
         <java.version>1.8</java.version>
         <spring-boot.version>2.7.18</spring-boot.version>
         <jackson.version>2.13.5</jackson.version>
-        <!-- GPG 서명 활성화 -->
-        <gpg.skip>false</gpg.skip>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 활성화 -->
         <maven.deploy.skip>false</maven.deploy.skip>
     </properties>

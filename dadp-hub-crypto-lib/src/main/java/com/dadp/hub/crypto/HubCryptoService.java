@@ -64,9 +64,11 @@ public class HubCryptoService {
 
     /**
      * 자동 초기화 메서드 - Spring Bean이 아닌 경우 사용
+     * DADP_ENABLE_LOGGING 환경 변수를 자동으로 확인합니다.
      */
     public static HubCryptoService createInstance() {
-        return createInstance("http://localhost:9003", 5000, true);
+        boolean enableLogging = isLoggingEnabled();
+        return createInstance("http://localhost:9003", 5000, enableLogging);
     }
 
     /**
@@ -74,11 +76,27 @@ public class HubCryptoService {
      * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003 또는 http://hub:9004/hub)
      *               base URL만 제공하면 자동으로 경로 감지
      * @param timeout 타임아웃 (ms)
-     * @param enableLogging 로깅 활성화
+     * @param enableLogging 로깅 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
      */
-    public static HubCryptoService createInstance(String hubUrl, int timeout, boolean enableLogging) {
+    public static HubCryptoService createInstance(String hubUrl, int timeout, Boolean enableLogging) {
+        // enableLogging이 null이면 DADP_ENABLE_LOGGING 환경 변수 확인
+        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
         // apiBasePath를 null로 전달하여 자동 감지
-        return createInstance(hubUrl, null, timeout, enableLogging);
+        return createInstance(hubUrl, null, timeout, logging);
+    }
+    
+    /**
+     * DADP_ENABLE_LOGGING 환경 변수 확인
+     * 
+     * @return 로그 활성화 여부
+     */
+    private static boolean isLoggingEnabled() {
+        String enableLogging = System.getenv("DADP_ENABLE_LOGGING");
+        if (enableLogging == null || enableLogging.trim().isEmpty()) {
+            enableLogging = System.getProperty("dadp.enable-logging");
+        }
+        return enableLogging != null && !enableLogging.trim().isEmpty() && 
+               ("true".equalsIgnoreCase(enableLogging) || "1".equals(enableLogging));
     }
     
     /**
@@ -124,10 +142,12 @@ public class HubCryptoService {
      * @param apiBasePath API 기본 경로 (Engine: "/api"만 허용)
      *                   null이면 "/api"로 설정 (Hub 경로는 사용 불가)
      * @param timeout 타임아웃 (ms)
-     * @param enableLogging 로깅 활성화
+     * @param enableLogging 로깅 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
      * @throws IllegalStateException Hub 경로가 감지된 경우
      */
-    public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, boolean enableLogging) {
+    public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging) {
+        // enableLogging이 null이면 DADP_ENABLE_LOGGING 환경 변수 확인
+        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
         HubCryptoService instance = new HubCryptoService();
         
         // base URL 추출 (경로 제거)
@@ -152,10 +172,10 @@ public class HubCryptoService {
         
         instance.apiBasePath = apiBasePath;
         instance.timeout = timeout;
-        instance.enableLogging = enableLogging;
+        instance.enableLogging = logging;
         instance.initialized = true;
         
-        if (enableLogging) {
+        if (logging) {
             log.info("✅ HubCryptoService 자동 초기화 완료: baseUrl={}, apiBasePath={}, timeout={}ms", 
                     baseUrl, instance.apiBasePath, timeout);
         }
@@ -308,7 +328,7 @@ public class HubCryptoService {
         validateNotHubPath();
         
         if (enableLogging) {
-            log.info("🔐 Hub 암호화 요청 시작: data={}, policy={}", 
+            log.info("🔐 Engine 암호화 요청 시작: data={}, policy={}", 
                     data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy);
         }
         
@@ -331,8 +351,8 @@ public class HubCryptoService {
             }
             
             if (enableLogging) {
-                log.info("🔐 Hub 요청 URL: {}", url);
-                log.info("🔐 Hub 요청 데이터: {}", request);
+                log.info("🔐 Engine 요청 URL: {}", url);
+                log.info("🔐 Engine 요청 데이터: {}", request);
             }
             
             HttpHeaders headers = new HttpHeaders();
@@ -343,24 +363,24 @@ public class HubCryptoService {
             try {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
             }
             
             if (enableLogging) {
-                log.info("🔐 Hub 응답 상태: {} {}", getStatusCodeString(response), url);
-                log.info("🔐 Hub 응답 데이터: {}", response.getBody());
+                log.info("🔐 Engine 응답 상태: {} {}", getStatusCodeString(response), url);
+                log.info("🔐 Engine 응답 데이터: {}", response.getBody());
             }
             
-            if (is2xxSuccessful(response)) {
-                // Hub 응답은 ApiResponse<EncryptResponse> 형태
+                if (is2xxSuccessful(response)) {
+                // Engine 응답은 ApiResponse<EncryptResponse> 형태
                 // TypeReference로 제네릭 파싱이 실패할 수 있으므로 JsonNode로 먼저 파싱
                 JsonNode rootNode;
                 try {
                     rootNode = objectMapper.readTree(response.getBody());
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                    throw new HubCryptoException("Engine 응답 파싱 실패: " + e.getMessage());
                 }
                 
                 // ApiResponse의 success 확인
@@ -390,12 +410,12 @@ public class HubCryptoService {
                     return encryptedData;
                 }
                 
-                // Hub 응답: data가 EncryptResponse 객체
+                // 레거시 응답 형식: data가 EncryptResponse 객체 (현재는 사용되지 않음)
                 EncryptResponse encryptResponse;
                 try {
                     encryptResponse = objectMapper.treeToValue(dataNode, EncryptResponse.class);
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Hub 응답 data 파싱 실패: " + e.getMessage());
+                    throw new HubCryptoException("Engine 응답 data 파싱 실패: " + e.getMessage());
                 }
                 
                 if (encryptResponse == null) {
@@ -405,7 +425,7 @@ public class HubCryptoService {
                 if (encryptResponse.getSuccess() != null && encryptResponse.getSuccess() && encryptResponse.getEncryptedData() != null) {
                     encryptedData = encryptResponse.getEncryptedData();
                     if (enableLogging) {
-                        log.info("✅ Hub 암호화 성공: {} → {}", 
+                        log.info("✅ Engine 암호화 성공: {} → {}", 
                                 data != null ? data.substring(0, Math.min(10, data.length())) + "..." : "null",
                                 encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null");
                     }
@@ -417,23 +437,23 @@ public class HubCryptoService {
                             encryptResponse.getMessage());
                     // 에러 로그는 상위 레이어(HubCryptoAdapter)에서 처리하므로 여기서는 DEBUG 레벨만 사용
                     if (enableLogging) {
-                        log.debug("Hub 암호화 실패 (상위 레이어에서 처리): {}", errorMsg);
+                        log.debug("Engine 암호화 실패 (상위 레이어에서 처리): {}", errorMsg);
                     }
                     throw new HubCryptoException(errorMsg);
                 }
             } else {
-                throw new HubCryptoException("Hub API 호출 실패: " + getStatusCodeString(response) + " " + response.getBody());
+                throw new HubCryptoException("Engine API 호출 실패: " + getStatusCodeString(response) + " " + response.getBody());
             }
             
         } catch (Exception e) {
             // 에러 로그는 상위 레이어(HubCryptoAdapter)에서 처리하므로 여기서는 DEBUG 레벨만 사용
             if (enableLogging) {
-                log.debug("Hub 암호화 실패 (상위 레이어에서 처리): {}", e.getMessage());
+                log.debug("Engine 암호화 실패 (상위 레이어에서 처리): {}", e.getMessage());
             }
             if (e instanceof HubCryptoException) {
                 throw e;
             } else {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
             }
         }
     }
@@ -480,7 +500,7 @@ public class HubCryptoService {
         validateNotHubPath();
         
         if (enableLogging) {
-            log.info("🔓 Hub 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}", 
+            log.info("🔓 Engine 복호화 요청 시작: encryptedData={}, maskPolicyName={}, maskPolicyUid={}", 
                     encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
                     maskPolicyName, maskPolicyUid);
         }
@@ -505,8 +525,8 @@ public class HubCryptoService {
             }
             
             if (enableLogging) {
-                log.info("🔓 Hub 요청 URL: {}", url);
-                log.info("🔓 Hub 요청 데이터: {}", request);
+                log.info("🔓 Engine 요청 URL: {}", url);
+                log.info("🔓 Engine 요청 데이터: {}", request);
             }
             
             HttpHeaders headers = new HttpHeaders();
@@ -517,24 +537,24 @@ public class HubCryptoService {
             try {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
             }
             
             if (enableLogging) {
-                log.info("🔓 Hub 응답 상태: {} {}", getStatusCodeString(response), url);
-                log.info("🔓 Hub 응답 데이터: {}", response.getBody());
+                log.info("🔓 Engine 응답 상태: {} {}", getStatusCodeString(response), url);
+                log.info("🔓 Engine 응답 데이터: {}", response.getBody());
             }
             
             if (is2xxSuccessful(response)) {
-                // Hub 응답은 ApiResponse<DecryptResponse> 형태
+                // Engine 응답은 ApiResponse<DecryptResponse> 형태
                 // TypeReference로 제네릭 파싱이 실패할 수 있으므로 JsonNode로 먼저 파싱
                 JsonNode rootNode;
                 try {
                     rootNode = objectMapper.readTree(response.getBody());
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                    throw new HubCryptoException("Engine 응답 파싱 실패: " + e.getMessage());
                 }
                 
                 // ApiResponse의 success 확인
@@ -573,12 +593,12 @@ public class HubCryptoService {
                     return decryptedData;
                 }
                 
-                // Hub 응답: data가 DecryptResponse 객체
+                // 레거시 응답 형식: data가 DecryptResponse 객체 (현재는 사용되지 않음)
                 DecryptResponse decryptResponse;
                 try {
                     decryptResponse = objectMapper.treeToValue(dataNode, DecryptResponse.class);
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Hub 응답 data 파싱 실패: " + e.getMessage());
+                    throw new HubCryptoException("Engine 응답 data 파싱 실패: " + e.getMessage());
                 }
                 
                 if (decryptResponse == null) {
@@ -590,7 +610,7 @@ public class HubCryptoService {
                 if (Boolean.TRUE.equals(decryptResponse.getSuccess()) && decryptResponse.getDecryptedData() != null) {
                     decryptedData = decryptResponse.getDecryptedData();
                     if (enableLogging) {
-                        log.info("✅ Hub 복호화 성공: {} → {}", 
+                        log.info("✅ Engine 복호화 성공: {} → {}", 
                                 encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
                                 decryptedData != null ? decryptedData.substring(0, Math.min(10, decryptedData.length())) + "..." : "null");
                     }
@@ -599,7 +619,7 @@ public class HubCryptoService {
                     // success가 false여도 decryptedData가 있으면 반환 (평문 데이터에 마스킹 적용된 경우)
                     decryptedData = decryptResponse.getDecryptedData();
                     if (enableLogging) {
-                        log.info("✅ Hub 처리 완료 (마스킹 적용 가능): {} → {}", 
+                        log.info("✅ Engine 처리 완료 (마스킹 적용 가능): {} → {}", 
                                 encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
                                 decryptedData != null ? decryptedData.substring(0, Math.min(10, decryptedData.length())) + "..." : "null");
                     }
@@ -621,7 +641,7 @@ public class HubCryptoService {
             } else {
                 // HTTP 400 등 에러 응답 처리
                 String responseBody = response.getBody();
-                String errorMessage = "Hub API 호출 실패: " + getStatusCodeString(response) + " " + responseBody;
+                String errorMessage = "Engine API 호출 실패: " + getStatusCodeString(response) + " " + responseBody;
                 
                 // "데이터가 암호화되지 않았습니다" 메시지인 경우 null 반환 (예외 던지지 않음)
                 boolean isUnencryptedData = responseBody != null && responseBody.contains("데이터가 암호화되지 않았습니다");
@@ -635,7 +655,7 @@ public class HubCryptoService {
                 // 다른 에러는 예외 던지기
                 // 에러 로그는 상위 레이어(HubCryptoAdapter)에서 처리하므로 여기서는 DEBUG 레벨만 사용
                 if (enableLogging) {
-                    log.debug("Hub 복호화 실패 (상위 레이어에서 처리): {}", errorMessage);
+                    log.debug("Engine 복호화 실패 (상위 레이어에서 처리): {}", errorMessage);
                 }
                 throw new HubConnectionException(errorMessage);
             }
@@ -667,13 +687,13 @@ public class HubCryptoService {
             // 다른 에러는 예외 던지기
             // 에러 로그는 상위 레이어(HubCryptoAdapter)에서 처리하므로 여기서는 DEBUG 레벨만 사용
             if (enableLogging) {
-                log.debug("Hub 복호화 실패 (상위 레이어에서 처리): {}", errorMessage);
+                log.debug("Engine 복호화 실패 (상위 레이어에서 처리): {}", errorMessage);
             }
             
             if (e instanceof HubCryptoException) {
                 throw e;
             } else {
-                throw new HubConnectionException("Hub 연결 실패: " + errorMessage, e);
+                throw new HubConnectionException("Engine 연결 실패: " + errorMessage, e);
             }
         }
     }
@@ -700,7 +720,7 @@ public class HubCryptoService {
         }
         
         if (enableLogging) {
-            log.info("🔓 Hub 배치 복호화 요청 시작: itemsCount={}, maskPolicyName={}, maskPolicyUid={}", 
+            log.info("🔓 Engine 배치 복호화 요청 시작: itemsCount={}, maskPolicyName={}, maskPolicyUid={}", 
                     encryptedDataList.size(), maskPolicyName, maskPolicyUid);
         }
         
@@ -741,7 +761,7 @@ public class HubCryptoService {
             }
             
             if (enableLogging) {
-                log.info("🔓 Hub 배치 요청 URL: {}", url);
+                log.info("🔓 Engine 배치 요청 URL: {}", url);
             }
             
             HttpHeaders headers = new HttpHeaders();
@@ -752,14 +772,14 @@ public class HubCryptoService {
             try {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
             }
             
             if (enableLogging) {
-                log.info("🔓 Hub 배치 응답 상태: {} {}", getStatusCodeString(response), url);
-                log.info("🔓 Hub 배치 응답 데이터: {}", response.getBody());
+                log.info("🔓 Engine 배치 응답 상태: {} {}", getStatusCodeString(response), url);
+                log.info("🔓 Engine 배치 응답 데이터: {}", response.getBody());
             }
             
             if (is2xxSuccessful(response)) {
@@ -768,8 +788,8 @@ public class HubCryptoService {
                 try {
                     rootNode = objectMapper.readTree(response.getBody());
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    log.error("❌ Hub 응답 파싱 실패: 응답 본문={}", response.getBody(), e);
-                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                    log.error("❌ Engine 응답 파싱 실패: 응답 본문={}", response.getBody(), e);
+                    throw new HubCryptoException("Engine 응답 파싱 실패: " + e.getMessage());
                 }
                 
                 // results 배열 추출 (최상위 레벨)
@@ -809,7 +829,7 @@ public class HubCryptoService {
                 }
                 
                 if (enableLogging) {
-                    log.info("✅ Hub 배치 복호화 성공: {}개 항목 처리", decryptedList.size());
+                    log.info("✅ Engine 배치 복호화 성공: {}개 항목 처리", decryptedList.size());
                 }
                 
                 return decryptedList;
@@ -847,11 +867,11 @@ public class HubCryptoService {
         }
         
         // 항상 로그 출력 (디버깅용)
-        log.info("Hub batchEncrypt called: itemsCount={}, hubUrl={}, apiBasePath={}", 
+        log.info("Engine batchEncrypt called: itemsCount={}, hubUrl={}, apiBasePath={}", 
                 dataList.size(), hubUrl, apiBasePath);
         
         if (enableLogging) {
-            log.info("🔐 Hub 배치 암호화 요청 시작: itemsCount={}", 
+            log.info("🔐 Engine 배치 암호화 요청 시작: itemsCount={}", 
                     dataList.size());
         }
         
@@ -861,7 +881,7 @@ public class HubCryptoService {
             
             // Engine의 배치 암호화 API 호출
             String url = hubUrl + apiBasePath + "/encrypt/batch";
-            log.debug("Hub batchEncrypt URL: {}", url);
+            log.debug("Engine batchEncrypt URL: {}", url);
             
             // Telemetry: 엔드포인트 추적
             recordEndpointUsage(url);
@@ -890,7 +910,7 @@ public class HubCryptoService {
             }
             
             if (enableLogging) {
-                log.info("🔐 Hub 배치 요청 URL: {}", url);
+                log.info("🔐 Engine 배치 요청 URL: {}", url);
             }
             
             HttpHeaders headers = new HttpHeaders();
@@ -899,28 +919,28 @@ public class HubCryptoService {
             
             ResponseEntity<String> response;
             try {
-                log.info("Hub batchEncrypt sending request to: {}", url);
+                log.debug("Engine batchEncrypt sending request to: {}", url);
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-                log.info("Hub batchEncrypt response status: {}", getStatusCodeString(response));
+                log.debug("Engine batchEncrypt response status: {}", getStatusCodeString(response));
             } catch (HttpClientErrorException | HttpServerErrorException e) {
-                log.error("Hub batchEncrypt HTTP error: {} {}", getExceptionStatusCode(e), e.getResponseBodyAsString(), e);
-                throw new HubConnectionException("Hub 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+                log.error("Engine batchEncrypt HTTP error: {} {}", getExceptionStatusCode(e), e.getResponseBodyAsString(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                log.error("Hub batchEncrypt exception: {}", e.getMessage(), e);
-                throw new HubConnectionException("Hub 연결 실패: " + e.getMessage(), e);
+                log.error("Engine batchEncrypt exception: {}", e.getMessage(), e);
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
             }
             
             if (enableLogging) {
-                log.info("🔐 Hub 배치 응답 상태: {} {}", getStatusCodeString(response), url);
+                log.info("🔐 Engine 배치 응답 상태: {} {}", getStatusCodeString(response), url);
             }
             
             if (is2xxSuccessful(response)) {
-                // Hub 응답은 ApiResponse<BatchEncryptResponse> 형태
+                // Engine 응답은 ApiResponse<BatchEncryptResponse> 형태
                 JsonNode rootNode;
                 try {
                     rootNode = objectMapper.readTree(response.getBody());
                 } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Hub 응답 파싱 실패: " + e.getMessage());
+                    throw new HubCryptoException("Engine 응답 파싱 실패: " + e.getMessage());
                 }
                 
                 // ApiResponse의 success 확인
@@ -962,7 +982,7 @@ public class HubCryptoService {
                 }
                 
                 if (enableLogging) {
-                    log.info("✅ Hub 배치 암호화 성공: {}개 항목 처리", encryptedList.size());
+                    log.info("✅ Engine 배치 암호화 성공: {}개 항목 처리", encryptedList.size());
                 }
                 
                 return encryptedList;

@@ -173,6 +173,14 @@ public class RetryableSchemaSyncService {
                     }
                     
                     // 3. Hub로 스키마 전송 (hubId가 null이면 재등록, 있으면 업데이트)
+                    // 전송 전에 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
+                    if (schemas != null && !schemas.isEmpty()) {
+                        for (SchemaMetadata schema : schemas) {
+                            log.info("📤 스키마 전송 데이터 (RetryableSchemaSyncService): schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}", 
+                                schema.getSchemaName(), schema.getTableName(), schema.getColumnName(),
+                                schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
+                        }
+                    }
                     boolean synced = schemaSyncExecutor.syncToHub(schemas, hubId, instanceId, currentVersion);
                     
                     if (synced) {

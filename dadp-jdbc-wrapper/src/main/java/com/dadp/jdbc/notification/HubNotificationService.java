@@ -28,15 +28,16 @@ public class HubNotificationService {
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
      * @param hubId Hub가 발급한 고유 ID
      * @param alias 사용자가 설정한 instanceId (별칭)
+     * @param enableLogging 로그 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
      */
-    public HubNotificationService(String hubBaseUrl, String hubId, String alias) {
+    public HubNotificationService(String hubBaseUrl, String hubId, String alias, Boolean enableLogging) {
         this.hubId = hubId;
         this.alias = alias;
         
         // HubNotificationClient 초기화 (URL이 없거나 초기화 실패 시 null)
         if (hubBaseUrl != null && !hubBaseUrl.trim().isEmpty()) {
             try {
-                this.notificationClient = HubNotificationClient.createInstance(hubBaseUrl, 5000, true);
+                this.notificationClient = HubNotificationClient.createInstance(hubBaseUrl, 5000, enableLogging);
                 log.info("✅ HubNotificationService 초기화 완료: hubBaseUrl={}, hubId={}, alias={}", 
                         hubBaseUrl, hubId, alias);
             } catch (Exception e) {
@@ -48,6 +49,17 @@ public class HubNotificationService {
             log.warn("⚠️ Hub URL이 설정되지 않아 알림 기능을 사용할 수 없습니다.");
             this.notificationClient = null;
         }
+    }
+    
+    /**
+     * 생성자 (enableLogging 기본값: null - DADP_ENABLE_LOGGING 환경 변수 확인)
+     * 
+     * @param hubBaseUrl Hub base URL (예: http://hub:9004)
+     * @param hubId Hub가 발급한 고유 ID
+     * @param alias 사용자가 설정한 instanceId (별칭)
+     */
+    public HubNotificationService(String hubBaseUrl, String hubId, String alias) {
+        this(hubBaseUrl, hubId, alias, null);
     }
     
     /**

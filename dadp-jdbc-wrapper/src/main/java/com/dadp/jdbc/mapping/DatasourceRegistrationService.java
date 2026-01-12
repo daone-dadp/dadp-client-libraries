@@ -54,11 +54,12 @@ public class DatasourceRegistrationService {
      * @param port 포트
      * @param database 데이터베이스명
      * @param schema 스키마명
+     * @param currentVersion 현재 버전 (재등록 시 사용, 없으면 0)
      * @return Datasource 정보 (Hub 연결 실패 시 null)
      */
     public DatasourceInfo registerOrGetDatasource(
             String dbVendor, String host, int port, 
-            String database, String schema) {
+            String database, String schema, Long currentVersion) {
         
         // 먼저 로컬 저장소에서 확인
         String cachedDatasourceId = DatasourceStorage.loadDatasourceId(dbVendor, host, port, database, schema);
@@ -79,6 +80,8 @@ public class DatasourceRegistrationService {
         request.put("port", port);
         request.put("database", database);
         request.put("schema", schema);
+        // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
+        request.put("currentVersion", currentVersion != null ? currentVersion : 0L);
         
         try {
             // HTTP POST 요청

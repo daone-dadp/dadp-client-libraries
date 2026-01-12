@@ -472,19 +472,37 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
+        log.info("🔍 setObject(type) 호출: parameterIndex={}, valueType={}, targetSqlType={}, value={}", parameterIndex, 
+                 x != null ? x.getClass().getSimpleName() : "null", targetSqlType,
+                 x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
+        
         // String 타입인 경우에만 암호화 처리 시도
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject");
+                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(type)");
+                
+                log.info("🔍 setObject(type) 암호화 결과: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
+                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
+                    log.info("🔍 setObject(type) skip: parameterIndex={}, 원본값 사용", parameterIndex);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
                     return;
                 }
                 
-                // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
+                // VARCHAR 계열 타입이면 setString 사용 (타입 안전성)
+                if (targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
+                    targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) {
+                    log.info("🔐 setObject(type) → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
+                    actualPreparedStatement.setString(parameterIndex, result.value);
+                } else {
+                    // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
+                    log.info("🔐 setObject(type) 설정: parameterIndex={}, targetSqlType={}, 암호화된값={}", parameterIndex, targetSqlType,
+                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
+                    actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
+                }
                 return;
             } catch (RuntimeException e) {
                 if (e.getCause() instanceof SQLException) {
@@ -495,6 +513,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         
         // String이 아닌 경우 원본 그대로 전달
+        log.info("🔍 setObject(type) String 아님: parameterIndex={}, 원본값 사용", parameterIndex);
         actualPreparedStatement.setObject(parameterIndex, x, targetSqlType);
     }
     
@@ -520,9 +539,10 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 }
                 
                 // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                log.info("🔐 setObject 설정: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                // String이면 setString 사용 (타입 안전성)
+                log.info("🔐 setObject → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
-                actualPreparedStatement.setObject(parameterIndex, result.value);
+                actualPreparedStatement.setString(parameterIndex, result.value);
                 return;
             } catch (RuntimeException e) {
                 if (e.getCause() instanceof SQLException) {
@@ -737,6 +757,50 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
+        log.info("🔍 setObject(scale) 호출: parameterIndex={}, valueType={}, targetSqlType={}, scaleOrLength={}, value={}", parameterIndex, 
+                 x != null ? x.getClass().getSimpleName() : "null", targetSqlType, scaleOrLength,
+                 x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
+        
+        // String 타입인 경우에만 암호화 처리 시도
+        if (x instanceof String) {
+            String stringValue = (String) x;
+            try {
+                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(scale)");
+                
+                log.info("🔍 setObject(scale) 암호화 결과: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
+                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
+                
+                if (result.shouldSkip) {
+                    log.info("🔍 setObject(scale) skip: parameterIndex={}, 원본값 사용", parameterIndex);
+                    actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType, scaleOrLength);
+                    return;
+                }
+                
+                // VARCHAR 계열 타입이면 setString 사용 (타입 안전성)
+                // 단, scaleOrLength가 지정된 경우는 setObject 사용 (길이 제한이 있을 수 있음)
+                if ((targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
+                     targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) && scaleOrLength <= 0) {
+                    log.info("🔐 setObject(scale) → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
+                    actualPreparedStatement.setString(parameterIndex, result.value);
+                } else {
+                    // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
+                    log.info("🔐 setObject(scale) 설정: parameterIndex={}, targetSqlType={}, scaleOrLength={}, 암호화된값={}", 
+                             parameterIndex, targetSqlType, scaleOrLength,
+                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
+                    actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType, scaleOrLength);
+                }
+                return;
+            } catch (RuntimeException e) {
+                if (e.getCause() instanceof SQLException) {
+                    throw (SQLException) e.getCause();
+                }
+                throw e;
+            }
+        }
+        
+        // String이 아닌 경우 원본 그대로 전달
+        log.info("🔍 setObject(scale) String 아님: parameterIndex={}, 원본값 사용", parameterIndex);
         actualPreparedStatement.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
     }
     

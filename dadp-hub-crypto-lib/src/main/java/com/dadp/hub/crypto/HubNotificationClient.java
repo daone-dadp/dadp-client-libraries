@@ -50,25 +50,41 @@ public class HubNotificationClient {
      * 
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
      * @param timeout 타임아웃 (ms)
-     * @param enableLogging 로깅 활성화
+     * @param enableLogging 로깅 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
      * @return HubNotificationClient 인스턴스
      */
-    public static HubNotificationClient createInstance(String hubBaseUrl, int timeout, boolean enableLogging) {
+    public static HubNotificationClient createInstance(String hubBaseUrl, int timeout, Boolean enableLogging) {
         HubNotificationClient instance = new HubNotificationClient();
         
         // base URL 추출 (경로 제거)
         String baseUrl = extractBaseUrl(hubBaseUrl);
         instance.hubBaseUrl = baseUrl;
         instance.timeout = timeout;
-        instance.enableLogging = enableLogging;
+        // enableLogging이 null이면 DADP_ENABLE_LOGGING 환경 변수 확인
+        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
+        instance.enableLogging = logging;
         instance.initialized = true;
         
-        if (enableLogging) {
+        if (logging) {
             log.info("✅ HubNotificationClient 자동 초기화 완료: hubBaseUrl={}, timeout={}ms", 
                     baseUrl, timeout);
         }
         
         return instance;
+    }
+    
+    /**
+     * DADP_ENABLE_LOGGING 환경 변수 확인
+     * 
+     * @return 로그 활성화 여부
+     */
+    private static boolean isLoggingEnabled() {
+        String enableLogging = System.getenv("DADP_ENABLE_LOGGING");
+        if (enableLogging == null || enableLogging.trim().isEmpty()) {
+            enableLogging = System.getProperty("dadp.enable-logging");
+        }
+        return enableLogging != null && !enableLogging.trim().isEmpty() && 
+               ("true".equalsIgnoreCase(enableLogging) || "1".equals(enableLogging));
     }
     
     /**

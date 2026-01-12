@@ -55,7 +55,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>3.2.12</spring-boot.version>
         <jackson.version>2.16.1</jackson.version>
-        <gpg.skip>false</gpg.skip>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 활성화 -->
         <maven.deploy.skip>false</maven.deploy.skip>
         <!-- GPG 실행을 위한 기본값 (자식 모듈에서 오버라이드 가능) -->

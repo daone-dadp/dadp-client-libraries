@@ -52,19 +52,30 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         log.debug("🔗 Hub 스키마 동기화 URL: {}", syncUrl);
         
         SchemaSyncRequest request = new SchemaSyncRequest();
-        // 스키마 동기화: 헤더에 hubId를 넣고 body에 instanceId와 스키마 전송
+        // 스키마 동기화: 헤더에 hubId와 instanceId를 넣고 body에 instanceId와 스키마 전송
         // hubId는 헤더(X-DADP-TENANT)로 전송
-        // instanceId는 body에 포함 (hubId가 없을 때 자동 생성용)
+        // instanceId는 헤더(X-Instance-Id)와 body에 모두 포함
         request.setInstanceId(instanceId);
         request.setSchemas(schemas);
         
         String requestBody = objectMapper.writeValueAsString(request);
         
-        // 헤더에 hubId, 버전, instanceType 포함 (새 API 사용 시)
+        // 헤더에 hubId, instanceId(별칭), 버전, instanceType 포함 (새 API 사용 시)
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         if (hubId != null && !hubId.trim().isEmpty()) {
             headers.put("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
+        }
+        /**
+         * X-Instance-Id 헤더 추가
+         * 
+         * Hub가 헤더에서 instanceId(별칭)를 받아 스키마를 alias로 직접 저장할 수 있도록 함.
+         * instanceId는 요청 바디에도 포함되지만, 헤더에서도 전달하여 Hub가 별도 조회 없이 사용할 수 있음.
+         * 
+         * @param instanceId 인스턴스 별칭 (null이거나 비어있으면 헤더에 추가하지 않음)
+         */
+        if (instanceId != null && !instanceId.trim().isEmpty()) {
+            headers.put("X-Instance-Id", instanceId);
         }
         if (currentVersion != null) {
             headers.put("X-Current-Version", String.valueOf(currentVersion));
@@ -78,6 +89,15 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         log.debug("📤 Hub 스키마 동기화 요청: URL={}, hubId={}, 스키마 개수={}", syncUrl, hubId, schemas != null ? schemas.size() : 0);
         log.debug("📤 요청 헤더: {}", headers);
         log.debug("📤 요청 바디: {}", requestBody);
+        
+        // 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
+        if (schemas != null && !schemas.isEmpty()) {
+            for (SchemaMetadata schema : schemas) {
+                log.info("📤 스키마 전송 데이터: schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}", 
+                    schema.getSchemaName(), schema.getTableName(), schema.getColumnName(),
+                    schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
+            }
+        }
         
         // HTTP POST 요청
         URI uri = URI.create(syncUrl);

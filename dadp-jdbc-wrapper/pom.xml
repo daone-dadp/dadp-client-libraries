@@ -66,7 +66,7 @@
         <junit.version>5.9.3</junit.version>
         <java.version>1.8</java.version>
         <classifier></classifier>
-        <!-- GPG 서명 건너뛰기 (로컬 빌드 기본값: true, Maven Central 배포 시: false) -->
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
         <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
         <maven.deploy.skip>true</maven.deploy.skip>

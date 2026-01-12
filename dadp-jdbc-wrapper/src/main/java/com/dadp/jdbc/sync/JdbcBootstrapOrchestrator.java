@@ -200,13 +200,15 @@ public class JdbcBootstrapOrchestrator {
             }
             log.info("✅ 스키마 로드 완료");
             
-            // 1-1. 스키마를 영구저장소에 저장 (정책명 없이)
-            saveSchemasToStorage();
-            
             // 2. 영구저장소 로드 (hubId는 HubIdManager에서 관리, 다른 데이터도 로드)
+            // datasourceId를 먼저 로드해야 스키마 저장 시 사용할 수 있음
             log.info("📂 2단계: 영구저장소에서 데이터 로드");
             String hubId = hubIdManager.loadFromStorage(); // HubIdManager에서 전역으로 관리
-            loadOtherDataFromPersistentStorage(); // 다른 데이터 로드
+            loadOtherDataFromPersistentStorage(); // 다른 데이터 로드 (cachedDatasourceId 포함)
+            
+            // 1-1. 스키마를 영구저장소에 저장 (정책명 없이)
+            // datasourceId 로드 후 저장하여 datasourceId가 포함되도록 함
+            saveSchemasToStorage();
             
             // 3. Hub 등록 및 스키마 등록 (hubId가 없으면 등록, 있으면 스키마만 동기화)
             log.info("🔄 3단계: Hub 등록 및 스키마 등록");
@@ -364,6 +366,23 @@ public class JdbcBootstrapOrchestrator {
             log.debug("✅ datasourceId 설정 후 schemaCollector 재생성: datasourceId={}", cachedDatasourceId);
         }
         
+        // 저장된 스키마에 datasourceId 업데이트 (Datasource 등록 전에 저장된 스키마에 datasourceId가 없을 수 있음)
+        if (cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()) {
+            List<SchemaMetadata> allStoredSchemas = schemaStorage.loadSchemas();
+            boolean needsUpdate = false;
+            for (SchemaMetadata schema : allStoredSchemas) {
+                if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
+                    schema.setDatasourceId(cachedDatasourceId);
+                    needsUpdate = true;
+                }
+            }
+            if (needsUpdate) {
+                schemaStorage.saveSchemas(allStoredSchemas);
+                log.info("✅ 저장된 스키마에 datasourceId 업데이트 완료: datasourceId={}, 스키마 개수={}", 
+                    cachedDatasourceId, allStoredSchemas.size());
+            }
+        }
+        
         // 3단계: 생성 상태 스키마 전송 (AOP와 동일한 구조)
         if (schemaSyncService == null) {
             log.warn("⚠️ JdbcSchemaSyncService가 없어 스키마 동기화를 수행할 수 없습니다.");
@@ -433,10 +452,16 @@ public class JdbcBootstrapOrchestrator {
             String schema = extractSchemaName(connection, dbProductName);
             
             // Hub에 Datasource 등록/조회 요청 (hubId와 datasourceId를 동시에 받음)
+            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
+            Long currentVersion = policyResolver.getCurrentVersion();
+            if (currentVersion == null) {
+                currentVersion = 0L;
+            }
+            
             DatasourceRegistrationService registrationService = 
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema
+                dbVendor, host, port, database, schema, currentVersion
             );
             
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
@@ -544,10 +569,20 @@ public class JdbcBootstrapOrchestrator {
             return false;
         }
         
-        // JdbcSchemaSyncService를 사용하여 스키마 전송
-        // hubId를 파라미터로 직접 전달
-        // 현재 버전은 null (최초 등록)
-        boolean success = schemaSyncService.syncSchemaToHub(hubId, config.getInstanceId(), null);
+        // 전송 전에 datasourceId 설정 (저장된 스키마에 datasourceId가 없을 수 있음)
+        if (cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()) {
+            for (SchemaMetadata schema : createdSchemas) {
+                if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
+                    schema.setDatasourceId(cachedDatasourceId);
+                    log.info("✅ 전송 전 스키마에 datasourceId 설정: schema={}.{}.{}, datasourceId={}", 
+                        schema.getSchemaName(), schema.getTableName(), schema.getColumnName(), cachedDatasourceId);
+                }
+            }
+        }
+        
+        // 저장된 스키마를 직접 전송 (syncSpecificSchemasToHub 사용)
+        // syncSchemaToHub는 schemaCollector에서 새로 수집하므로 사용하지 않음
+        boolean success = schemaSyncService.syncSpecificSchemasToHub(createdSchemas);
         
         // 404 응답 처리: false 반환 시 404인지 확인
         if (!success) {

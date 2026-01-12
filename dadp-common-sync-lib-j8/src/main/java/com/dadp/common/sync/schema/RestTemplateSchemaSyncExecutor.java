@@ -69,6 +69,17 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-DADP-TENANT", hubId);  // hubId 필수
+        /**
+         * X-Instance-Id 헤더 추가
+         * 
+         * Hub가 헤더에서 instanceId(별칭)를 받아 스키마를 alias로 직접 저장할 수 있도록 함.
+         * instanceId는 요청 바디에도 포함되지만, 헤더에서도 전달하여 Hub가 별도 조회 없이 사용할 수 있음.
+         * 
+         * @param instanceId 인스턴스 별칭 (null이거나 비어있으면 헤더에 추가하지 않음)
+         */
+        if (instanceId != null && !instanceId.trim().isEmpty()) {
+            headers.set("X-Instance-Id", instanceId);
+        }
         if (currentVersion != null) {
             headers.set("X-Current-Version", String.valueOf(currentVersion));
         }

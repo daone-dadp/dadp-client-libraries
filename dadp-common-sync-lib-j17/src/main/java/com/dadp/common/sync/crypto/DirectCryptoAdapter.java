@@ -64,10 +64,13 @@ public class DirectCryptoAdapter {
             // apiBasePath는 기본값 "/api" 사용
             String apiBasePath = "/api";
             
+            // DADP 통합 로그 설정에 따라 HubCryptoService의 enableLogging 설정
+            Boolean enableLogging = DadpLoggerFactory.isLoggingEnabled();
+            
             // cryptoUrl로 암복호화 서비스 초기화
-            this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, true);
+            this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
             this.currentCryptoUrl = trimmedCryptoUrl;
-            log.info("✅ 암복호화 서비스 초기화: cryptoUrl={}, apiBasePath={}", trimmedCryptoUrl, apiBasePath);
+            log.info("✅ 암복호화 서비스 초기화: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
             
             endpointAvailable = true;
             

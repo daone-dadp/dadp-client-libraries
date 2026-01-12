@@ -44,8 +44,8 @@
     </scm>
 
     <properties>
-        <!-- GPG 서명 활성화 -->
-        <gpg.skip>false</gpg.skip>
+        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <gpg.skip>true</gpg.skip>
         <!-- Maven 배포 활성화 -->
         <maven.deploy.skip>false</maven.deploy.skip>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -67,17 +67,18 @@
             <version>2.13.5</version>
         </dependency>
         
-        <!-- Hub Crypto Library (DirectCryptoAdapter에서 사용) -->
+        <!-- Hub Crypto Library (DirectCryptoAdapter에서 사용) - Java 8 버전 사용 -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-hub-crypto-lib</artifactId>
+            <classifier>java8</classifier>
         </dependency>
         
         <!-- Common Logging Library -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-logging-lib</artifactId>
-            <version>1.0.0</version>
+            <version>2.0.0</version>
         </dependency>
     </dependencies>
     

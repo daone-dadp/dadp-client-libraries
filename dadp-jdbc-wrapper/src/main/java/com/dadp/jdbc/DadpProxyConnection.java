@@ -128,7 +128,12 @@ public class DadpProxyConnection implements Connection {
         // Hub 알림 서비스 초기화 (HubNotificationClient 사용)
         HubNotificationService notificationServiceInstance = null;
         try {
-            notificationServiceInstance = new HubNotificationService(config.getHubUrl(), hubId, config.getInstanceId());
+            notificationServiceInstance = new HubNotificationService(
+                config.getHubUrl(), 
+                hubId, 
+                config.getInstanceId(),
+                config.isEnableLogging()  // ProxyConfig에서 enableLogging 전달
+            );
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
             log.trace("✅ Hub 알림 서비스 초기화 완료");
         } catch (Exception e) {
@@ -220,10 +225,16 @@ public class DadpProxyConnection implements Connection {
             String schema = extractSchemaName(connection, dbVendor);
             
             // Hub에 Datasource 등록/조회 요청
+            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
+            Long currentVersion = policyResolver.getCurrentVersion();
+            if (currentVersion == null) {
+                currentVersion = 0L;
+            }
+            
             DatasourceRegistrationService registrationService = 
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema
+                dbVendor, host, port, database, schema, currentVersion
             );
             
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
@@ -263,10 +274,16 @@ public class DadpProxyConnection implements Connection {
             String schema = extractSchemaName(connection, dbVendor);
             
             // Hub에 Datasource 등록/조회 요청 (hubId 받기)
+            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
+            Long currentVersion = policyResolver.getCurrentVersion();
+            if (currentVersion == null) {
+                currentVersion = 0L;
+            }
+            
             DatasourceRegistrationService registrationService = 
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema
+                dbVendor, host, port, database, schema, currentVersion
             );
             
             if (datasourceInfo != null && datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {

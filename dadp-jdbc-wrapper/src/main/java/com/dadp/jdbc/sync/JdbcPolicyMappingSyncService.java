@@ -214,13 +214,18 @@ public class JdbcPolicyMappingSyncService {
         });
         
         scheduler.scheduleWithFixedDelay(() -> {
-            if (!enabled.get() || !initialized) {
-                log.debug("⏭️ 주기적 정책 매핑 동기화 스킵: enabled={}, initialized={}", enabled.get(), initialized);
-                return;
+            try {
+                if (!enabled.get() || !initialized) {
+                    log.debug("⏭️ 주기적 정책 매핑 동기화 스킵: enabled={}, initialized={}", enabled.get(), initialized);
+                    return;
+                }
+                
+                log.trace("🔄 Wrapper 정책 매핑 버전 체크 시작");
+                checkMappingChange();
+            } catch (Exception e) {
+                // 예외가 발생해도 스케줄러는 계속 실행되도록 예외를 잡아서 로그만 출력
+                log.warn("⚠️ 주기적 정책 매핑 버전 체크 중 예외 발생 (다음 주기에서 재시도): {}", e.getMessage(), e);
             }
-            
-            log.trace("🔄 Wrapper 정책 매핑 버전 체크 시작");
-            checkMappingChange();
         }, 30, 30, TimeUnit.SECONDS);
         
         log.info("✅ 주기적 정책 매핑 동기화 스케줄러 등록 완료: 30초 주기, instanceId={}", instanceId);
@@ -386,10 +391,16 @@ public class JdbcPolicyMappingSyncService {
             String schema = extractSchemaName(connection, dbProductName);
             
             // Hub에 Datasource 등록/조회 요청 (hubId와 datasourceId를 동시에 받음)
+            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
+            Long currentVersion = policyResolver.getCurrentVersion();
+            if (currentVersion == null) {
+                currentVersion = 0L;
+            }
+            
             DatasourceRegistrationService registrationService = 
                 new DatasourceRegistrationService(config.getHubUrl(), instanceId);
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema
+                dbVendor, host, port, database, schema, currentVersion
             );
             
             if (datasourceInfo == null || datasourceInfo.getHubId() == null || datasourceInfo.getHubId().trim().isEmpty()) {

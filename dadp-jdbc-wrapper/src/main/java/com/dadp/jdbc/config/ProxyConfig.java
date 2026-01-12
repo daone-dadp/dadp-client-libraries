@@ -36,6 +36,7 @@ public class ProxyConfig {
     private final String instanceId;  // 사용자가 설정한 별칭 (검색/표시용)
     private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
+    private final boolean enableLogging;  // DADP 통합 로그 활성화
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
     
     // 스키마 수집 안정성 설정
@@ -114,6 +115,27 @@ public class ProxyConfig {
         // 4. 기본값 사용 (기본값: true)
         this.failOpen = failOpenProp == null || failOpenProp.trim().isEmpty() || 
                        Boolean.parseBoolean(failOpenProp);
+        
+        // DADP 통합 로그 활성화 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
+        String enableLoggingProp = null;
+        // 1. 시스템 프로퍼티 우선 확인
+        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
+            enableLoggingProp = System.getProperty("dadp.enable-logging");
+        }
+        // 2. 환경 변수 확인
+        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
+            enableLoggingProp = System.getenv("DADP_ENABLE_LOGGING");
+        }
+        // 3. JDBC URL 파라미터 확인
+        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
+            enableLoggingProp = urlParams != null ? urlParams.get("enableLogging") : null;
+        }
+        // 4. 기본값 사용 (기본값: false)
+        this.enableLogging = enableLoggingProp != null && !enableLoggingProp.trim().isEmpty() && 
+                            ("true".equalsIgnoreCase(enableLoggingProp) || "1".equals(enableLoggingProp));
+        
+        // DadpLoggerFactory에 로그 활성화 설정 전달 (JDBC URL 파라미터를 통해 설정된 경우 반영)
+        DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
         
         // 스키마 수집 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         // TODO: Hub API 구현 후 Hub 저장소 우선순위 추가
@@ -227,6 +249,7 @@ public class ProxyConfig {
         log.trace("   - Hub URL (스키마 동기화 + 암복호화 라우팅): {}", this.hubUrl);
         log.trace("   - Instance ID: {}", this.instanceId);
         log.trace("   - Fail-open: {}", this.failOpen);
+        log.trace("   - DADP 로그 활성화: {}", this.enableLogging);
         log.trace("   - 스키마 수집 타임아웃: {}ms", this.schemaCollectionTimeoutMs);
         log.trace("   - 최대 스키마 개수: {}", this.maxSchemas);
         log.trace("   - 스키마 Allowlist: {}", this.schemaAllowlist != null ? this.schemaAllowlist : "(없음)");
@@ -293,6 +316,15 @@ public class ProxyConfig {
     
     public boolean isFailOpen() {
         return failOpen;
+    }
+    
+    /**
+     * DADP 통합 로그 활성화 여부 조회
+     * 
+     * @return 로그 활성화 여부
+     */
+    public boolean isEnableLogging() {
+        return enableLogging;
     }
     
     /**
