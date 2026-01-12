@@ -94,6 +94,8 @@ public class MappingSyncService {
      * @return 변경사항이 있으면 true, 없으면 false
      */
     public boolean checkMappingChange(Long version, String[] reregisteredHubId) {
+        // checkUrl을 try 블록 밖에서 선언하여 catch 블록에서도 접근 가능하도록 함
+        String checkUrl = null;
         try {
             // instanceId 파라미터는 alias를 사용 (정책 매핑은 alias 기준으로 동기화)
             // Hub의 checkMappingChange가 alias로 첫 번째 인스턴스를 찾아 정책을 확인
@@ -106,7 +108,7 @@ public class MappingSyncService {
                 instanceIdParam = "";  // 둘 다 없으면 빈 문자열 (Hub에서 에러 발생)
             }
             String checkPath = apiBasePath + "/mappings/check";
-            String checkUrl = hubUrl + checkPath + "?instanceId=" + instanceIdParam;
+            checkUrl = hubUrl + checkPath + "?instanceId=" + instanceIdParam;
             
             // alias는 항상 별도 파라미터로 전달 (동일한 별칭을 가진 앱들이 동일한 정책 매핑을 받기 위해)
             if (alias != null && !alias.trim().isEmpty()) {
@@ -177,13 +179,41 @@ public class MappingSyncService {
             }
             
             // 기타 상태 코드는 false 반환
-            log.warn("⚠️ 매핑 변경 확인 실패: HTTP {}, URL={}", statusCode, checkUrl);
+            log.warn("⚠️ 매핑 변경 확인 실패: HTTP {}, URL={}, hubId={}", statusCode, checkUrl, hubId);
             return false;
         } catch (IllegalStateException e) {
             // 400 응답으로 인한 초기화 필요 예외는 다시 던짐
             throw e;
+        } catch (java.net.ConnectException e) {
+            // 연결 실패 (Hub에 도달하지 못함)
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
+            log.warn("⚠️ 매핑 변경 확인 실패 (Hub 연결 불가): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            return false; // 실패 시 false 반환 (다음 확인 시 재시도)
+        } catch (java.net.SocketTimeoutException e) {
+            // 타임아웃
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
+            log.warn("⚠️ 매핑 변경 확인 실패 (타임아웃): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            return false; // 실패 시 false 반환 (다음 확인 시 재시도)
+        } catch (java.net.UnknownHostException e) {
+            // 호스트를 찾을 수 없음
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
+            log.warn("⚠️ 매핑 변경 확인 실패 (호스트를 찾을 수 없음): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         } catch (IOException e) {
-            log.warn("⚠️ 매핑 변경 확인 실패: {}", e.getMessage());
+            // 기타 IO 예외
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String errorType = e.getClass().getSimpleName();
+            String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
+            if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
+                log.warn("⚠️ 매핑 변경 확인 실패 (Hub 연결 불가): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            } else if (errorMsg.contains("timeout") || errorMsg.contains("Timeout")) {
+                log.warn("⚠️ 매핑 변경 확인 실패 (타임아웃): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            } else {
+                log.warn("⚠️ 매핑 변경 확인 실패: URL={}, hubId={}, errorType={}, error={}", url, hubId, errorType, errorMsg);
+            }
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         }
     }
