@@ -164,6 +164,16 @@ public class PolicyResolver {
             return policy;
         }
         
+        // 이미 대문자로 저장된 정책 매핑도 찾을 수 있도록 소문자로 변환한 키로도 조회 시도
+        String lowerKey = key.toLowerCase();
+        if (!lowerKey.equals(key)) {
+            policy = policyCache.get(lowerKey);
+            if (policy != null) {
+                log.debug("✅ 정책 캐시 적중 (소문자 변환): {} → {}", lowerKey, policy);
+                return policy;
+            }
+        }
+        
         // 하위 호환성: datasourceId가 없으면 기존 형식 시도
         if (datasourceId == null || datasourceId.trim().isEmpty()) {
             if (schemaName != null && !schemaName.trim().isEmpty()) {
@@ -173,12 +183,30 @@ public class PolicyResolver {
                     log.debug("✅ 정책 캐시 적중 (fallback): {} → {}", fallbackKey, policy);
                     return policy;
                 }
+                // fallback 키도 소문자로 변환해서 조회 시도
+                String fallbackLowerKey = fallbackKey.toLowerCase();
+                if (!fallbackLowerKey.equals(fallbackKey)) {
+                    policy = policyCache.get(fallbackLowerKey);
+                    if (policy != null) {
+                        log.debug("✅ 정책 캐시 적중 (fallback 소문자): {} → {}", fallbackLowerKey, policy);
+                        return policy;
+                    }
+                }
             }
             String fallbackKey2 = tableName + "." + columnName;
             policy = policyCache.get(fallbackKey2);
             if (policy != null) {
                 log.debug("✅ 정책 캐시 적중 (fallback2): {} → {}", fallbackKey2, policy);
                 return policy;
+            }
+            // fallback2 키도 소문자로 변환해서 조회 시도
+            String fallback2LowerKey = fallbackKey2.toLowerCase();
+            if (!fallback2LowerKey.equals(fallbackKey2)) {
+                policy = policyCache.get(fallback2LowerKey);
+                if (policy != null) {
+                    log.debug("✅ 정책 캐시 적중 (fallback2 소문자): {} → {}", fallback2LowerKey, policy);
+                    return policy;
+                }
             }
         }
         

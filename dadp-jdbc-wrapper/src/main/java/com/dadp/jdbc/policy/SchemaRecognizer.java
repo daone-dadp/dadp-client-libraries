@@ -54,6 +54,19 @@ public class SchemaRecognizer {
             "pg_catalog", "pg_toast", "pg_temp_1", "pg_toast_temp_1"
         };
         
+        // Oracle 시스템 스키마 제외 목록
+        final String[] ORACLE_EXCLUDED_SCHEMAS = {
+            "sys", "system", "ctxsys", "mdsys", "xdb", "olapsys", "ordsys",
+            "outln", "si_informtn_schema", "sysaux", "wmsys", "apex_030200",
+            "apex_040000", "apex_040100", "apex_040200", "apex_050000",
+            "apex_180100", "apex_190100", "apex_200100", "apex_210100",
+            "apex_220100", "apex_230100", "apex_240100", "apex_250100",
+            "flows_files", "flows_030000", "flows_040000", "flows_040100",
+            "flows_040200", "flows_050000", "flows_180100", "flows_190100",
+            "flows_200100", "flows_210100", "flows_220100", "flows_230100",
+            "flows_240100", "flows_250100"
+        };
+        
         // Allowlist 파싱
         Set<String> allowedSchemas = null;
         if (schemaAllowlist != null && !schemaAllowlist.trim().isEmpty()) {
@@ -76,17 +89,16 @@ public class SchemaRecognizer {
             String dbVendor = metaData.getDatabaseProductName().toLowerCase();
             String databaseName = connection.getCatalog();
             
-            // DB 벤더별 schemaName 추출
-            String schemaName = extractSchemaName(connection, dbVendor);
-            
-            log.info("🔍 스키마 메타데이터 수집 시작: datasourceId={}, dbVendor={}, database={}, schemaName={}, " +
+            log.info("🔍 스키마 메타데이터 수집 시작: datasourceId={}, dbVendor={}, database={}, " +
                     "allowlist={}, maxSchemas={}, timeout={}ms", 
-                datasourceId, dbVendor, databaseName, schemaName,
+                datasourceId, dbVendor, databaseName,
                 allowedSchemas != null ? allowedSchemas : "모두 허용",
                 maxSchemas > 0 ? maxSchemas : "제한 없음",
                 timeoutMs != null && timeoutMs > 0 ? timeoutMs : "제한 없음");
             
             // 현재 데이터베이스의 테이블만 조회 (시스템 스키마 제외)
+            // PostgreSQL의 경우: getTables(databaseName, null, "%", ...)는 모든 스키마의 테이블을 조회
+            // TABLE_SCHEM 컬럼에서 각 테이블의 실제 스키마 이름을 가져옴
             try (ResultSet tables = metaData.getTables(databaseName, null, "%", new String[]{"TABLE"})) {
                 while (tables.next()) {
                     // 타임아웃 체크
@@ -106,12 +118,14 @@ public class SchemaRecognizer {
                     }
                     
                     String tableName = tables.getString("TABLE_NAME");
-                    String tableSchema = tables.getString("TABLE_SCHEM");
+                    String tableSchema = tables.getString("TABLE_SCHEM");  // ResultSet에서 실제 스키마 이름 가져옴
                     
                     // 시스템 스키마 제외
                     if (tableSchema != null) {
                         String lowerSchema = tableSchema.toLowerCase();
                         boolean isExcluded = false;
+                        
+                        // 공통 시스템 스키마 체크
                         for (String excluded : EXCLUDED_SCHEMAS) {
                             if (lowerSchema.equals(excluded)) {
                                 isExcluded = true;
@@ -119,6 +133,23 @@ public class SchemaRecognizer {
                                 break;
                             }
                         }
+                        
+                        // Oracle 전용 시스템 스키마 체크
+                        if (!isExcluded && dbVendor.contains("oracle")) {
+                            for (String excluded : ORACLE_EXCLUDED_SCHEMAS) {
+                                if (lowerSchema.equals(excluded)) {
+                                    isExcluded = true;
+                                    log.trace("⏭️ Oracle 시스템 스키마 제외: {}.{}", tableSchema, tableName);
+                                    break;
+                                }
+                            }
+                            // Oracle: APEX_*, FLOWS_* 패턴으로 시작하는 스키마도 제외
+                            if (!isExcluded && (lowerSchema.startsWith("apex_") || lowerSchema.startsWith("flows_"))) {
+                                isExcluded = true;
+                                log.trace("⏭️ Oracle 시스템 스키마 제외 (패턴): {}.{}", tableSchema, tableName);
+                            }
+                        }
+                        
                         if (isExcluded) {
                             continue;
                         }
@@ -131,6 +162,11 @@ public class SchemaRecognizer {
                     }
                     
                     log.trace("📋 테이블 발견: {}.{}", tableSchema, tableName);
+                    
+                    // DB 벤더별로 스키마 이름 결정
+                    // PostgreSQL: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용 (예: "public")
+                    // MySQL: database 이름 사용 (TABLE_SCHEM은 null일 수 있음)
+                    String finalSchemaName = determineSchemaName(dbVendor, tableSchema, connection);
                     
                     // 컬럼 정보 조회
                     try (ResultSet columns = metaData.getColumns(databaseName, tableSchema, tableName, "%")) {
@@ -146,13 +182,20 @@ public class SchemaRecognizer {
                                 continue;
                             }
                             
+                            // 식별자 정규화 (암복호화 시와 동일한 방식으로 정규화)
+                            // 모든 DB 벤더에 대해 소문자로 정규화 (영구저장소 저장 및 매핑 모두 소문자 기준)
+                            String normalizedDatabaseName = normalizeIdentifier(databaseName, dbVendor);
+                            String normalizedSchemaName = normalizeIdentifier(finalSchemaName, dbVendor);
+                            String normalizedTableName = normalizeIdentifier(tableName, dbVendor);
+                            String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
+                            
                             SchemaMetadata schema = new SchemaMetadata();
                             schema.setDatasourceId(datasourceId);
                             schema.setDbVendor(dbVendor);
-                            schema.setDatabaseName(databaseName);
-                            schema.setSchemaName(schemaName != null ? schemaName : tableSchema);
-                            schema.setTableName(tableName);
-                            schema.setColumnName(columnName);
+                            schema.setDatabaseName(normalizedDatabaseName);  // 정규화된 데이터베이스 이름 사용
+                            schema.setSchemaName(normalizedSchemaName);  // 정규화된 스키마 이름 사용
+                            schema.setTableName(normalizedTableName);  // 정규화된 테이블 이름 사용
+                            schema.setColumnName(normalizedColumnName);  // 정규화된 컬럼 이름 사용
                             schema.setColumnType(columnType);
                             schema.setIsNullable("YES".equals(columns.getString("IS_NULLABLE")));
                             schema.setColumnDefault(columnDefault);
@@ -184,12 +227,72 @@ public class SchemaRecognizer {
     }
     
     /**
-     * DB 벤더별 schemaName 추출
+     * DB 벤더별로 스키마 이름 결정
+     * 
+     * @param dbVendor DB 벤더명 (소문자)
+     * @param tableSchema ResultSet에서 가져온 TABLE_SCHEM 값 (실제 스키마 이름)
+     * @param connection DB 연결
+     * @return DADP 기준 논리 스키마명
+     */
+    private String determineSchemaName(String dbVendor, String tableSchema, Connection connection) throws SQLException {
+        if (dbVendor.contains("mysql") || dbVendor.contains("mariadb")) {
+            // MySQL: database == schema
+            // TABLE_SCHEM은 null일 수 있으므로 database 이름 사용
+            if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+                return tableSchema;
+            }
+            return connection.getCatalog();
+            
+        } else if (dbVendor.contains("postgresql")) {
+            // PostgreSQL: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용 (예: "public")
+            // getTables()의 ResultSet에서 TABLE_SCHEM 컬럼이 실제 스키마 이름을 반환함
+            if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+                return tableSchema;
+            }
+            // fallback: connection.getSchema() 사용
+            String schema = connection.getSchema();
+            return schema != null && !schema.isEmpty() ? schema : "public";
+            
+        } else if (dbVendor.contains("microsoft sql server") || dbVendor.contains("sql server")) {
+            // MSSQL: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용 (예: "dbo")
+            if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+                return tableSchema;
+            }
+            return "dbo";  // 기본값
+            
+        } else if (dbVendor.contains("oracle")) {
+            // Oracle: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용
+            if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+                return tableSchema;
+            }
+            // fallback: connection.getSchema() 또는 getUserName() 사용
+            String schema = connection.getSchema();
+            if (schema == null || schema.isEmpty()) {
+                try {
+                    schema = connection.getMetaData().getUserName();
+                } catch (SQLException e) {
+                    log.debug("Oracle userName 조회 실패: {}", e.getMessage());
+                }
+            }
+            return schema;
+        }
+        
+        // 기본값: tableSchema가 있으면 사용, 없으면 database 이름
+        if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+            return tableSchema;
+        }
+        return connection.getCatalog();
+    }
+    
+    /**
+     * DB 벤더별 schemaName 추출 (deprecated: determineSchemaName 사용 권장)
      * 
      * @param connection DB 연결
      * @param dbVendor DB 벤더명 (소문자)
      * @return DADP 기준 논리 스키마명
+     * @deprecated determineSchemaName을 사용하세요 (ResultSet의 TABLE_SCHEM을 직접 사용)
      */
+    @Deprecated
     private String extractSchemaName(Connection connection, String dbVendor) throws SQLException {
         if (dbVendor.contains("mysql") || dbVendor.contains("mariadb")) {
             // MySQL: database == schema
@@ -224,6 +327,25 @@ public class SchemaRecognizer {
         
         // 기본값: database 이름
         return connection.getCatalog();
+    }
+    
+    /**
+     * 식별자 정규화 (스키마 로드 시와 암복호화 시 동일한 키 생성)
+     * 
+     * Oracle/Tibero의 경우: DatabaseMetaData는 따옴표 없이 생성한 식별자를 대문자로 반환하므로,
+     * SQL 파서에서 받은 값도 대문자로 정규화하여 일치시킴
+     * 
+     * @param identifier 식별자 (schemaName, tableName, columnName)
+     * @param dbVendor DB 벤더명
+     * @return 정규화된 식별자
+     */
+    private String normalizeIdentifier(String identifier, String dbVendor) {
+        if (identifier == null || identifier.trim().isEmpty()) {
+            return identifier;
+        }
+        
+        // 모든 DB 벤더에 대해 소문자로 정규화 (스키마 저장 및 매칭 모두 소문자 기준)
+        return identifier.toLowerCase();
     }
     
     /**

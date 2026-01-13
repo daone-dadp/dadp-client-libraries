@@ -96,18 +96,23 @@ public static class SqlParseResult {
     
     /**
      * alias → 원본 컬럼명 매핑 추가
+     * 
+     * 대소문자 구분 없이 매핑하되, 원본 컬럼명은 그대로 저장
      */
     public void addAliasMapping(String alias, String originalColumn) {
-        aliasToColumnMap.put(alias.toLowerCase(), originalColumn.toLowerCase());
+        // alias는 소문자로 변환하여 저장 (대소문자 구분 없이 조회)
+        // originalColumn은 원본 그대로 저장 (정규화는 나중에 normalizeIdentifier에서 수행)
+        aliasToColumnMap.put(alias.toLowerCase(), originalColumn);
     }
     
     /**
      * alias로 원본 컬럼명 조회
      * @param alias 컬럼 별칭 (예: email3_0_)
-     * @return 원본 컬럼명 (예: email), 매핑이 없으면 입력값 반환
+     * @return 원본 컬럼명 (원본 그대로 반환), 매핑이 없으면 입력값 반환
      */
     public String getOriginalColumnName(String alias) {
         if (alias == null) return null;
+        // alias를 소문자로 변환하여 조회하되, 반환값은 원본 그대로
         String original = aliasToColumnMap.get(alias.toLowerCase());
         return original != null ? original : alias;
     }
@@ -271,7 +276,7 @@ private SqlParseResult parseSelect(String sql) {
         String schemaName = matcher.group(2);  // schema (있을 수도 없을 수도 있음)
         String tableName = matcher.group(3);   // table
         
-        result.setDatabaseName(schemaName);  // schema가 없으면 null
+        result.setSchemaName(schemaName);  // schema가 없으면 null
         result.setTableName(tableName);
         
         // SELECT 절의 컬럼 목록 추출

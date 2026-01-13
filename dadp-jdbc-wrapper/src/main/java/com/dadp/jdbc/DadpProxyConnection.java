@@ -51,6 +51,7 @@ public class DadpProxyConnection implements Connection {
     private final PolicyResolver policyResolver;
     private final HubNotificationService notificationService;
     private final String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
+    private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
     private String datasourceId;  // Hub에서 받은 논리 데이터소스 ID
     private boolean closed = false;
     private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
@@ -64,6 +65,16 @@ public class DadpProxyConnection implements Connection {
         // JDBC URL 파라미터가 있으면 사용, 없으면 싱글톤 인스턴스 사용
         this.config = urlParams != null ? new ProxyConfig(urlParams) : ProxyConfig.getInstance();
         
+        
+        // DB 벤더 정보 저장
+        String vendor = null;
+        try {
+            DatabaseMetaData metaData = actualConnection.getMetaData();
+            vendor = metaData.getDatabaseProductName().toLowerCase();
+        } catch (SQLException e) {
+            log.debug("DB 벤더 정보 조회 실패 (무시): {}", e.getMessage());
+        }
+        this.dbVendor = vendor;
         
         // 현재 연결된 데이터베이스/스키마명 저장 (Connection에서 가져옴)
         String dbName = null;
@@ -421,11 +432,99 @@ public class DadpProxyConnection implements Connection {
     }
     
     /**
+     * DB 벤더 정보 반환
+     * 
+     * @return DB 벤더명 (소문자, 예: "oracle", "mysql", "postgresql" 등)
+     */
+    public String getDbVendor() {
+        return dbVendor;
+    }
+    
+    /**
+     * 식별자 정규화 (스키마 로드 시와 암복호화 시 동일한 키 생성)
+     * 
+     * Oracle/Tibero의 경우: DatabaseMetaData는 따옴표 없이 생성한 식별자를 대문자로 반환하므로,
+     * SQL 파서에서 받은 값도 대문자로 정규화하여 일치시킴
+     * 
+     * @param identifier 식별자 (schemaName, tableName, columnName)
+     * @return 정규화된 식별자
+     */
+    public String normalizeIdentifier(String identifier) {
+        if (identifier == null || identifier.trim().isEmpty()) {
+            return identifier;
+        }
+        
+        // 모든 DB 벤더에 대해 소문자로 정규화 (스키마 저장 및 매칭 모두 소문자 기준)
+        String normalized = identifier.toLowerCase();
+        log.trace("🔤 식별자 정규화: {} → {} (dbVendor={})", identifier, normalized, dbVendor);
+        return normalized;
+    }
+    
+    /**
      * 현재 데이터베이스/스키마명 반환
      * 
      * @return 데이터베이스/스키마명 (없으면 null)
      */
     public String getCurrentDatabaseName() {
+        return currentDatabaseName;
+    }
+    
+    /**
+     * 현재 스키마 이름 반환 (DB 벤더별로 적절한 값 반환)
+     * PostgreSQL: connection.getSchema() (기본값: "public")
+     * Oracle/Tibero: connection.getSchema() 또는 getUserName() (USER가 스키마 역할)
+     * MSSQL: connection.getSchema() (기본값: "dbo")
+     * MySQL/MariaDB: connection.getCatalog() (데이터베이스 이름)
+     * 
+     * @return 스키마 이름 (없으면 null)
+     */
+    public String getCurrentSchemaName() {
+        if (dbVendor != null) {
+            // PostgreSQL, Oracle, Tibero, MSSQL: 스키마 이름 사용
+            if (dbVendor.contains("postgresql") || dbVendor.contains("oracle") || 
+                dbVendor.contains("tibero") || dbVendor.contains("microsoft sql server") || 
+                dbVendor.contains("sql server") || dbVendor.contains("mssql")) {
+                try {
+                    String schema = actualConnection.getSchema();
+                    if (schema != null && !schema.trim().isEmpty()) {
+                        return schema;
+                    }
+                    // PostgreSQL 기본 스키마
+                    if (dbVendor.contains("postgresql")) {
+                        return "public";
+                    }
+                    // MSSQL 기본 스키마
+                    if (dbVendor.contains("microsoft sql server") || dbVendor.contains("sql server") || 
+                        dbVendor.contains("mssql")) {
+                        // MSSQL: getSchema()가 null이거나 데이터베이스 이름을 반환할 수 있음
+                        // 데이터베이스 이름과 같으면 "dbo" 반환, 아니면 스키마 이름 반환
+                        if (schema != null && !schema.trim().isEmpty()) {
+                            // schema가 currentDatabaseName과 같으면 데이터베이스 이름이므로 "dbo" 반환
+                            if (schema.equalsIgnoreCase(currentDatabaseName)) {
+                                return "dbo";
+                            }
+                            // 그 외의 경우는 실제 스키마 이름으로 간주
+                            return schema;
+                        }
+                        return "dbo";
+                    }
+                    // Oracle, Tibero: getSchema()가 null이면 getUserName() 사용
+                    if (dbVendor.contains("oracle") || dbVendor.contains("tibero")) {
+                        try {
+                            schema = actualConnection.getMetaData().getUserName();
+                            if (schema != null && !schema.trim().isEmpty()) {
+                                return schema;
+                            }
+                        } catch (SQLException e) {
+                            log.debug("Oracle/Tibero userName 조회 실패: {}", e.getMessage());
+                        }
+                    }
+                } catch (SQLException e) {
+                    log.debug("스키마 정보 조회 실패: {}", e.getMessage());
+                }
+            }
+        }
+        // MySQL, MariaDB 등: 데이터베이스 이름 사용
         return currentDatabaseName;
     }
     
@@ -461,6 +560,39 @@ public class DadpProxyConnection implements Connection {
                     this.directCryptoAdapter = orchestratorAdapter;
                     log.debug("✅ 오케스트레이터의 직접 암복호화 어댑터 사용");
                 }
+                
+                // 어댑터가 있지만 엔드포인트 정보가 설정되지 않았을 수 있음 (지연 초기화)
+                if (this.directCryptoAdapter != null && !this.directCryptoAdapter.isEndpointAvailable()) {
+                    try {
+                        com.dadp.common.sync.config.EndpointStorage.EndpointData endpointData = null;
+                        
+                        // endpointSyncService가 있으면 사용, 없으면 EndpointStorage 직접 사용
+                        if (endpointSyncService != null) {
+                            endpointData = endpointSyncService.loadStoredEndpoints();
+                            if (endpointData == null) {
+                                // Hub에서 다시 조회 시도
+                                boolean synced = endpointSyncService.syncEndpointsFromHub();
+                                if (synced) {
+                                    endpointData = endpointSyncService.loadStoredEndpoints();
+                                }
+                            }
+                        } else {
+                            // endpointSyncService가 null이면 오케스트레이터에서 가져온 EndpointStorage 사용
+                            com.dadp.common.sync.config.EndpointStorage storage = this.orchestrator.getEndpointStorage();
+                            if (storage != null) {
+                                endpointData = storage.loadEndpoints();
+                            }
+                        }
+                        
+                        if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
+                            this.directCryptoAdapter.setEndpointData(endpointData);
+                            log.info("✅ 직접 암복호화 어댑터 엔드포인트 정보 설정 완료: cryptoUrl={}", endpointData.getCryptoUrl());
+                        }
+                    } catch (Exception e) {
+                        log.warn("⚠️ 직접 암복호화 어댑터 엔드포인트 정보 설정 실패 (무시): {}", e.getMessage());
+                    }
+                }
+                
                 return this.directCryptoAdapter;
             }
         }
@@ -482,8 +614,10 @@ public class DadpProxyConnection implements Connection {
                     }
                 } else {
                     // endpointSyncService가 null이면 오케스트레이터에서 가져온 EndpointStorage 사용
-                    com.dadp.common.sync.config.EndpointStorage storage = this.orchestrator.getEndpointStorage();
-                    endpointData = storage.loadEndpoints();
+                    com.dadp.common.sync.config.EndpointStorage storage = this.orchestrator != null ? this.orchestrator.getEndpointStorage() : null;
+                    if (storage != null) {
+                        endpointData = storage.loadEndpoints();
+                    }
                 }
                 
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {

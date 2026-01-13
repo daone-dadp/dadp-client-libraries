@@ -211,9 +211,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         String datasourceId = proxyConnection.getDatasourceId();
                         String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
                         if (schemaName == null || schemaName.trim().isEmpty()) {
-                            schemaName = proxyConnection.getCurrentDatabaseName();
+                            schemaName = proxyConnection.getCurrentSchemaName();
+                            if (schemaName == null || schemaName.trim().isEmpty()) {
+                                schemaName = proxyConnection.getCurrentDatabaseName();
+                            }
                         }
-                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, schemaName, tableName, paramColumnName);
+                        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+                        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+                        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+                        String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
+                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                         String errorMsg = "암호화된 데이터가 컬럼 크기를 초과합니다 (원본: " + 
                                          (originalData != null ? originalData.length() : 0) + "자)";
                         log.warn("⚠️ 암호화 데이터 크기 초과: {}.{} (정책: {}), 평문으로 재시도 - {}", 
@@ -346,18 +353,29 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         String datasourceId = proxyConnection.getDatasourceId();
         String schemaName = sqlParseResult.getSchemaName();
         if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = proxyConnection.getCurrentDatabaseName();
+            // SQL 파싱 결과에 스키마 이름이 없으면 Connection에서 가져옴
+            // PostgreSQL의 경우 스키마 이름(public), MySQL의 경우 데이터베이스 이름
+            schemaName = proxyConnection.getCurrentSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentDatabaseName();
+            }
         }
+        
+        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+        String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
         
         // INSERT/UPDATE 쿼리인 경우 datasourceId와 schemaName 로그 출력 (디버깅용)
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.info("🔍 {}: 정책 조회 파라미터: datasourceId={}, schemaName={}, tableName={}, columnName={}", 
-                    methodName, datasourceId, schemaName, tableName, columnName);
+            log.info("🔍 {}: 정책 조회 파라미터: datasourceId={}, schemaName={}→{}, tableName={}→{}, columnName={}→{}", 
+                    methodName, datasourceId, schemaName, normalizedSchemaName, 
+                    tableName, normalizedTableName, columnName, normalizedColumnName);
         }
         
         // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-        String policyName = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
+        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
         
         // INSERT/UPDATE 쿼리인 경우 정책 확인 결과 로그 출력 (디버깅용)
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
@@ -593,16 +611,23 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                             actualPreparedStatement.setString(paramIndex, originalData);
                             restoredCount++;
                             
-                            // 해당 파라미터의 컬럼명 찾기
-                            String paramColumnName = parameterToColumnMap.get(paramIndex);
-                            if (paramColumnName != null) {
-                                // datasourceId와 schemaName 결정
-                                String datasourceId = proxyConnection.getDatasourceId();
-                                String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
-                                if (schemaName == null || schemaName.trim().isEmpty()) {
-                                    schemaName = proxyConnection.getCurrentDatabaseName();
-                                }
-                                String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, schemaName, tableName, paramColumnName);
+                    // 해당 파라미터의 컬럼명 찾기
+                    String paramColumnName = parameterToColumnMap.get(paramIndex);
+                    if (paramColumnName != null) {
+                        // datasourceId와 schemaName 결정
+                        String datasourceId = proxyConnection.getDatasourceId();
+                        String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
+                        if (schemaName == null || schemaName.trim().isEmpty()) {
+                            schemaName = proxyConnection.getCurrentSchemaName();
+                            if (schemaName == null || schemaName.trim().isEmpty()) {
+                                schemaName = proxyConnection.getCurrentDatabaseName();
+                            }
+                        }
+                        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+                        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+                        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+                        String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
+                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                                 String errorMsg = "암호화된 데이터가 컬럼 크기를 초과합니다 (원본: " + 
                                                  (originalData != null ? originalData.length() : 0) + "자)";
                                 log.warn("⚠️ 암호화 데이터 크기 초과: {}.{} (정책: {}), 평문으로 재시도 - {}", 

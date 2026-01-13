@@ -125,12 +125,20 @@ public class DadpProxyResultSet implements ResultSet {
                 String datasourceId = proxyConnection.getDatasourceId();
                 String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
                 if (schemaName == null || schemaName.trim().isEmpty()) {
-                    schemaName = proxyConnection.getCurrentDatabaseName();
+                    schemaName = proxyConnection.getCurrentSchemaName();
+                    if (schemaName == null || schemaName.trim().isEmpty()) {
+                        schemaName = proxyConnection.getCurrentDatabaseName();
+                    }
                 }
+                
+                // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+                String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+                String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+                String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
                 
                 // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
                 PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-                String policyName = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
+                String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
                 
                 log.trace("🔓 정책 확인: {}.{}.{} → {}", schemaName != null ? schemaName + "." : "", tableName, columnName, policyName);
                 
@@ -199,12 +207,20 @@ public class DadpProxyResultSet implements ResultSet {
                     String datasourceId = proxyConnection.getDatasourceId();
                     String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
                     if (schemaName == null || schemaName.trim().isEmpty()) {
-                        schemaName = proxyConnection.getCurrentDatabaseName();
+                        schemaName = proxyConnection.getCurrentSchemaName();
+                        if (schemaName == null || schemaName.trim().isEmpty()) {
+                            schemaName = proxyConnection.getCurrentDatabaseName();
+                        }
                     }
+                    
+                    // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+                    String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+                    String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+                    String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
                     
                     // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
                     PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-                    String policyName = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
+                    String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
                     
                     if (policyName != null) {
                         // 복호화 대상: Hub를 통해 복호화
@@ -486,13 +502,21 @@ public class DadpProxyResultSet implements ResultSet {
         String datasourceId = proxyConnection.getDatasourceId();
         String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
         if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = proxyConnection.getCurrentDatabaseName();
+            schemaName = proxyConnection.getCurrentSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentDatabaseName();
+            }
         }
+        
+        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+        String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
         
         // PolicyResolver에서 정책 확인
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-        log.debug("🔍 복호화 정책 조회: {}.{}.{}", schemaName != null ? schemaName + "." : "", tableName, columnName);
-        String policyName = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
+        log.debug("🔍 복호화 정책 조회: {}.{}.{}", normalizedSchemaName != null ? normalizedSchemaName + "." : "", normalizedTableName, normalizedColumnName);
+        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
         
         if (policyName != null) {
             log.debug("🔓 복호화 대상: {}.{}, 정책={}", tableName, columnName, policyName);
