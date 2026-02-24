@@ -92,17 +92,14 @@ public class DadpProxyConnection implements Connection {
             log.warn("⚠️ 현재 데이터베이스명 조회 실패 (무시): {}", e.getMessage());
         }
         this.currentDatabaseName = dbName;
-        log.debug("📋 현재 데이터베이스/스키마: {}", currentDatabaseName != null ? currentDatabaseName : "null");
+        log.trace("📋 현재 데이터베이스/스키마: {}", currentDatabaseName != null ? currentDatabaseName : "null");
         
-        // 오케스트레이터 생성 및 실행
-        this.orchestrator = new JdbcBootstrapOrchestrator(
-            actualConnection,
-            originalUrl,
-            config
-        );
+        // instanceId당 오케스트레이터 1세트 공유: 캐시에서 조회 또는 생성
+        String instanceId = config.getInstanceId();
+        this.orchestrator = JdbcBootstrapOrchestrator.getOrCreate(instanceId, originalUrl, config);
         
-        // 부팅 플로우 실행
-        boolean initialized = this.orchestrator.runBootstrapFlow();
+        // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
+        boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
             if (config.isFailOpen()) {
                 log.warn("⚠️ 부팅 플로우 실패 (fail-open 모드): 계속 진행합니다.");
@@ -136,22 +133,8 @@ public class DadpProxyConnection implements Connection {
         EndpointStorage endpointStorage = this.orchestrator.getEndpointStorage();
         this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, hubId, this.datasourceId);
         
-        // Hub 알림 서비스 초기화 (HubNotificationClient 사용)
-        HubNotificationService notificationServiceInstance = null;
-        try {
-            notificationServiceInstance = new HubNotificationService(
-                config.getHubUrl(), 
-                hubId, 
-                config.getInstanceId(),
-                config.isEnableLogging()  // ProxyConfig에서 enableLogging 전달
-            );
-            // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-            log.trace("✅ Hub 알림 서비스 초기화 완료");
-        } catch (Exception e) {
-            log.warn("⚠️ Hub 알림 서비스 초기화 실패: {}", e.getMessage());
-            // null로 설정하여 안전하게 처리 (알림 기능만 비활성화)
-        }
-        this.notificationService = notificationServiceInstance;
+        // Hub 알림 서비스: 오케스트레이터에서 instanceId당 1개 공유 (커넥션마다 생성하지 않음)
+        this.notificationService = this.orchestrator.getNotificationService();
         
         // 주기적 동기화는 오케스트레이터에서 처리하므로 여기서는 제거
         // 기존 loadMappingsFromHub()와 startMappingPolling()은 오케스트레이터에서 처리됨

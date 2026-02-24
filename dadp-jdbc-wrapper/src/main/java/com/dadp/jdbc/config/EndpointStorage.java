@@ -69,7 +69,7 @@ public class EndpointStorage {
         this.storagePath = finalStoragePath;
         
         this.objectMapper = new ObjectMapper();
-        log.info("✅ 암복호화 엔드포인트 저장소 초기화: {}", this.storagePath);
+        log.debug("✅ 암복호화 엔드포인트 저장소 초기화: {}", this.storagePath);
     }
     
     /**

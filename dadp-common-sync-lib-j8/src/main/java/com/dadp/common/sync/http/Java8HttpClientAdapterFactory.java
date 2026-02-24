@@ -20,5 +20,17 @@ public class Java8HttpClientAdapterFactory {
     public static HttpClientAdapter create(int connectTimeout, int readTimeout) {
         return new Java8HttpClientAdapter(connectTimeout, readTimeout);
     }
+    
+    /**
+     * HttpClientAdapter 인스턴스 생성 (DADP CA 인증서 경로 지정)
+     * 
+     * @param connectTimeout 연결 타임아웃(밀리초)
+     * @param readTimeout 읽기 타임아웃(밀리초)
+     * @param caCertPath DADP Root CA 인증서 파일 경로
+     * @return HttpClientAdapter 인스턴스 (Java 8용 HttpURLConnection 구현)
+     */
+    public static HttpClientAdapter create(int connectTimeout, int readTimeout, String caCertPath) {
+        return new Java8HttpClientAdapter(connectTimeout, readTimeout, caCertPath);
+    }
 }
 

@@ -41,4 +41,11 @@ public class EncryptRequest {
      */
     @JsonProperty("includeStats")
     private Boolean includeStats = false;
+
+    /**
+     * 검색용 암호화 여부
+     * true: Engine이 정책(useIv/usePlain)에 따라 암호화 또는 평문 반환
+     */
+    @JsonProperty("forSearch")
+    private Boolean forSearch;
 }

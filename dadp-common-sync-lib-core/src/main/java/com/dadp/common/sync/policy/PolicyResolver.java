@@ -28,7 +28,10 @@ public class PolicyResolver {
     
     // 캐시: 테이블.컬럼 → 정책명
     private final Map<String, String> policyCache = new ConcurrentHashMap<>();
-    
+
+    // 정책 속성 캐시: policyName → PolicyAttributes (useIv/usePlain)
+    private final Map<String, PolicyAttributes> policyAttributeCache = new ConcurrentHashMap<>();
+
     // 현재 정책 버전 (instanceId 단위 전역 버전)
     private volatile Long currentVersion = null;
     
@@ -120,7 +123,13 @@ public class PolicyResolver {
                 this.currentVersion = 0L;
                 log.debug("📋 영구 저장소에 버전 정보 없음, 0으로 초기화");
             }
-            log.info("📂 영구 저장소에서 정책 매핑 로드 완료: {}개 매핑, version={}", 
+            // 정책 속성도 로드
+            Map<String, PolicyAttributes> storedAttributes = storage.loadPolicyAttributes();
+            if (storedAttributes != null && !storedAttributes.isEmpty()) {
+                policyAttributeCache.putAll(storedAttributes);
+                log.info("📂 영구 저장소에서 정책 속성 로드 완료: {}개", storedAttributes.size());
+            }
+            log.info("📂 영구 저장소에서 정책 매핑 로드 완료: {}개 매핑, version={}",
                     storedMappings.size(), this.currentVersion);
         } else {
             // 매핑이 없어도 버전은 0으로 초기화 (첫 실행 시)
@@ -313,8 +322,57 @@ public class PolicyResolver {
     }
     
     /**
+     * 정책 매핑 캐시 갱신 (정책 속성 포함)
+     * Hub가 정책 스냅샷에 useIv/usePlain을 포함하여 내려줄 때 사용합니다.
+     *
+     * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명)
+     * @param attributes 정책 속성 맵 (정책명 → PolicyAttributes)
+     * @param version 정책 버전
+     */
+    public void refreshMappings(Map<String, String> mappings, Map<String, PolicyAttributes> attributes, Long version) {
+        refreshMappings(mappings, version);
+
+        // 정책 속성 캐시 갱신
+        if (attributes != null && !attributes.isEmpty()) {
+            policyAttributeCache.clear();
+            policyAttributeCache.putAll(attributes);
+            log.debug("📋 정책 속성 캐시 갱신: {}개 정책", attributes.size());
+
+            // 영구 저장소에도 저장
+            storage.saveMappings(mappings, attributes, version);
+        }
+    }
+
+    /**
+     * 검색용 암호화가 필요한지 판단 (로컬 캐시 기반)
+     *
+     * useIv=false AND usePlain=false → 고정 IV 전체 암호화 → Engine 호출 필요 (true)
+     * 그 외 → 검색 암호화 불필요 (false)
+     *
+     * 속성이 캐시에 없으면 기본값(useIv=true, usePlain=false)을 적용하여 false 반환.
+     * 이는 구버전 Hub에서 속성이 내려오지 않는 경우와 호환됩니다.
+     *
+     * @param policyName 정책명
+     * @return true: Engine 호출 필요 (고정 IV 전체 암호화), false: 평문 반환 (Engine 호출 불필요)
+     */
+    public boolean isSearchEncryptionNeeded(String policyName) {
+        if (policyName == null) {
+            return false;
+        }
+        PolicyAttributes attrs = policyAttributeCache.get(policyName);
+        if (attrs == null) {
+            // 속성 없음 → 기본값(useIv=true, usePlain=false) → 검색 암호화 불필요
+            return false;
+        }
+        boolean useIv = attrs.getUseIv() != null ? attrs.getUseIv() : true;
+        boolean usePlain = attrs.getUsePlain() != null ? attrs.getUsePlain() : false;
+        // 고정 IV + 전체 암호화 → 검색 암호화 필요
+        return !useIv && !usePlain;
+    }
+
+    /**
      * 정책 매핑 캐시 갱신 (하위 호환성: 버전 없음)
-     * 
+     *
      * @param mappings 정책 매핑 맵 (테이블.컬럼 → 정책명)
      * @deprecated refreshMappings(Map, Long) 사용 권장
      */
@@ -438,11 +496,46 @@ public class PolicyResolver {
     
     /**
      * 모든 정책 매핑 조회 (스키마 정책명 업데이트용)
-     * 
+     *
      * @return 정책 매핑 맵 (schema.table.column → policyName)
      */
     public Map<String, String> getAllMappings() {
         return new HashMap<>(policyCache);
+    }
+
+    /**
+     * 정책 속성 (useIv, usePlain)
+     *
+     * 정책 생성 후 불변이므로 캐시 무효화 불필요.
+     * Hub가 정책 스냅샷에 포함하여 전달합니다.
+     */
+    public static class PolicyAttributes {
+        private Boolean useIv;
+        private Boolean usePlain;
+
+        public PolicyAttributes() {
+        }
+
+        public PolicyAttributes(Boolean useIv, Boolean usePlain) {
+            this.useIv = useIv;
+            this.usePlain = usePlain;
+        }
+
+        public Boolean getUseIv() {
+            return useIv;
+        }
+
+        public void setUseIv(Boolean useIv) {
+            this.useIv = useIv;
+        }
+
+        public Boolean getUsePlain() {
+            return usePlain;
+        }
+
+        public void setUsePlain(Boolean usePlain) {
+            this.usePlain = usePlain;
+        }
     }
 }
 

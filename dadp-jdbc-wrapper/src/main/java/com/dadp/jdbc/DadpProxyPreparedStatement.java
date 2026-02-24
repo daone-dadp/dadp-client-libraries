@@ -341,14 +341,59 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             return new EncryptionResult(value, false);
         }
         
-        // SELECT 문의 WHERE 절 파라미터는 암호화하지 않음
-        // 이유: 부분 암호화된 데이터 검색을 위해 평문으로 검색해야 함
-        // 예: DB에 "3422::ENC::..." 형태로 저장된 경우, "3422"로 검색해야 함
+        // SELECT 문의 WHERE 절: 로컬 캐시로 검색용 암호화 필요 여부 판단
+        // PolicyResolver가 useIv/usePlain을 캐싱하므로 Engine 호출 없이 판단 가능.
+        // - useIv=false AND usePlain=false → Engine 호출하여 고정 IV 전체 암호화
+        // - 그 외 → 평문 반환 (Engine 호출 불필요)
         if ("SELECT".equals(sqlParseResult.getSqlType())) {
-            log.trace("🔓 {}: SELECT WHERE 절 파라미터: 암호화하지 않음 (부분 암호화 검색 지원), {}.{}", methodName, tableName, columnName);
-            return new EncryptionResult(value, true);
+            String datasourceId = proxyConnection.getDatasourceId();
+            String schemaName = sqlParseResult.getSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentSchemaName();
+                if (schemaName == null || schemaName.trim().isEmpty()) {
+                    schemaName = proxyConnection.getCurrentDatabaseName();
+                }
+            }
+            String nSchema = proxyConnection.normalizeIdentifier(schemaName);
+            String nTable = proxyConnection.normalizeIdentifier(tableName);
+            String nColumn = proxyConnection.normalizeIdentifier(columnName);
+
+            PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
+            String policyName = policyResolver.resolvePolicy(datasourceId, nSchema, nTable, nColumn);
+            if (policyName == null) {
+                log.trace("🔓 {}: SELECT WHERE 절: 암호화 대상 아님, {}.{}", methodName, tableName, columnName);
+                return new EncryptionResult(value, true);
+            }
+
+            // 로컬 캐시로 검색 암호화 필요 여부 판단 (Engine 호출 없이)
+            if (!policyResolver.isSearchEncryptionNeeded(policyName)) {
+                log.trace("🔓 {}: SELECT WHERE 절: 검색 암호화 불필요 (useIv=true 또는 usePlain=true), {}.{} (정책: {})",
+                        methodName, tableName, columnName, policyName);
+                return new EncryptionResult(value, true);
+            }
+
+            // 고정 IV 전체 암호화 필요 → Engine 호출
+            DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
+            if (adapter == null || !adapter.isEndpointAvailable()) {
+                log.trace("🔓 {}: SELECT WHERE 절: 어댑터 미사용, 평문 검색, {}.{}", methodName, tableName, columnName);
+                return new EncryptionResult(value, true);
+            }
+
+            try {
+                String searchValue = adapter.encryptForSearch(value, policyName);
+                boolean encrypted = !value.equals(searchValue);
+                if (encrypted) {
+                    log.info("🔍 {} 검색용 암호화: {}.{} (정책: {})", methodName, tableName, columnName, policyName);
+                } else {
+                    log.trace("🔓 {} 검색용 평문: {}.{} (정책: {})", methodName, tableName, columnName, policyName);
+                }
+                return new EncryptionResult(searchValue, false);
+            } catch (Exception e) {
+                log.warn("⚠️ {} 검색용 암호화 실패, 평문 검색: {}.{} - {}", methodName, tableName, columnName, e.getMessage());
+                return new EncryptionResult(value, true);
+            }
         }
-        
+
         // datasourceId와 schemaName 결정
         String datasourceId = proxyConnection.getDatasourceId();
         String schemaName = sqlParseResult.getSchemaName();

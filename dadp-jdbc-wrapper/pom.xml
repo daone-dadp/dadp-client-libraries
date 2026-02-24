@@ -8,13 +8,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>5.4.0</version>
+        <version>5.5.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.4.0</version>
+    <version>5.5.0</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -102,29 +102,29 @@
             </dependency>
             
             <!-- Internal Dependencies는 부모 pom.xml의 dependencyManagement에서 관리 -->
-            <!-- 버전을 여기서 지정하지 않으면 부모의 버전(5.4.0)이 자동으로 사용됨 -->
+            <!-- 버전을 여기서 지정하지 않으면 부모의 버전(5.5.0)이 자동으로 사용됨 -->
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <!-- Hub 암복호화 라이브러리 (필수) - Java 8 버전 사용 -->
-        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>5.4.0</version>
+            <version>5.5.0</version>
             <classifier>java8</classifier>
         </dependency>
         
         <!-- Common Sync Library (Java 8) - 정책 매핑 및 엔드포인트 동기화 -->
-        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
         </dependency>
         
         <!-- Common Sync Library Core (Java 8) - 스키마 동기화 공통 로직 -->
-        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.4.0) -->
+        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-core</artifactId>

@@ -4,6 +4,7 @@ import com.dadp.aop.metadata.EncryptionMetadataInitializer;
 import com.dadp.common.sync.schema.SchemaCollector;
 import com.dadp.common.sync.schema.SchemaMetadata;
 
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +63,12 @@ public class AopSchemaCollector implements SchemaCollector {
         }
         
         return schemas;
+    }
+    
+    /** SchemaCollector 인터페이스의 collectSchemas(Connection) 구현 (common-sync-lib-core 5.5.0+) */
+    public List<SchemaMetadata> collectSchemas(Connection connection) throws Exception {
+        // AOP는 JDBC Connection 미사용; 기존 수집 로직만 사용
+        return collectSchemas();
     }
 }
 

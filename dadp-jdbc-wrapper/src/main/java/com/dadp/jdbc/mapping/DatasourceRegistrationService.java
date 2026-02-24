@@ -35,10 +35,15 @@ public class DatasourceRegistrationService {
     private final ObjectMapper objectMapper;
     
     public DatasourceRegistrationService(String hubUrl, String proxyInstanceId) {
+        this(hubUrl, proxyInstanceId, null);
+    }
+    
+    public DatasourceRegistrationService(String hubUrl, String proxyInstanceId, String caCertPath) {
         this.hubUrl = hubUrl;
         this.proxyInstanceId = proxyInstanceId;
         // Java 8용 HTTP 클라이언트 사용 (공통 인터페이스)
-        this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000);
+        // DADP Root CA 인증서 경로를 직접 전달 (시스템 프로퍼티 불필요)
+        this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000, caCertPath);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -121,8 +126,14 @@ public class DatasourceRegistrationService {
                 log.warn("⚠️ Hub Datasource 등록 실패: HTTP 오류. statusCode={}, responseBody={}", statusCode, responseBody);
             }
         } catch (IOException e) {
+            // 예측 가능한 문제: 연결 실패 (네트워크, SSL 등)
+            // 스택 트레이스 출력 금지 (exception-handling.md 규약)
+            String errorMessage = e.getMessage();
+            if (errorMessage == null || errorMessage.trim().isEmpty()) {
+                errorMessage = e.getClass().getSimpleName();
+            }
             log.warn("⚠️ Hub Datasource 등록 실패: hubUrl={}, registerUrl={}, error={}", 
-                hubUrl, hubUrl + "/hub/api/v1/proxy/datasources/register", e.getMessage(), e);
+                hubUrl, hubUrl + "/hub/api/v1/proxy/datasources/register", errorMessage);
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
         }
         
@@ -168,6 +179,7 @@ public class DatasourceRegistrationService {
         private String datasourceId;
         private String displayName;
         private String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용)
+        private String rootCaCertificate;  // DADP Root CA 인증서 PEM (Wrapper가 DADP CA만 신뢰하도록)
         
         public DatasourceInfo() {
         }
@@ -205,6 +217,14 @@ public class DatasourceRegistrationService {
         
         public void setHubId(String hubId) {
             this.hubId = hubId;
+        }
+        
+        public String getRootCaCertificate() {
+            return rootCaCertificate;
+        }
+        
+        public void setRootCaCertificate(String rootCaCertificate) {
+            this.rootCaCertificate = rootCaCertificate;
         }
     }
     

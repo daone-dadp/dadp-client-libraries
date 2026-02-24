@@ -13,7 +13,7 @@ JDBC URL만 변경하여 코드 수정 없이 자동 암복호화를 제공하�
 ```bash
 # 1. Wrapper JAR 빌드 (DB 드라이버는 포함되지 않음)
 mvn clean package
-# 결과물: target/dadp-jdbc-wrapper-5.4.0-all.jar
+# 결과물: target/dadp-jdbc-wrapper-5.5.0-all.jar
 
 # 2. 필요한 DB 드라이버를 lib 폴더에 배치
 # 예: MySQL 사용 시
@@ -21,7 +21,7 @@ mkdir -p libs
 cp mysql-connector-java-8.0.33.jar libs/
 
 # 3. Wrapper JAR도 lib 폴더에 배치
-cp target/dadp-jdbc-wrapper-5.4.0-all.jar libs/
+cp target/dadp-jdbc-wrapper-5.5.0-all.jar libs/
 
 # 4. 실행 시 lib 폴더를 클래스패스에 포함
 # Spring Boot:

@@ -10,6 +10,7 @@ import com.dadp.common.sync.schema.SchemaMetadata;
 import com.dadp.common.sync.schema.SchemaSyncExecutor;
 import com.dadp.jdbc.config.ProxyConfig;
 
+import java.sql.Connection;
 import java.util.List;
 
 /**
@@ -113,6 +114,30 @@ public class JdbcSchemaSyncService {
      */
     public boolean waitForSchemaCollection(int maxRetries, long retryDelayMs) {
         return schemaSyncService.waitForSchemaCollection(maxRetries, retryDelayMs);
+    }
+    
+    /**
+     * 스키마 수집 (재시도) 후 수집 결과 반환.
+     * 1단계에서 1회만 수집하고, 3단계 비교 시 이 결과를 재사용하기 위함.
+     *
+     * @param maxRetries 최대 재시도 횟수
+     * @param retryDelayMs 재시도 간격 (밀리초)
+     * @return 수집된 스키마 목록 (실패 또는 0개면 null)
+     */
+    public List<SchemaMetadata> collectSchemasWithRetry(int maxRetries, long retryDelayMs) {
+        return schemaSyncService.collectSchemasWithRetry(maxRetries, retryDelayMs);
+    }
+    
+    /**
+     * 스키마 수집 (재시도, Connection 전달). instanceId당 1세트 공유 시 부팅 1회에만 호출.
+     *
+     * @param connection JDBC Connection (null이면 collectSchemas() 사용)
+     * @param maxRetries 최대 재시도 횟수
+     * @param retryDelayMs 재시도 간격 (밀리초)
+     * @return 수집된 스키마 목록 (실패 또는 0개면 null)
+     */
+    public List<SchemaMetadata> collectSchemasWithRetry(Connection connection, int maxRetries, long retryDelayMs) {
+        return schemaSyncService.collectSchemasWithRetry(connection, maxRetries, retryDelayMs);
     }
     
     /**

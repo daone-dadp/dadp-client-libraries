@@ -119,7 +119,7 @@ public class SchemaStorage {
         
         this.objectMapper = new ObjectMapper();
         if (finalStoragePath != null) {
-            log.info("✅ 스키마 저장소 초기화: {}", this.storagePath);
+            log.debug("✅ 스키마 저장소 초기화: {}", this.storagePath);
         } else {
             log.warn("⚠️ 스키마 저장소 초기화 실패: 저장 불가");
         }

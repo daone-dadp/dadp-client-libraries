@@ -9,7 +9,9 @@ import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.*;
 import java.util.Calendar;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
 
@@ -30,6 +32,25 @@ public class DadpProxyResultSet implements ResultSet {
     private final String sql;
     private final DadpProxyConnection proxyConnection;
     private final SqlParser.SqlParseResult sqlParseResult;
+    
+    /** sqlParseResult == null 일 때만 사용. 컬럼 인덱스별 (테이블, 컬럼, 정책명) 캐시로 메타데이터·정책 조회 반복 제거 */
+    private Map<Integer, FallbackDecryptCacheEntry> fallbackCacheByIndex;
+    /** 레이블 → 컬럼 인덱스 매핑 캐시 (폴백 경로에서 레이블로 반복 검색 방지) */
+    private Map<String, Integer> fallbackLabelToIndex;
+    
+    /** 폴백 경로용 캐시 엔트리: 정규화된 테이블/컬럼, 조회한 정책명, 조회 시점의 정책 버전(갱신 시 무효화용) */
+    private static final class FallbackDecryptCacheEntry {
+        final String tableName;
+        final String columnName;
+        final String policyName; // null 이면 복호화 비대상
+        final Long policyVersion; // PolicyResolver.getCurrentVersion() 조회 시점 값
+        FallbackDecryptCacheEntry(String tableName, String columnName, String policyName, Long policyVersion) {
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.policyName = policyName;
+            this.policyVersion = policyVersion;
+        }
+    }
     
     public DadpProxyResultSet(ResultSet actualRs, String sql, DadpProxyConnection proxyConnection) {
         this.actualResultSet = actualRs;
@@ -85,10 +106,14 @@ public class DadpProxyResultSet implements ResultSet {
         }
         
         if (sqlParseResult == null) {
-            log.warn("⚠️ SQL 파싱 결과 없음: 복호화 대상 확인 불가, columnIndex={}", columnIndex);
-            return value;
+            try {
+                return fallbackDecryptByIndex(columnIndex, value);
+            } catch (SQLException e) {
+                log.warn("⚠️ 메타데이터 폴백 실패, 원본 반환: {}", e.getMessage());
+                return value;
+            }
         }
-        
+
         try {
             // ResultSetMetaData로 컬럼명 조회
             ResultSetMetaData metaData = actualResultSet.getMetaData();
@@ -251,7 +276,12 @@ public class DadpProxyResultSet implements ResultSet {
                 log.warn("⚠️ 복호화 처리 중 오류, 평문 반환: {}", errorMsg);
             }
         } else if (value != null && sqlParseResult == null) {
-            log.warn("⚠️ SQL 파싱 결과 없음: 복호화 대상 확인 불가, columnLabel={}", columnLabel);
+            // 폴백: 메타데이터로 테이블/컬럼 조회 후 따옴표·백틱 제거하여 암복호화 대상 여부 확인
+            try {
+                return decryptStringByLabel(columnLabel, value);
+            } catch (SQLException e) {
+                log.warn("⚠️ getString(String) 폴백 실패, 원본 반환: {}", e.getMessage());
+            }
         }
         
         log.trace("🔓 getString 호출: columnLabel={}", columnLabel);
@@ -443,10 +473,16 @@ public class DadpProxyResultSet implements ResultSet {
         log.debug("🔓 decryptIfNeeded 호출: columnIndex={}, valueLength={}", 
                   columnIndex, value != null ? value.length() : 0);
         
-        if (value == null || sqlParseResult == null) {
-            log.debug("🔓 decryptIfNeeded 스킵: value={}, sqlParseResult={}", 
-                      value == null ? "null" : "exists", sqlParseResult == null ? "null" : "exists");
+        if (value == null) {
             return value;
+        }
+        if (sqlParseResult == null) {
+            try {
+                return fallbackDecryptByIndex(columnIndex, value);
+            } catch (SQLException e) {
+                log.warn("⚠️ decryptIfNeeded 메타데이터 폴백 실패: {}", e.getMessage());
+                return value;
+            }
         }
         
         try {
@@ -465,8 +501,33 @@ public class DadpProxyResultSet implements ResultSet {
     /**
      * 컬럼 레이블로 복호화 처리
      */
-    private String decryptStringByLabel(String columnLabel, String value) {
-        if (value == null || sqlParseResult == null) {
+    private String decryptStringByLabel(String columnLabel, String value) throws SQLException {
+        if (value == null) {
+            return value;
+        }
+        if (sqlParseResult == null) {
+            try {
+                Integer columnIndex = fallbackLabelToIndex != null ? fallbackLabelToIndex.get(columnLabel) : null;
+                if (columnIndex == null) {
+                    ResultSetMetaData metaData = actualResultSet.getMetaData();
+                    int columnCount = metaData.getColumnCount();
+                    for (int i = 1; i <= columnCount; i++) {
+                        if (columnLabel.equals(metaData.getColumnLabel(i))) {
+                            columnIndex = i;
+                            if (fallbackLabelToIndex == null) {
+                                fallbackLabelToIndex = new HashMap<>();
+                            }
+                            fallbackLabelToIndex.put(columnLabel, i);
+                            break;
+                        }
+                    }
+                }
+                if (columnIndex != null) {
+                    return fallbackDecryptByIndex(columnIndex, value);
+                }
+            } catch (SQLException e) {
+                log.warn("⚠️ decryptStringByLabel 메타데이터 폴백 실패: {}", e.getMessage());
+            }
             return value;
         }
         
@@ -485,6 +546,88 @@ public class DadpProxyResultSet implements ResultSet {
     }
     
     /**
+     * 식별자(테이블명·컬럼명)에 따옴표(') 또는 백틱(`)이 포함된 경우 앞뒤 한 겹만 제거하여 정규화.
+     * 파싱 실패 시 메타데이터 폴백에서 암복호화 대상 여부 확인용으로 사용.
+     */
+    private static String stripQuotesFromIdentifier(String id) {
+        if (id == null || id.isEmpty()) {
+            return id;
+        }
+        String s = id.trim();
+        if (s.length() < 2) {
+            return id;
+        }
+        boolean singleQuoted = s.indexOf('\'') >= 0 && s.startsWith("'") && s.endsWith("'");
+        boolean backtickQuoted = s.indexOf('`') >= 0 && s.startsWith("`") && s.endsWith("`");
+        if (singleQuoted || backtickQuoted) {
+            return s.substring(1, s.length() - 1);
+        }
+        return id;
+    }
+
+    /**
+     * 이미 조회된 정책명으로만 복호화 수행 (폴백 캐시 히트 시 사용, 정책 재조회 없음)
+     */
+    private String decryptValueWithResolvedPolicy(String tableName, String columnName, String policyName, String value) {
+        if (policyName == null) {
+            return value;
+        }
+        DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
+        if (adapter == null) {
+            log.warn("⚠️ 암복호화 어댑터가 초기화되지 않았습니다: {}.{}", tableName, columnName);
+            return value;
+        }
+        long t0 = System.currentTimeMillis();
+        String decrypted = adapter.decrypt(value);
+        long t1 = System.currentTimeMillis();
+        log.debug("[Wrapper Decrypt] engine={} ms, table={}, column={} (cached)", t1 - t0, tableName, columnName);
+        return decrypted != null ? decrypted : value;
+    }
+
+    /**
+     * sqlParseResult == null 폴백 경로: 컬럼 인덱스별 메타데이터·정책을 캐시하고, 캐시 히트 시 정책 재조회 없이 복호화만 수행.
+     */
+    private String fallbackDecryptByIndex(int columnIndex, String value) throws SQLException {
+        if (fallbackCacheByIndex == null) {
+            fallbackCacheByIndex = new HashMap<>();
+        }
+        PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
+        Long currentVersion = policyResolver != null ? policyResolver.getCurrentVersion() : null;
+        FallbackDecryptCacheEntry entry = fallbackCacheByIndex.get(columnIndex);
+        // 정책 갱신 시 캐시 무효화: 버전이 바뀌었으면 해당 엔트리만 제거 후 재계산
+        if (entry != null && !Objects.equals(currentVersion, entry.policyVersion)) {
+            fallbackCacheByIndex.remove(columnIndex);
+            entry = null;
+        }
+        if (entry == null) {
+            ResultSetMetaData metaData = actualResultSet.getMetaData();
+            String tableName = metaData.getTableName(columnIndex);
+            String columnName = metaData.getColumnName(columnIndex);
+            if (tableName == null || columnName == null || tableName.isEmpty() || columnName.isEmpty()) {
+                return value;
+            }
+            tableName = stripQuotesFromIdentifier(tableName);
+            columnName = stripQuotesFromIdentifier(columnName);
+            if (columnName.contains(".")) {
+                columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
+            }
+            String schemaName = proxyConnection.getCurrentSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentDatabaseName();
+            }
+            String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+            String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+            String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
+            String policyName = policyResolver.resolvePolicy(
+                proxyConnection.getDatasourceId(), normalizedSchemaName, normalizedTableName, normalizedColumnName);
+            entry = new FallbackDecryptCacheEntry(tableName, columnName, policyName, currentVersion);
+            fallbackCacheByIndex.put(columnIndex, entry);
+            log.debug("🔓 폴백 캐시 미스: columnIndex={}, {}.{} → 정책={}", columnIndex, tableName, columnName, policyName);
+        }
+        return decryptValueWithResolvedPolicy(entry.tableName, entry.columnName, entry.policyName, value);
+    }
+
+    /**
      * 실제 복호화 수행
      */
     private String decryptValue(String tableName, String columnName, String value) {
@@ -492,12 +635,12 @@ public class DadpProxyResultSet implements ResultSet {
             log.debug("🔓 복호화 스킵: tableName={}, columnName={} (null 값)", tableName, columnName);
             return value;
         }
-        
+
         // 컬럼명에서 테이블 별칭 제거
         if (columnName.contains(".")) {
             columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
         }
-        
+
         // datasourceId와 schemaName 결정
         String datasourceId = proxyConnection.getDatasourceId();
         String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;

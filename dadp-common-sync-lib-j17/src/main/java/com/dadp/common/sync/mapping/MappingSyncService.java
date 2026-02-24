@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
+import com.dadp.common.sync.policy.PolicyResolver;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -268,13 +269,30 @@ public class MappingSyncService {
                         }
                     }
                     
+                    // 정책 속성(useIv/usePlain) 추출
+                    Map<String, PolicyResolver.PolicyAttributes> attributeMap = new HashMap<>();
+                    for (PolicyMapping mapping : snapshot.getMappings()) {
+                        if (mapping.isEnabled() && mapping.getPolicyName() != null
+                                && !mapping.getPolicyName().trim().isEmpty()) {
+                            String pn = mapping.getPolicyName();
+                            if (!attributeMap.containsKey(pn)) {
+                                attributeMap.put(pn, new PolicyResolver.PolicyAttributes(
+                                        mapping.getUseIv(), mapping.getUsePlain()));
+                            }
+                        }
+                    }
+
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨, 버전 정보 포함)
                     Long snapshotVersion = snapshot.getVersion();
                     if (snapshotVersion == null) {
                         log.warn("⚠️ Hub에서 받은 정책 스냅샷에 버전 정보가 없음 (version=null), 매핑={}개", policyMap.size());
                     }
-                    policyResolver.refreshMappings(policyMap, snapshotVersion);
-                    
+                    if (!attributeMap.isEmpty()) {
+                        policyResolver.refreshMappings(policyMap, attributeMap, snapshotVersion);
+                    } else {
+                        policyResolver.refreshMappings(policyMap, snapshotVersion);
+                    }
+
                     // 엔드포인트 정보 저장 (정책 스냅샷 응답에 포함된 경우)
                     Map<String, Object> endpointInfo = snapshot.getEndpoint();
                     if (endpointInfo != null && !endpointInfo.isEmpty()) {
@@ -282,9 +300,9 @@ public class MappingSyncService {
                         this.lastEndpointInfo = endpointInfo;
                         log.debug("📋 정책 스냅샷에서 엔드포인트 정보 수신: {}", endpointInfo);
                     }
-                    
-                    log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑 (영구 저장소에 저장됨)", 
-                        snapshotVersion, policyMap.size());
+
+                    log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑, {}개 정책 속성 (영구 저장소에 저장됨)",
+                        snapshotVersion, policyMap.size(), attributeMap.size());
                     return policyMap.size();
                 }
             }
@@ -516,53 +534,71 @@ public class MappingSyncService {
         private String columnName;
         private String policyName;
         private boolean enabled = true; // 기본값은 true (하위 호환성)
-        
+        private Boolean useIv;     // 정책 속성: IV 사용 여부 (null이면 기본값 true)
+        private Boolean usePlain;  // 정책 속성: 부분암호화 여부 (null이면 기본값 false)
+
         public String getDatasourceId() {
             return datasourceId;
         }
-        
+
         public void setDatasourceId(String datasourceId) {
             this.datasourceId = datasourceId;
         }
-        
+
         public String getSchemaName() {
             return schemaName;
         }
-        
+
         public void setSchemaName(String schemaName) {
             this.schemaName = schemaName;
         }
-        
+
         public String getTableName() {
             return tableName;
         }
-        
+
         public void setTableName(String tableName) {
             this.tableName = tableName;
         }
-        
+
         public String getColumnName() {
             return columnName;
         }
-        
+
         public void setColumnName(String columnName) {
             this.columnName = columnName;
         }
-        
+
         public String getPolicyName() {
             return policyName;
         }
-        
+
         public void setPolicyName(String policyName) {
             this.policyName = policyName;
         }
-        
+
         public boolean isEnabled() {
             return enabled;
         }
-        
+
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public Boolean getUseIv() {
+            return useIv;
+        }
+
+        public void setUseIv(Boolean useIv) {
+            this.useIv = useIv;
+        }
+
+        public Boolean getUsePlain() {
+            return usePlain;
+        }
+
+        public void setUsePlain(Boolean usePlain) {
+            this.usePlain = usePlain;
         }
     }
 }

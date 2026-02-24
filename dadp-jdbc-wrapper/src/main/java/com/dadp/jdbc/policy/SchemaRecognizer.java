@@ -15,7 +15,7 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
  * DB 메타데이터를 조회하여 테이블/컬럼 정보를 수집합니다.
  * 
  * @author DADP Development Team
- * @version 5.4.0
+ * @version 5.5.0
  * @since 2025-11-07
  */
 public class SchemaRecognizer {

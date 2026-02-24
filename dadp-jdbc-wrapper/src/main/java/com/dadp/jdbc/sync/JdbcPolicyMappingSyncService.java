@@ -2,9 +2,7 @@ package com.dadp.jdbc.sync;
 
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
-import com.dadp.jdbc.mapping.DatasourceRegistrationService;
 import com.dadp.common.sync.config.EndpointStorage;
-import java.sql.DatabaseMetaData;
 import com.dadp.common.sync.config.HubIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
@@ -16,8 +14,6 @@ import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.schema.SchemaStorage;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
@@ -68,12 +64,8 @@ public class JdbcPolicyMappingSyncService {
     // 주기적 동기화 스케줄러
     private ScheduledExecutorService scheduler;
     
-    // 재등록 콜백 (JdbcBootstrapOrchestrator에서 설정)
+    // 재등록 콜백 (JdbcBootstrapOrchestrator에서 설정, 재등록 시 저장 메타데이터만 사용)
     private Runnable reregistrationCallback;
-    
-    // Connection 및 originalUrl (registerWithHub에서 사용)
-    private Connection connection;
-    private String originalUrl;
     
     public JdbcPolicyMappingSyncService(
             MappingSyncService mappingSyncService,
@@ -85,9 +77,7 @@ public class JdbcPolicyMappingSyncService {
             ProxyConfig config,
             InstanceConfigStorage configStorage,
             SchemaStorage schemaStorage,
-            String datasourceId,
-            Connection connection,
-            String originalUrl) {
+            String datasourceId) {
         this.mappingSyncService = mappingSyncService;
         this.endpointSyncService = endpointSyncService;
         this.jdbcSchemaSyncService = jdbcSchemaSyncService;
@@ -98,8 +88,6 @@ public class JdbcPolicyMappingSyncService {
         this.configStorage = configStorage;
         this.schemaStorage = schemaStorage;
         this.datasourceId = datasourceId;
-        this.connection = connection;
-        this.originalUrl = originalUrl;
         
         // InstanceIdProvider 초기화 (core에서 instanceId 관리)
         InstanceIdProvider instanceIdProvider = new InstanceIdProvider(config.getInstanceId());
@@ -363,144 +351,20 @@ public class JdbcPolicyMappingSyncService {
     
     /**
      * Hub에 등록 (404 응답 시 호출됨)
-     * AOP와 동일한 구조: 직접 Datasource 등록 수행
+     * 재등록은 Connection 없이 오케스트레이터에 저장된 메타데이터만 사용 (콜백으로 수행).
      */
     private void registerWithHub() {
         try {
-            // Connection이 없으면 콜백 사용 (하위 호환성)
-            if (connection == null || originalUrl == null) {
-                if (reregistrationCallback != null) {
-                    log.info("📝 Hub 재등록 시작 (콜백 사용): instanceId={}", instanceId);
-                    reregistrationCallback.run();
-                    String hubId = hubIdManager.hasHubId() ? "hubId 설정됨" : "hubId 없음";
-                    log.info("✅ Hub 등록 완료: {} (재등록이므로 스키마 재전송 생략)", hubId);
-                } else {
-                    log.warn("⚠️ Hub 등록 필요하지만 Connection과 콜백이 모두 없습니다.");
-                }
-                return;
+            if (reregistrationCallback != null) {
+                log.info("📝 Hub 재등록 시작 (저장 메타데이터 사용): instanceId={}", instanceId);
+                reregistrationCallback.run();
+                String hubId = hubIdManager.hasHubId() ? "hubId 설정됨" : "hubId 없음";
+                log.info("✅ Hub 등록 완료: {} (재등록이므로 스키마 재전송 생략)", hubId);
+            } else {
+                log.warn("⚠️ Hub 재등록 필요하지만 reregistrationCallback이 설정되지 않았습니다.");
             }
-            
-            // 직접 Datasource 등록 수행 (AOP와 동일한 구조)
-            log.info("📝 Hub Datasource 재등록 시작: instanceId={}", instanceId);
-            
-            DatabaseMetaData metaData = connection.getMetaData();
-            String dbProductName = metaData.getDatabaseProductName().toLowerCase();
-            String dbVendor = normalizeDbVendor(dbProductName);
-            String host = extractHostFromUrl(originalUrl);
-            int port = extractPortFromUrl(originalUrl);
-            String database = connection.getCatalog();
-            String schema = extractSchemaName(connection, dbProductName);
-            
-            // Hub에 Datasource 등록/조회 요청 (hubId와 datasourceId를 동시에 받음)
-            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
-            Long currentVersion = policyResolver.getCurrentVersion();
-            if (currentVersion == null) {
-                currentVersion = 0L;
-            }
-            
-            DatasourceRegistrationService registrationService = 
-                new DatasourceRegistrationService(config.getHubUrl(), instanceId);
-            DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema, currentVersion
-            );
-            
-            if (datasourceInfo == null || datasourceInfo.getHubId() == null || datasourceInfo.getHubId().trim().isEmpty()) {
-                log.warn("⚠️ Datasource 재등록 실패: hubId를 받지 못했습니다");
-                return;
-            }
-            
-            String hubId = datasourceInfo.getHubId();
-            
-            // hubId 저장 (HubIdManager를 통해 저장 및 콜백 자동 호출)
-            hubIdManager.setHubId(hubId, true);
-            
-            log.info("✅ Hub 등록 완료: hubId={} (재등록이므로 스키마 재전송 생략)", hubId);
-            
-            // 엔드포인트 정보는 정책 매핑 스냅샷에서 받아오므로 별도 동기화 불필요
         } catch (Exception e) {
             log.error("❌ Hub 재등록 실패: {}", e.getMessage(), e);
-        }
-    }
-    
-    /**
-     * DB 벤더명 정규화
-     */
-    private String normalizeDbVendor(String dbProductName) {
-        if (dbProductName == null) {
-            return "unknown";
-        }
-        String lower = dbProductName.toLowerCase();
-        if (lower.contains("mysql")) {
-            return "mysql";
-        } else if (lower.contains("postgresql") || lower.contains("postgres")) {
-            return "postgresql";
-        } else if (lower.contains("oracle")) {
-            return "oracle";
-        } else if (lower.contains("microsoft sql server") || lower.contains("sql server")) {
-            return "mssql";
-        } else if (lower.contains("h2")) {
-            return "h2";
-        }
-        return "unknown";
-    }
-    
-    /**
-     * URL에서 호스트 추출
-     */
-    private String extractHostFromUrl(String url) {
-        try {
-            int start = url.indexOf("://") + 3;
-            int end = url.indexOf(":", start);
-            if (end < 0) {
-                end = url.indexOf("/", start);
-            }
-            if (end < 0) {
-                end = url.length();
-            }
-            return url.substring(start, end);
-        } catch (Exception e) {
-            return "localhost";
-        }
-    }
-    
-    /**
-     * URL에서 포트 추출
-     */
-    private int extractPortFromUrl(String url) {
-        try {
-            int start = url.indexOf("://") + 3;
-            int colonIndex = url.indexOf(":", start);
-            if (colonIndex < 0) {
-                return 3306; // 기본 포트
-            }
-            int end = url.indexOf("/", colonIndex);
-            if (end < 0) {
-                end = url.length();
-            }
-            String portStr = url.substring(colonIndex + 1, end);
-            return Integer.parseInt(portStr);
-        } catch (Exception e) {
-            return 3306; // 기본 포트
-        }
-    }
-    
-    /**
-     * Connection에서 스키마명 추출
-     */
-    private String extractSchemaName(Connection connection, String dbVendor) {
-        try {
-            if (dbVendor.contains("mysql")) {
-                return connection.getCatalog();
-            } else if (dbVendor.contains("postgresql") || dbVendor.contains("postgres")) {
-                return connection.getSchema();
-            } else if (dbVendor.contains("oracle")) {
-                return connection.getSchema();
-            } else if (dbVendor.contains("mssql")) {
-                return connection.getSchema();
-            }
-            return connection.getCatalog() != null ? connection.getCatalog() : connection.getSchema();
-        } catch (Exception e) {
-            return "public";
         }
     }
     

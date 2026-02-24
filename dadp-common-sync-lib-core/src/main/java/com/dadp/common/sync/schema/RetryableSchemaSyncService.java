@@ -5,6 +5,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
 import com.dadp.common.sync.config.HubIdSaver;
 
 import java.security.MessageDigest;
+import java.sql.Connection;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -122,6 +123,66 @@ public class RetryableSchemaSyncService {
         }
         
         return false;
+    }
+    
+    /**
+     * 스키마 수집 (재시도) 후 수집 결과 반환.
+     * 논리 순서: 1) DB 스키마 1회 수집 → 2) 영구저장소 로드 → 3) 비교 시 이 결과 재사용 (재수집 금지).
+     *
+     * @param maxRetries 최대 재시도 횟수
+     * @param retryDelayMs 재시도 간격 (밀리초)
+     * @return 수집된 스키마 목록 (실패 또는 0개면 null)
+     */
+    public List<SchemaMetadata> collectSchemasWithRetry(int maxRetries, long retryDelayMs) {
+        return collectSchemasWithRetry(null, maxRetries, retryDelayMs);
+    }
+    
+    /**
+     * 스키마 수집 (재시도, Connection 전달). instanceId당 1세트 공유 시 호출 시점에 Connection 전달.
+     *
+     * @param connection JDBC Connection (null이면 collectSchemas() 사용)
+     * @param maxRetries 최대 재시도 횟수
+     * @param retryDelayMs 재시도 간격 (밀리초)
+     * @return 수집된 스키마 목록 (실패 또는 0개면 null)
+     */
+    public List<SchemaMetadata> collectSchemasWithRetry(Connection connection, int maxRetries, long retryDelayMs) {
+        int retryCount = 0;
+        while (retryCount < maxRetries) {
+            try {
+                List<SchemaMetadata> schemas = connection != null
+                        ? schemaCollector.collectSchemas(connection)
+                        : schemaCollector.collectSchemas();
+                if (schemas != null && !schemas.isEmpty()) {
+                    log.debug("✅ 스키마 수집 완료: {}개 컬럼", schemas.size());
+                    return schemas;
+                }
+                retryCount++;
+                if (retryCount < maxRetries) {
+                    log.debug("⏭️ 스키마 수집 결과: 0개 (재시도 {}/{})", retryCount, maxRetries);
+                    Thread.sleep(retryDelayMs);
+                } else {
+                    log.warn("⚠️ 스키마 수집 실패: 0개 (최대 재시도 횟수 초과)");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("⚠️ 스키마 수집 중단됨");
+                return null;
+            } catch (Exception e) {
+                retryCount++;
+                if (retryCount < maxRetries) {
+                    log.debug("⏭️ 스키마 수집 실패 (재시도 {}/{}): {}", retryCount, maxRetries, e.getMessage());
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
+                } else {
+                    log.warn("⚠️ 스키마 수집 실패 (최대 재시도 횟수 초과): {}", e.getMessage());
+                }
+            }
+        }
+        return null;
     }
     
     /**

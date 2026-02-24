@@ -7,7 +7,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-client-libraries</artifactId>
-    <version>5.4.0</version>
+    <version>5.5.0</version>
     <packaging>pom</packaging>
 
     <name>DADP Client Libraries</name>
@@ -63,16 +63,17 @@
         <gpg.executable>gpg</gpg.executable>
     </properties>
 
+    <!-- common 라이브러리를 AOP/JDBC보다 먼저 빌드 (SchemaCollector 등 인터페이스 변경 시 AOP가 최신 common 사용) -->
     <modules>
         <module>dadp-hub-crypto-lib</module>
-        <module>dadp-aop-spring5</module>
-        <module>dadp-aop-spring6</module>
-        <module>dadp-aop-spring5-starter</module>
-        <module>dadp-aop-spring6-starter</module>
         <module>dadp-common-logging-lib</module>
         <module>dadp-common-sync-lib-core</module>
         <module>dadp-common-sync-lib-j17</module>
         <module>dadp-common-sync-lib-j8</module>
+        <module>dadp-aop-spring5</module>
+        <module>dadp-aop-spring6</module>
+        <module>dadp-aop-spring5-starter</module>
+        <module>dadp-aop-spring6-starter</module>
         <module>dadp-jdbc-wrapper</module>
         <module>dadp-client-bom</module>
     </modules>
@@ -95,13 +96,13 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             <!-- dadp-hub-crypto-lib with java8 classifier (for wrapper module) -->
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
                 <classifier>java8</classifier>
             </dependency>
             <dependency>
@@ -127,22 +128,22 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-jdbc-wrapper</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-core</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j17</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j8</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

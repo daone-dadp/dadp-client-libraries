@@ -38,7 +38,7 @@ public class HubNotificationService {
         if (hubBaseUrl != null && !hubBaseUrl.trim().isEmpty()) {
             try {
                 this.notificationClient = HubNotificationClient.createInstance(hubBaseUrl, 5000, enableLogging);
-                log.info("✅ HubNotificationService 초기화 완료: hubBaseUrl={}, hubId={}, alias={}", 
+                log.debug("✅ HubNotificationService 초기화 완료: hubBaseUrl={}, hubId={}, alias={}", 
                         hubBaseUrl, hubId, alias);
             } catch (Exception e) {
                 log.warn("⚠️ HubNotificationClient 초기화 실패: {}", e.getMessage());

@@ -16,11 +16,22 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import javax.net.ssl.*;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.lang.reflect.Method;
+import java.net.HttpURLConnection;
+import java.security.cert.X509Certificate;
 
 /**
  * Hub 암복호화 서비스
@@ -54,10 +65,110 @@ public class HubCryptoService {
     private volatile long endpointUsageCount = 0;
 
     /**
+     * DADP_CA_CERT_PATH 환경 변수에서 DADP CA 인증서 경로 가져오기
+     * 
+     * @return DADP CA 인증서 파일 경로 또는 null
+     */
+    private static String getDadpCaCertPath() {
+        String caCertPath = System.getenv("DADP_CA_CERT_PATH");
+        if (caCertPath == null || caCertPath.trim().isEmpty()) {
+            caCertPath = System.getProperty("dadp.ca.cert.path");
+        }
+        return caCertPath != null && !caCertPath.trim().isEmpty() ? caCertPath.trim() : null;
+    }
+    
+    /**
+     * PEM 형식 인증서를 X.509 인증서로 변환 (Java 표준 라이브러리만 사용)
+     */
+    private static X509Certificate pemToCertificate(String pem) throws Exception {
+        // PEM 형식에서 BEGIN/END CERTIFICATE 사이의 Base64 디코딩
+        String certContent = pem.replace("-----BEGIN CERTIFICATE-----", "")
+                                .replace("-----END CERTIFICATE-----", "")
+                                .replaceAll("\\s", "");
+        
+        byte[] certBytes = Base64.getDecoder().decode(certContent);
+        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+        return (X509Certificate) certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
+    }
+    
+    /**
+     * DADP CA 인증서만 신뢰하는 SSLContext 생성
+     * DADP_CA_CERT_PATH 환경 변수로 DADP CA 인증서 경로 지정
+     */
+    private static SSLContext createDadpCaSSLContext() {
+        String caCertPath = getDadpCaCertPath();
+        if (caCertPath == null) {
+            return null;
+        }
+        
+        try {
+            // PEM 파일 읽기
+            String pem = new String(Files.readAllBytes(Paths.get(caCertPath)));
+            X509Certificate caCert = pemToCertificate(pem);
+            
+            // TrustStore 생성 및 DADP CA 추가
+            KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            trustStore.load(null, null);
+            trustStore.setCertificateEntry("dadp-root-ca", caCert);
+            
+            // TrustManagerFactory 생성
+            TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm()
+            );
+            trustManagerFactory.init(trustStore);
+            
+            // SSLContext 생성
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustManagerFactory.getTrustManagers(), new java.security.SecureRandom());
+            
+            log.info("✅ DADP CA 인증서만 신뢰하도록 SSL 설정 완료: path={}", caCertPath);
+            return sslContext;
+        } catch (Exception e) {
+            log.warn("⚠️ DADP CA 인증서 로드 실패, 기본 SSL 설정 사용: path={}, error={}", caCertPath, e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * SSL 설정이 적용된 RestTemplate 생성
+     * 우선순위:
+     * 1. DADP_CA_CERT_PATH: DADP CA 인증서만 신뢰 (운영 환경 권장)
+     * 2. 기본: Java 기본 TrustStore 사용
+     */
+    private static RestTemplate createRestTemplateWithSSL() {
+        SSLContext sslContext = null;
+        
+        // 1. DADP CA 인증서만 신뢰 (운영 환경 권장)
+        sslContext = createDadpCaSSLContext();
+        
+        final SSLContext finalSslContext = sslContext;
+        
+        if (finalSslContext != null) {
+            // SSL 설정이 적용된 ClientHttpRequestFactory 생성
+            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+                @Override
+                protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws java.io.IOException {
+                    super.prepareConnection(connection, httpMethod);
+                    if (connection instanceof HttpsURLConnection) {
+                        HttpsURLConnection httpsConnection = (HttpsURLConnection) connection;
+                        httpsConnection.setSSLSocketFactory(finalSslContext.getSocketFactory());
+                        // DADP CA만 신뢰하는 경우 호스트명 검증 유지
+                    }
+                }
+            };
+            
+            return new RestTemplate(factory);
+        }
+        
+        // SSL 설정 실패 시 또는 환경 변수가 없을 때 기본 RestTemplate 반환 (정상적인 SSL 검증)
+        return new RestTemplate();
+    }
+    
+    /**
      * 생성자
      */
     public HubCryptoService() {
-        this.restTemplate = new RestTemplate();
+        this.restTemplate = createRestTemplateWithSSL();
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -459,8 +570,99 @@ public class HubCryptoService {
     }
     
     /**
+     * 검색용 암호화
+     * Engine이 정책(useIv/usePlain)에 따라 암호화된 값 또는 평문을 반환한다.
+     * - useIv=false AND usePlain=false → 고정 IV 전체 암호화 (전체 일치 검색용)
+     * - 그 외 → 평문 그대로 반환
+     *
+     * @param data 검색할 데이터 (평문)
+     * @param policyName 암호화 정책명
+     * @return 암호문 또는 평문 (Engine이 결정)
+     */
+    public String encryptForSearch(String data, String policyName) {
+        initializeIfNeeded();
+        validateNotHubPath();
+
+        if (enableLogging) {
+            log.info("🔍 Engine 검색용 암호화 요청: policy={}", policyName);
+        }
+
+        try {
+            String url = hubUrl + apiBasePath + "/encrypt";
+            recordEndpointUsage(url);
+
+            EncryptRequest request = new EncryptRequest();
+            request.setData(data);
+            request.setPolicyName(policyName);
+            request.setForSearch(true);
+
+            String requestBody;
+            try {
+                requestBody = objectMapper.writeValueAsString(request);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new HubCryptoException("요청 데이터 직렬화 실패: " + e.getMessage());
+            }
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<String> response;
+            try {
+                response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+            } catch (HttpClientErrorException | HttpServerErrorException e) {
+                throw new HubConnectionException("Engine 연결 실패: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
+            } catch (Exception e) {
+                throw new HubConnectionException("Engine 연결 실패: " + e.getMessage(), e);
+            }
+
+            if (is2xxSuccessful(response)) {
+                JsonNode rootNode;
+                try {
+                    rootNode = objectMapper.readTree(response.getBody());
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                    throw new HubCryptoException("Engine 응답 파싱 실패: " + e.getMessage());
+                }
+
+                JsonNode successNode = rootNode.get("success");
+                if (successNode == null || !successNode.asBoolean()) {
+                    // 실패 시 평문 반환 (검색은 best-effort)
+                    if (enableLogging) {
+                        log.warn("검색용 암호화 실패, 평문 반환: {}", rootNode.get("message"));
+                    }
+                    return data;
+                }
+
+                JsonNode dataNode = rootNode.get("data");
+                if (dataNode != null && dataNode.isTextual()) {
+                    String result = dataNode.asText();
+                    if (enableLogging) {
+                        log.info("🔍 검색용 암호화 완료: 결과={}",
+                                result.length() > 30 ? result.substring(0, 30) + "..." : result);
+                    }
+                    return result;
+                }
+
+                // data 필드가 없으면 평문 반환
+                return data;
+            } else {
+                if (enableLogging) {
+                    log.warn("검색용 암호화 API 실패({}), 평문 반환", getStatusCodeString(response));
+                }
+                return data;
+            }
+        } catch (Exception e) {
+            // 검색용 암호화 실패 시 평문 반환 (best-effort)
+            if (enableLogging) {
+                log.warn("검색용 암호화 실패, 평문 반환: {}", e.getMessage());
+            }
+            return data;
+        }
+    }
+
+    /**
      * 데이터 복호화
-     * 
+     *
      * @param encryptedData 복호화할 암호화된 데이터
      * @return 복호화된 데이터
      * @throws HubCryptoException 복호화 실패 시

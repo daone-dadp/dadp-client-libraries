@@ -385,6 +385,9 @@ if (rs.next()) {
 </select>
 ```
 
+**실행 가능한 예제 (JPA와 동시 사용):**  
+통합 테스트앱 Wrapper 모듈(`dadp-test-app/dadp-test-app-wrapper`)에서 MyBatis를 JPA와 같은 DataSource로 동시 사용하는 예제가 포함되어 있습니다. `UserMapper` + `UserMapper.xml`(#{} 바인딩), `POST/GET /api/wrapper/mybatis/users` API로 확인할 수 있습니다.
+
 ---
 
 ## 지원 명령어

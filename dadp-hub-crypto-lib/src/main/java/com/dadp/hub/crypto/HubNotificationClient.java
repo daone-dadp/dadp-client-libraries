@@ -66,7 +66,7 @@ public class HubNotificationClient {
         instance.initialized = true;
         
         if (logging) {
-            log.info("✅ HubNotificationClient 자동 초기화 완료: hubBaseUrl={}, timeout={}ms", 
+            log.debug("✅ HubNotificationClient 자동 초기화 완료: hubBaseUrl={}, timeout={}ms", 
                     baseUrl, timeout);
         }
         

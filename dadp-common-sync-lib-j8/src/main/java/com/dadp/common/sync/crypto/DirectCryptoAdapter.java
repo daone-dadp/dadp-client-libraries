@@ -32,7 +32,7 @@ public class DirectCryptoAdapter {
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
-        log.info("✅ 직접 암복호화 어댑터 생성: failOpen={}", failOpen);
+        log.debug("✅ 직접 암복호화 어댑터 생성: failOpen={}", failOpen);
     }
     
     /**
@@ -131,8 +131,39 @@ public class DirectCryptoAdapter {
     }
     
     /**
+     * 검색용 암호화
+     * Engine이 정책(useIv/usePlain)에 따라 암호화 또는 평문을 반환한다.
+     *
+     * @param data 검색할 데이터 (평문)
+     * @param policyName 정책명
+     * @return 암호문 또는 평문 (Engine이 결정). 실패 시 평문 반환.
+     */
+    public String encryptForSearch(String data, String policyName) {
+        if (data == null) {
+            return null;
+        }
+
+        if (currentCryptoService == null) {
+            log.warn("암복호화 서비스가 초기화되지 않았습니다 (encryptForSearch)");
+            return data;
+        }
+
+        try {
+            log.debug("검색용 암호화 요청: policy={}, dataLength={}", policyName, data.length());
+            String result = currentCryptoService.encryptForSearch(data, policyName);
+            log.debug("검색용 암호화 완료");
+            endpointAvailable = true;
+            return result;
+        } catch (Exception e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("검색용 암호화 실패 (정책: {}): {}, 평문 반환", policyName, errorMsg);
+            return data;
+        }
+    }
+
+    /**
      * 복호화
-     * 
+     *
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
      * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
      */

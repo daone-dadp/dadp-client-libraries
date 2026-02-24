@@ -140,7 +140,7 @@ public class InstanceConfigStorage {
             }
             
             long timestamp = data.getTimestamp();
-            log.info("📂 인스턴스 설정 로드 완료: hubId={}, hubUrl={}, instanceId={} (저장 시각: {})", 
+            log.debug("📂 인스턴스 설정 로드 완료: hubId={}, hubUrl={}, instanceId={} (저장 시각: {})", 
                     data.getHubId(), data.getHubUrl(), data.getInstanceId(),
                     new java.util.Date(timestamp));
             return data;
