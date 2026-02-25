@@ -125,7 +125,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>5.4.0</version>
+            <version>5.5.0</version>
         </dependency>
         
         <!-- DADP 공통 동기화 라이브러리 Core (SchemaStorage 등) -->

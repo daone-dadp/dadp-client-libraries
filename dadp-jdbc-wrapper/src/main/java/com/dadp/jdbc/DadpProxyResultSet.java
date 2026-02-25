@@ -174,16 +174,16 @@ public class DadpProxyResultSet implements ResultSet {
                     if (adapter != null) {
                         // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
                         long t0 = System.currentTimeMillis();
-                        String decrypted = adapter.decrypt(value);
+                        String decrypted = adapter.decrypt(value, policyName);
                         long t1 = System.currentTimeMillis();
                         long engineTime = t1 - t0;
-                        
+
                         log.debug("[Wrapper Decrypt] engine={} ms, table={}, column={}", engineTime, tableName, columnName);
-                        
+
                         // decrypted는 null이거나 원본 데이터 (DirectCryptoAdapter에서 처리)
                         if (decrypted != null) {
-                            log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName, 
-                                     decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted, 
+                            log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName,
+                                     decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
                                      policyName);
                             return decrypted;
                         }
@@ -253,17 +253,17 @@ public class DadpProxyResultSet implements ResultSet {
                         DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
                         if (adapter != null) {
                             // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
-                            String decrypted = adapter.decrypt(value);
+                            String decrypted = adapter.decrypt(value, policyName);
                             // decrypted는 null이거나 원본 데이터 (DirectCryptoAdapter에서 처리)
                             if (decrypted != null) {
-                                log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName, 
-                                         decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted, 
+                                log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName,
+                                         decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
                                          policyName);
                                 return decrypted;
                             }
                             // value가 null인 경우 원본 반환
                         } else {
-                            log.warn("⚠️ Hub 어댑터가 초기화되지 않았습니다: {}.{} (정책: {}), 원본 데이터 반환", 
+                            log.warn("⚠️ Hub 어댑터가 초기화되지 않았습니다: {}.{} (정책: {}), 원본 데이터 반환",
                                     tableName, columnName, policyName);
                         }
                     } else {
@@ -578,7 +578,7 @@ public class DadpProxyResultSet implements ResultSet {
             return value;
         }
         long t0 = System.currentTimeMillis();
-        String decrypted = adapter.decrypt(value);
+        String decrypted = adapter.decrypt(value, policyName);
         long t1 = System.currentTimeMillis();
         log.debug("[Wrapper Decrypt] engine={} ms, table={}, column={} (cached)", t1 - t0, tableName, columnName);
         return decrypted != null ? decrypted : value;
@@ -668,16 +668,16 @@ public class DadpProxyResultSet implements ResultSet {
             if (adapter != null) {
                 long t0 = System.currentTimeMillis();
                 // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
-                String decrypted = adapter.decrypt(value);
+                String decrypted = adapter.decrypt(value, policyName);
                 long t1 = System.currentTimeMillis();
                 long engineTime = t1 - t0;
-                
+
                 log.debug("[Wrapper Decrypt] engine={} ms, table={}, column={}", engineTime, tableName, columnName);
-                
+
                 // decrypted는 null이거나 원본 데이터 (DirectCryptoAdapter에서 처리)
                 if (decrypted != null) {
-                    log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName, 
-                             decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted, 
+                    log.debug("🔓 복호화 완료: {}.{} → {} (정책: {})", tableName, columnName,
+                             decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
                              policyName);
                     return decrypted;
                 } else {

@@ -8,13 +8,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>5.4.0</version>
+        <version>5.5.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-client-bom</artifactId>
-    <version>5.4.0</version>
+    <version>5.5.0</version>
     <packaging>pom</packaging>
 
     <name>DADP Client Libraries BOM</name>
@@ -67,26 +67,26 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-core</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
-            
+
             <!-- Java 8 구현체 -->
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j8</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
-            
+
             <!-- Java 17 구현체 -->
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j17</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             
             <!-- AOP 모듈 (Spring 5 - Java 8) -->
@@ -117,7 +117,7 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-jdbc-wrapper</artifactId>
-                <version>5.4.0</version>
+                <version>5.5.0</version>
             </dependency>
             
             <!-- 공통 로깅 -->

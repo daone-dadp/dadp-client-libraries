@@ -668,12 +668,12 @@ public class HubCryptoService {
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData) {
-        return decrypt(encryptedData, null, null);
+        return decrypt(encryptedData, null, null, null, false);
     }
-    
+
     /**
      * 데이터 복호화 (마스킹 정책 포함)
-     * 
+     *
      * @param encryptedData 복호화할 암호화된 데이터
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
@@ -681,12 +681,12 @@ public class HubCryptoService {
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
-        return decrypt(encryptedData, maskPolicyName, maskPolicyUid, false);
+        return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, false);
     }
-    
+
     /**
      * 데이터 복호화 (마스킹 정책 및 통계 정보 포함 옵션)
-     * 
+     *
      * @param encryptedData 복호화할 암호화된 데이터
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
@@ -695,6 +695,21 @@ public class HubCryptoService {
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
+        return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, includeStats);
+    }
+
+    /**
+     * 데이터 복호화 (정책명 + 마스킹 정책 + 통계 정보)
+     *
+     * @param encryptedData 복호화할 암호화된 데이터
+     * @param policyName 암호화 정책명 (FPE 등 prefix 없는 암호문 복호화 시 필수)
+     * @param maskPolicyName 마스킹 정책명 (선택사항)
+     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
+     * @param includeStats 통계 정보 포함 여부
+     * @return 복호화된 데이터
+     * @throws HubCryptoException 복호화 실패 시
+     */
+    public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         // 초기화 확인
         initializeIfNeeded();
         
@@ -715,6 +730,7 @@ public class HubCryptoService {
             
             DecryptRequest request = new DecryptRequest();
             request.setEncryptedData(encryptedData);
+            request.setPolicyName(policyName);
             request.setMaskPolicyName(maskPolicyName);
             request.setMaskPolicyUid(maskPolicyUid);
             // includeStats는 엔진에서 제거되었으므로 전달하지 않음
@@ -1237,11 +1253,10 @@ public class HubCryptoService {
                 String base64Data = parts[2];
                 // Policy UUID 형식 검증 (36자 UUID 형식, 대소문자 모두 허용)
                 if (policyUuid.length() == 36 && policyUuid.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) {
-                    // Base64 데이터 최소 길이 검증 (IV 12 + Tag 16 = 최소 28 bytes, Base64로 약 38 chars)
+                    // Base64 데이터 최소 길이 검증 (비-GCM은 블록 크기(16) 이상)
                     try {
                         byte[] decoded = java.util.Base64.getDecoder().decode(base64Data);
-                        // IV(12) + Tag(16) = 최소 28 bytes
-                        return decoded.length >= 28;
+                        return decoded.length >= 16;
                     } catch (IllegalArgumentException e) {
                         return false;
                     }

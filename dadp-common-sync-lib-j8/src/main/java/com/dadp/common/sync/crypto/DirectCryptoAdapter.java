@@ -168,31 +168,43 @@ public class DirectCryptoAdapter {
      * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
      */
     public String decrypt(String encryptedData) {
-        return decrypt(encryptedData, null, null);
+        return decrypt(encryptedData, null, null, null, false);
     }
-    
+
+    /**
+     * 복호화 (정책명 포함 - FPE 등 prefix 없는 암호문 복호화용)
+     *
+     * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
+     * @param policyName 암호화 정책명 (선택사항, FPE 복호화 시 필수)
+     * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     */
+    public String decrypt(String encryptedData, String policyName) {
+        return decrypt(encryptedData, policyName, null, null, false);
+    }
+
     /**
      * 복호화 (마스킹 정책 포함)
-     * 
+     *
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
      * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
-        return decrypt(encryptedData, maskPolicyName, maskPolicyUid, false);
+        return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, false);
     }
-    
+
     /**
-     * 복호화 (마스킹 정책 및 통계 정보 포함)
-     * 
+     * 복호화 (정책명 + 마스킹 정책 + 통계 정보)
+     *
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
+     * @param policyName 암호화 정책명 (선택사항, FPE 복호화 시 필수)
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
      * @param includeStats 통계 정보 포함 여부
      * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
      */
-    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
+    public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         if (encryptedData == null) {
             return null;
         }
@@ -207,10 +219,10 @@ public class DirectCryptoAdapter {
         }
         
         try {
-            log.debug("🔓 직접 복호화 요청: dataLength={}, maskPolicyName={}, maskPolicyUid={}", 
-                    encryptedData != null ? encryptedData.length() : 0, maskPolicyName, maskPolicyUid);
+            log.debug("🔓 직접 복호화 요청: dataLength={}, policyName={}, maskPolicyName={}, maskPolicyUid={}",
+                    encryptedData != null ? encryptedData.length() : 0, policyName, maskPolicyName, maskPolicyUid);
             // 엔진은 includeStats와 무관하게 항상 통계를 자동 수집함
-            String decrypted = currentCryptoService.decrypt(encryptedData, maskPolicyName, maskPolicyUid, includeStats);
+            String decrypted = currentCryptoService.decrypt(encryptedData, policyName, maskPolicyName, maskPolicyUid, includeStats);
             
             if (decrypted == null) {
                 log.debug("데이터가 암호화되지 않았습니다 - 원본 데이터 반환");

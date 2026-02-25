@@ -22,7 +22,13 @@ public class DecryptRequest {
      */
     @JsonProperty("encryptedData")
     private String encryptedData;
-    
+
+    /**
+     * 암호화 정책명 (FPE 등 prefix 없는 암호문 복호화 시 필수)
+     */
+    @JsonProperty("policyName")
+    private String policyName;
+
     /**
      * 마스킹 정책명 (복호화 시 마스킹 적용을 위해 사용)
      */
