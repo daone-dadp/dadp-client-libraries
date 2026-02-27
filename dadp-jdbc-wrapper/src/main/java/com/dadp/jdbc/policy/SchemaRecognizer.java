@@ -89,17 +89,26 @@ public class SchemaRecognizer {
             String dbVendor = metaData.getDatabaseProductName().toLowerCase();
             String databaseName = connection.getCatalog();
             
-            log.info("🔍 스키마 메타데이터 수집 시작: datasourceId={}, dbVendor={}, database={}, " +
-                    "allowlist={}, maxSchemas={}, timeout={}ms", 
-                datasourceId, dbVendor, databaseName,
+            // Oracle: 자기 스키마(OWNER)만 조회 (ALL_TABLES 대신 USER_TABLES 효과)
+            // 다른 DB: null (전체 스키마 조회 후 필터링)
+            String schemaPattern = null;
+            if (dbVendor.contains("oracle")) {
+                schemaPattern = connection.getSchema();
+                if (schemaPattern == null || schemaPattern.isEmpty()) {
+                    schemaPattern = metaData.getUserName();
+                }
+                log.info("🔍 Oracle 자기 스키마만 조회: schema={}", schemaPattern);
+            }
+
+            log.info("🔍 스키마 메타데이터 수집 시작: datasourceId={}, dbVendor={}, database={}, schemaPattern={}, " +
+                    "allowlist={}, maxSchemas={}, timeout={}ms",
+                datasourceId, dbVendor, databaseName, schemaPattern,
                 allowedSchemas != null ? allowedSchemas : "모두 허용",
                 maxSchemas > 0 ? maxSchemas : "제한 없음",
                 timeoutMs != null && timeoutMs > 0 ? timeoutMs : "제한 없음");
-            
-            // 현재 데이터베이스의 테이블만 조회 (시스템 스키마 제외)
-            // PostgreSQL의 경우: getTables(databaseName, null, "%", ...)는 모든 스키마의 테이블을 조회
-            // TABLE_SCHEM 컬럼에서 각 테이블의 실제 스키마 이름을 가져옴
-            try (ResultSet tables = metaData.getTables(databaseName, null, "%", new String[]{"TABLE"})) {
+
+            // 테이블 조회 (Oracle은 자기 스키마만, 다른 DB는 전체 후 필터링)
+            try (ResultSet tables = metaData.getTables(databaseName, schemaPattern, "%", new String[]{"TABLE"})) {
                 while (tables.next()) {
                     // 타임아웃 체크
                     if (timeoutMs != null && timeoutMs > 0) {

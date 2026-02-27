@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.5.0</version>
+    <version>5.5.7</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -107,20 +107,17 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Hub 암복호화 라이브러리 (필수) - Java 8 버전 사용 -->
-        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
-        <dependency>
-            <groupId>io.github.daone-dadp</groupId>
-            <artifactId>dadp-hub-crypto-lib</artifactId>
-            <version>5.5.0</version>
-            <classifier>java8</classifier>
-        </dependency>
-        
         <!-- Common Sync Library (Java 8) - 정책 매핑 및 엔드포인트 동기화 -->
         <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.github.daone-dadp</groupId>
+                    <artifactId>dadp-hub-crypto-lib</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         
         <!-- Common Sync Library Core (Java 8) - 스키마 동기화 공통 로직 -->
@@ -151,11 +148,17 @@
             <version>1.7.36</version>
         </dependency>
         
-        <!-- SLF4J NOP 구현체: 로깅 구현체가 없을 때 NOP 사용 -->
+        <!-- Logback 구현체: SLF4J 로깅 구현체 (shade+relocate) -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-nop</artifactId>
-            <version>1.7.36</version>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.2.13</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <version>1.2.13</version>
         </dependency>
         
         <!-- Test dependencies -->
@@ -217,6 +220,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
+                    <!-- parent POM의 <release>17</release>을 override하여 Java 8 호환 빌드 -->
+                    <release>8</release>
                     <source>1.8</source>
                     <target>1.8</target>
                     <encoding>UTF-8</encoding>
@@ -287,6 +292,15 @@
                                     <pattern>com.fasterxml.jackson</pattern>
                                     <shadedPattern>com.dadp.wrapper.shaded.jackson</shadedPattern>
                                 </relocation>
+                                <relocation>
+                                    <pattern>org.slf4j</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.slf4j</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>ch.qos.logback</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.logback</shadedPattern>
+                                </relocation>
+
                             </relocations>
                             
                             <filters>
@@ -312,11 +326,12 @@
                                         <exclude>javax/servlet/**</exclude>
                                         <!-- Servlet 관련 리소스 제외 (중복 방지) -->
                                         <exclude>META-INF/web-fragment.xml</exclude>
-                                        <!-- Logback 구현체 제외 (고객사 앱의 로깅 구현체 사용) -->
-                                        <exclude>ch/qos/logback/**</exclude>
-                                        <!-- SLF4J 관련 제외 (자체 로깅 유틸리티 사용) -->
-                                        <exclude>org/slf4j/**</exclude>
-                                        <exclude>META-INF/services/org.slf4j.*</exclude>
+                                        <!-- ServletContainerInitializer 서비스 파일 제외 (고객사 Tomcat 호환성) -->
+                                        <exclude>META-INF/services/javax.servlet.ServletContainerInitializer</exclude>
+                                        <exclude>META-INF/services/jakarta.servlet.ServletContainerInitializer</exclude>
+                                        <!-- Logback 메타데이터 제외 (클래스는 포함하되, 구현체 구성 파일만 제외) -->
+                                        <exclude>META-INF/maven/ch.qos.logback/**</exclude>
+                                                                                <!-- Logback 구현체 제외 (고객사 앱의 로깅 구현체 사용) -->
                                         <!-- Java 9+ 모듈 시스템 관련 제외 (중복 방지) -->
                                         <exclude>META-INF/versions/**/module-info.class</exclude>
                                         <exclude>module-info.class</exclude>

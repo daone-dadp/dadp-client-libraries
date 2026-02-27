@@ -192,10 +192,19 @@ public class JdbcBootstrapOrchestrator {
             DatabaseMetaData metaData = connection.getMetaData();
             String dbProductName = metaData.getDatabaseProductName().toLowerCase();
             storedDbVendor = normalizeDbVendor(dbProductName);
-            storedHost = extractHostFromUrl(originalUrl);
-            storedPort = extractPortFromUrl(originalUrl);
+            storedHost = extractHostFromUrl(originalUrl, storedDbVendor);
+            storedPort = extractPortFromUrl(originalUrl, storedDbVendor);
             storedDatabase = connection.getCatalog();
             storedSchema = extractSchemaName(connection, dbProductName);
+
+            // Oracle: getCatalog()이 null을 반환하므로 서비스명 또는 스키마로 대체
+            if ((storedDatabase == null || storedDatabase.trim().isEmpty()) && "oracle".equals(storedDbVendor)) {
+                storedDatabase = extractDatabaseFromOracleUrl(originalUrl);
+                if (storedDatabase == null || storedDatabase.trim().isEmpty()) {
+                    storedDatabase = storedSchema; // 스키마를 database로 사용
+                }
+                log.debug("Oracle database 대체값 설정: {}", storedDatabase);
+            }
         } catch (Exception e) {
             log.debug("메타데이터 추출 실패 (무시): {}", e.getMessage());
         }
@@ -958,41 +967,179 @@ public class JdbcBootstrapOrchestrator {
     }
     
     /**
-     * URL에서 호스트 추출
+     * URL에서 호스트 추출 (Oracle URL 형식 지원)
+     *
+     * 지원 형식:
+     * - MySQL/PostgreSQL: jdbc:dadp:mysql://host:3306/db?hubUrl=...
+     * - Oracle thin: jdbc:dadp:oracle:thin:@//host:1521/service?hubUrl=...
+     * - Oracle thin SID: jdbc:dadp:oracle:thin:@host:1521:SID?hubUrl=...
      */
-    private String extractHostFromUrl(String url) {
+    private String extractHostFromUrl(String url, String dbVendor) {
         try {
-            int start = url.indexOf("://") + 3;
-            int end = url.indexOf(":", start);
+            // 쿼리 파라미터 제거 (hubUrl의 ://와 혼동 방지)
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) {
+                baseUrl = url.substring(0, queryIdx);
+            }
+
+            if ("oracle".equals(dbVendor)) {
+                // Oracle: @// 또는 @ 이후에서 호스트 추출
+                int atIdx = baseUrl.indexOf('@');
+                if (atIdx >= 0) {
+                    String afterAt = baseUrl.substring(atIdx + 1);
+                    // @// 형식 (서비스명)
+                    if (afterAt.startsWith("//")) {
+                        afterAt = afterAt.substring(2);
+                    }
+                    // host:port 추출
+                    int colonIdx = afterAt.indexOf(':');
+                    if (colonIdx > 0) {
+                        return afterAt.substring(0, colonIdx);
+                    }
+                    int slashIdx = afterAt.indexOf('/');
+                    if (slashIdx > 0) {
+                        return afterAt.substring(0, slashIdx);
+                    }
+                    return afterAt;
+                }
+            }
+
+            // 기본 (MySQL, PostgreSQL 등): ://host:port 형식
+            int start = baseUrl.indexOf("://") + 3;
+            if (start < 3) {
+                return "localhost";
+            }
+            int end = baseUrl.indexOf(":", start);
             if (end < 0) {
-                end = url.indexOf("/", start);
+                end = baseUrl.indexOf("/", start);
             }
             if (end < 0) {
-                end = url.length();
+                end = baseUrl.length();
             }
-            return url.substring(start, end);
+            return baseUrl.substring(start, end);
         } catch (Exception e) {
             return "localhost";
         }
     }
-    
+
     /**
-     * URL에서 포트 추출
+     * URL에서 포트 추출 (Oracle URL 형식 지원)
      */
-    private int extractPortFromUrl(String url) {
+    private int extractPortFromUrl(String url, String dbVendor) {
         try {
-            int start = url.indexOf("://") + 3;
-            int colonIndex = url.indexOf(":", start);
+            // 쿼리 파라미터 제거 (hubUrl의 포트와 혼동 방지)
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) {
+                baseUrl = url.substring(0, queryIdx);
+            }
+
+            if ("oracle".equals(dbVendor)) {
+                // Oracle: @// 또는 @ 이후에서 포트 추출
+                int atIdx = baseUrl.indexOf('@');
+                if (atIdx >= 0) {
+                    String afterAt = baseUrl.substring(atIdx + 1);
+                    if (afterAt.startsWith("//")) {
+                        afterAt = afterAt.substring(2);
+                    }
+                    // host:port 에서 port 추출
+                    int colonIdx = afterAt.indexOf(':');
+                    if (colonIdx >= 0) {
+                        String afterColon = afterAt.substring(colonIdx + 1);
+                        // port 뒤의 / 또는 : (SID 구분자) 제거
+                        int endIdx = afterColon.indexOf('/');
+                        int endIdx2 = afterColon.indexOf(':');
+                        if (endIdx < 0) endIdx = afterColon.length();
+                        if (endIdx2 >= 0 && endIdx2 < endIdx) endIdx = endIdx2;
+                        return Integer.parseInt(afterColon.substring(0, endIdx));
+                    }
+                }
+                return 1521; // Oracle 기본 포트
+            }
+
+            // 기본 (MySQL, PostgreSQL, MSSQL 등)
+            int start = baseUrl.indexOf("://") + 3;
+            if (start < 3) {
+                return getDefaultPort(dbVendor);
+            }
+            int colonIndex = baseUrl.indexOf(":", start);
             if (colonIndex < 0) {
-                return 3306; // 기본 포트
+                return getDefaultPort(dbVendor);
             }
-            int end = url.indexOf("/", colonIndex);
-            if (end < 0) {
-                end = url.length();
+            String afterColon = baseUrl.substring(colonIndex + 1);
+            // 포트 뒤 구분자: / (MySQL, PostgreSQL) 또는 ; (MSSQL) 또는 \ (MSSQL named instance)
+            int end = afterColon.length();
+            for (int i = 0; i < afterColon.length(); i++) {
+                char c = afterColon.charAt(i);
+                if (c == '/' || c == ';' || c == '\\') {
+                    end = i;
+                    break;
+                }
             }
-            return Integer.parseInt(url.substring(colonIndex + 1, end));
+            return Integer.parseInt(afterColon.substring(0, end));
         } catch (Exception e) {
-            return 3306; // 기본 포트
+            return getDefaultPort(dbVendor);
+        }
+    }
+
+    /**
+     * DB 벤더별 기본 포트 반환
+     */
+    private int getDefaultPort(String dbVendor) {
+        if (dbVendor == null) return 3306;
+        switch (dbVendor) {
+            case "oracle": return 1521;
+            case "postgresql": return 5432;
+            case "mssql": return 1433;
+            default: return 3306;
+        }
+    }
+
+    /**
+     * Oracle JDBC URL에서 서비스명/SID 추출 (database 대체값)
+     *
+     * 지원 형식:
+     * - jdbc:dadp:oracle:thin:@//host:1521/serviceName → serviceName
+     * - jdbc:dadp:oracle:thin:@host:1521:SID → SID
+     */
+    private String extractDatabaseFromOracleUrl(String url) {
+        try {
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) {
+                baseUrl = url.substring(0, queryIdx);
+            }
+
+            int atIdx = baseUrl.indexOf('@');
+            if (atIdx < 0) return null;
+
+            String afterAt = baseUrl.substring(atIdx + 1);
+
+            // @//host:1521/serviceName 형식
+            if (afterAt.startsWith("//")) {
+                int lastSlash = afterAt.lastIndexOf('/');
+                if (lastSlash > 1) {
+                    return afterAt.substring(lastSlash + 1);
+                }
+            }
+
+            // @host:1521:SID 형식
+            int lastColon = afterAt.lastIndexOf(':');
+            if (lastColon > 0) {
+                String candidate = afterAt.substring(lastColon + 1);
+                // 포트 번호가 아닌지 확인
+                try {
+                    Integer.parseInt(candidate);
+                    return null; // 숫자면 포트이므로 SID가 아님
+                } catch (NumberFormatException e) {
+                    return candidate; // 숫자가 아니면 SID
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            return null;
         }
     }
     

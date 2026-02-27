@@ -14,7 +14,7 @@ package com.dadp.jdbc.logging;
  * 2. 시스템 프로퍼티: -Ddadp.enable-logging=true
  * 3. JDBC URL 파라미터: enableLogging=true (ProxyConfig를 통해 전달)
  * 
- * SLF4J가 있으면 SLF4J를 통해 출력하고, 없으면 NoOpLogger를 반환합니다.
+ * SLF4J가 있으면 SLF4J를 통해 출력하고, 없으면 System.out 폴백 로거를 사용합니다.
  * 
  * @author DADP Development Team
  */
@@ -80,17 +80,17 @@ public final class DadpLoggerFactory {
             return NoOpLogger.INSTANCE;
         }
         
-        // SLF4J가 있으면 Slf4jAdapter 사용, 없으면 NoOpLogger 사용
+        // SLF4J가 있으면 Slf4jAdapter 사용, 없으면 ConsoleLogger(System.out) 폴백
         if (slf4jAvailable) {
             try {
                 return new Slf4jAdapter(name);
             } catch (RuntimeException e) {
-                // SLF4J 연동 실패 시 NoOp로 폴백
-                return NoOpLogger.INSTANCE;
+                // SLF4J 연동 실패 시 ConsoleLogger 폴백
+                return new ConsoleLogger(name);
             }
         } else {
-            // SLF4J가 없으면 NoOpLogger 반환
-            return NoOpLogger.INSTANCE;
+            // SLF4J가 없으면 ConsoleLogger (System.out → catalina.out 등)
+            return new ConsoleLogger(name);
         }
     }
     

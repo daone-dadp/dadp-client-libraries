@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.5.7] - 2026-02-27
+
+### 🐛 Fixed
+
+- **SLF4J NOP 바인딩으로 DADP 로그 미출력 문제 해결**
+  - `slf4j-nop` 의존성이 `logback-classic`과 공존하여 shade JAR의 `StaticLoggerBinder`가 `NOPLoggerFactory`를 사용
+  - `-Ddadp.enable-logging=true` 설정해도 모든 로그가 NOP으로 버려짐
+  - **수정**: `slf4j-nop` 의존성 제거 → `logback-classic`의 바인딩이 정상 사용되어 로그 출력
+  - **주의**: Tomcat lib에 이전 버전 JAR(5.5.5, 5.5.6)이 남아있으면 NOP 바인딩이 우선 로드될 수 있음. 반드시 이전 JAR 삭제 필요
+
+### 📝 Known Issues (고객 환경)
+
+- **Oracle 한국어 캐릭터셋(KO16MSWIN949) 스키마 수집 실패**
+  - Oracle DB가 `KO16MSWIN949` 캐릭터셋 사용 시 `SchemaRecognizer`에서 메타데이터 수집 실패
+  - 에러: `java.sql.SQLException: Non supported character set (add orai18n.jar in your classpath): KO16MSWIN949`
+  - **해결**: Tomcat lib 또는 클래스패스에 `orai18n.jar` 추가 필요 (Oracle JDBC 확장 캐릭터셋 지원 라이브러리)
+  - 다운로드: `https://repo1.maven.org/maven2/com/oracle/database/nls/orai18n/21.7.0.0/orai18n-21.7.0.0.jar`
+
+---
+
+## [5.5.6] - 2026-02-27
+
+### 🐛 Fixed
+
+- **Oracle 비 DBA 유저 스키마 스캔 실패 해결**
+  - `SchemaRecognizer`가 `metaData.getTables(null, null, "%", ...)` 호출 시 Oracle `ALL_TABLES` 전체 조회
+  - 비 DBA 유저(예: soe)는 권한 부족으로 스키마 수집 실패 또는 빈 결과 반환
+  - **수정**: Oracle인 경우 `connection.getSchema()` (폴백: `metaData.getUserName()`)를 `schemaPattern`으로 사용하여 자기 스키마만 조회
+
+---
+
+## [5.5.5] - 2026-02-27
+
+### 🔧 Changed
+
+- **hub-crypto-lib 의존성 완전 분리 (Spring-free Wrapper)**
+  - Wrapper JAR에서 Spring Framework 의존성 완전 제거
+  - `HubCryptoService`: `RestTemplate` → `HttpURLConnection` 기반으로 재작성
+  - DTO 클래스(EncryptRequest/Response, DecryptRequest/Response): Lombok 제거, Plain Java로 재작성
+  - Exception 클래스(HubCryptoException, HubConnectionException): Wrapper 모듈 내부에 복사
+  - Standalone Tomcat(순수 Java Servlet) 환경에서 정상 동작 확인
+
+---
+
+## [5.5.4] - 2026-02-26
+
+### 🐛 Fixed
+
+- **ConsoleLogger 추가**: SLF4J가 없는 환경(standalone Tomcat)에서 `System.out` 기반 폴백 로거 제공
+- **Hub bootstrap handshake 수정**: Hub 연결 시 초기 핸드셰이크 실패 문제 해결
+
+---
+
+## [5.5.1] ~ [5.5.3] - 2026-02-26
+
+### 🐛 Fixed
+
+- **Oracle JDBC URL 파싱 오류 해결**: `jdbc:dadp:oracle:thin:@//host:port/service` 형식 URL 파싱 실패 수정
+- **MSSQL JDBC URL 파싱 오류 해결**: `jdbc:dadp:sqlserver://host:port;databaseName=db` 형식 URL 파싱 실패 수정
+- **WrapperDownloadController 버전 선택 개선**: `findLatestVersionForJavaVersion()` 메서드가 최신 버전을 올바르게 반환하도록 수정
+
+---
+
+## [5.5.0] - 2026-02-25
+
+### 🎉 릴리즈 정보
+
+- 상세: [RELEASE_NOTES_v5.5.0.md](RELEASE_NOTES_v5.5.0.md)
+
+---
+
 ## [5.1.0] - 2026-01-07
 
 ### 🔄 Changed

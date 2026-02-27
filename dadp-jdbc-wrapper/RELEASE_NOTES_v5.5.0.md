@@ -57,6 +57,12 @@
 - **변경 후**: 최소 길이 16으로 완화 — A256ECB, ARIA256, SEED128, FPE_FF1 등 비-GCM 알고리즘 암호문에 대응.
 - 짧은 암호문이 평문으로 오인되어 복호화 시도 자체가 스킵되던 문제 해결.
 
+#### Shade Plugin Tomcat 호환성 수정 (ServicesResourceTransformer 오염 제거)
+
+- **문제**: maven-shade-plugin의 `ServicesResourceTransformer`가 모든 의존성의 `META-INF/services` 파일을 병합하면서, `javax.servlet.ServletContainerInitializer`에 Logback·Spring·Tomcat WebSocket의 `ServletContainerInitializer` 구현체가 포함됨. `minimizeJar`가 실제 클래스는 제거하나 서비스 파일 등록은 잔존 → Tomcat 환경에서 `ClassNotFoundException` 발생, JDBC 드라이버 초기화 실패.
+- **수정**: pom.xml shade plugin filter에 `javax.servlet.ServletContainerInitializer`, `jakarta.servlet.ServletContainerInitializer`, `META-INF/maven/ch.qos.logback/**` exclude 추가.
+- **검증**: dadp-test-app Docker 환경에서 JPA/MyBatis 암복호화 테스트 완료.
+
 ---
 
 ### 📋 설계·계획 (구현 대기)

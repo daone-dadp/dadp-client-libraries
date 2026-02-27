@@ -213,30 +213,39 @@ public class DadpProxyConnection implements Connection {
         try {
             DatabaseMetaData metaData = connection.getMetaData();
             String dbVendor = metaData.getDatabaseProductName().toLowerCase();
-            String host = extractHostFromUrl(originalUrl);
-            int port = extractPortFromUrl(originalUrl);
+            String normalizedVendor = normalizeDbVendor(dbVendor);
+            String host = extractHostFromUrl(originalUrl, normalizedVendor);
+            int port = extractPortFromUrl(originalUrl, normalizedVendor);
             String database = connection.getCatalog();
             String schema = extractSchemaName(connection, dbVendor);
-            
+
+            // Oracle: getCatalog()이 null을 반환하므로 서비스명 또는 스키마로 대체
+            if ((database == null || database.trim().isEmpty()) && "oracle".equals(normalizedVendor)) {
+                database = extractDatabaseFromOracleUrl(originalUrl);
+                if (database == null || database.trim().isEmpty()) {
+                    database = schema;
+                }
+            }
+
             // Hub에 Datasource 등록/조회 요청
             // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
             Long currentVersion = policyResolver.getCurrentVersion();
             if (currentVersion == null) {
                 currentVersion = 0L;
             }
-            
-            DatasourceRegistrationService registrationService = 
+
+            DatasourceRegistrationService registrationService =
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema, currentVersion
+                normalizedVendor, host, port, database, schema, currentVersion
             );
-            
+
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
                 // hubId는 HubIdManager에서 전역으로 관리되므로 config.setHubId() 제거
                 if (datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {
                     log.info("✅ Hub가 발급한 고유 ID: hubId={} (HubIdManager에서 관리됨)", datasourceInfo.getHubId());
                 }
-                log.info("✅ Datasource 등록 완료: datasourceId={}, displayName={}, hubId={}", 
+                log.info("✅ Datasource 등록 완료: datasourceId={}, displayName={}, hubId={}",
                     datasourceInfo.getDatasourceId(), datasourceInfo.getDisplayName(), datasourceInfo.getHubId());
                 return datasourceInfo.getDatasourceId();
             } else {
@@ -262,22 +271,31 @@ public class DadpProxyConnection implements Connection {
         try {
             DatabaseMetaData metaData = connection.getMetaData();
             String dbVendor = metaData.getDatabaseProductName().toLowerCase();
-            String host = extractHostFromUrl(originalUrl);
-            int port = extractPortFromUrl(originalUrl);
+            String normalizedVendor = normalizeDbVendor(dbVendor);
+            String host = extractHostFromUrl(originalUrl, normalizedVendor);
+            int port = extractPortFromUrl(originalUrl, normalizedVendor);
             String database = connection.getCatalog();
             String schema = extractSchemaName(connection, dbVendor);
-            
+
+            // Oracle: getCatalog()이 null을 반환하므로 서비스명 또는 스키마로 대체
+            if ((database == null || database.trim().isEmpty()) && "oracle".equals(normalizedVendor)) {
+                database = extractDatabaseFromOracleUrl(originalUrl);
+                if (database == null || database.trim().isEmpty()) {
+                    database = schema;
+                }
+            }
+
             // Hub에 Datasource 등록/조회 요청 (hubId 받기)
             // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
             Long currentVersion = policyResolver.getCurrentVersion();
             if (currentVersion == null) {
                 currentVersion = 0L;
             }
-            
-            DatasourceRegistrationService registrationService = 
+
+            DatasourceRegistrationService registrationService =
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema, currentVersion
+                normalizedVendor, host, port, database, schema, currentVersion
             );
             
             if (datasourceInfo != null && datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {
@@ -292,42 +310,138 @@ public class DadpProxyConnection implements Connection {
     }
     
     /**
-     * URL에서 호스트 추출
+     * URL에서 호스트 추출 (Oracle URL 형식 지원)
      */
-    private String extractHostFromUrl(String url) {
+    private String extractHostFromUrl(String url, String dbVendor) {
         try {
-            // jdbc:dadp:mysql://host:port/database 형식
-            int start = url.indexOf("://") + 3;
-            int end = url.indexOf(":", start);
-            if (end < 0) {
-                end = url.indexOf("/", start);
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) {
+                baseUrl = url.substring(0, queryIdx);
             }
-            if (end < 0) {
-                end = url.length();
+
+            if ("oracle".equals(dbVendor)) {
+                int atIdx = baseUrl.indexOf('@');
+                if (atIdx >= 0) {
+                    String afterAt = baseUrl.substring(atIdx + 1);
+                    if (afterAt.startsWith("//")) {
+                        afterAt = afterAt.substring(2);
+                    }
+                    int colonIdx = afterAt.indexOf(':');
+                    if (colonIdx > 0) {
+                        return afterAt.substring(0, colonIdx);
+                    }
+                    int slashIdx = afterAt.indexOf('/');
+                    if (slashIdx > 0) {
+                        return afterAt.substring(0, slashIdx);
+                    }
+                    return afterAt;
+                }
             }
-            return url.substring(start, end);
+
+            int start = baseUrl.indexOf("://") + 3;
+            if (start < 3) return "localhost";
+            int end = baseUrl.indexOf(":", start);
+            if (end < 0) end = baseUrl.indexOf("/", start);
+            if (end < 0) end = baseUrl.length();
+            return baseUrl.substring(start, end);
         } catch (Exception e) {
             return "localhost";
         }
     }
-    
+
     /**
-     * URL에서 포트 추출
+     * URL에서 포트 추출 (Oracle URL 형식 지원)
      */
-    private int extractPortFromUrl(String url) {
+    private int extractPortFromUrl(String url, String dbVendor) {
         try {
-            int start = url.indexOf("://") + 3;
-            int colonIndex = url.indexOf(":", start);
-            if (colonIndex < 0) {
-                return 3306; // 기본 포트
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) {
+                baseUrl = url.substring(0, queryIdx);
             }
-            int end = url.indexOf("/", colonIndex);
-            if (end < 0) {
-                end = url.length();
+
+            if ("oracle".equals(dbVendor)) {
+                int atIdx = baseUrl.indexOf('@');
+                if (atIdx >= 0) {
+                    String afterAt = baseUrl.substring(atIdx + 1);
+                    if (afterAt.startsWith("//")) {
+                        afterAt = afterAt.substring(2);
+                    }
+                    int colonIdx = afterAt.indexOf(':');
+                    if (colonIdx >= 0) {
+                        String afterColon = afterAt.substring(colonIdx + 1);
+                        int endIdx = afterColon.indexOf('/');
+                        int endIdx2 = afterColon.indexOf(':');
+                        if (endIdx < 0) endIdx = afterColon.length();
+                        if (endIdx2 >= 0 && endIdx2 < endIdx) endIdx = endIdx2;
+                        return Integer.parseInt(afterColon.substring(0, endIdx));
+                    }
+                }
+                return 1521;
             }
-            return Integer.parseInt(url.substring(colonIndex + 1, end));
+
+            int start = baseUrl.indexOf("://") + 3;
+            if (start < 3) return getDefaultPort(dbVendor);
+            int colonIndex = baseUrl.indexOf(":", start);
+            if (colonIndex < 0) return getDefaultPort(dbVendor);
+            String afterColon = baseUrl.substring(colonIndex + 1);
+            // 포트 뒤 구분자: / (MySQL, PostgreSQL) 또는 ; (MSSQL) 또는 \ (MSSQL named instance)
+            int end = afterColon.length();
+            for (int i = 0; i < afterColon.length(); i++) {
+                char c = afterColon.charAt(i);
+                if (c == '/' || c == ';' || c == '\\') {
+                    end = i;
+                    break;
+                }
+            }
+            return Integer.parseInt(afterColon.substring(0, end));
         } catch (Exception e) {
-            return 3306; // 기본 포트
+            return getDefaultPort(dbVendor);
+        }
+    }
+
+    private int getDefaultPort(String dbVendor) {
+        if (dbVendor == null) return 3306;
+        switch (dbVendor) {
+            case "oracle": return 1521;
+            case "postgresql": return 5432;
+            case "mssql": return 1433;
+            default: return 3306;
+        }
+    }
+
+    private String normalizeDbVendor(String dbProductName) {
+        if (dbProductName == null) return "unknown";
+        String lower = dbProductName.toLowerCase();
+        if (lower.contains("mysql") || lower.contains("mariadb")) return "mysql";
+        if (lower.contains("postgresql") || lower.contains("postgres")) return "postgresql";
+        if (lower.contains("microsoft sql server") || lower.contains("sql server") || lower.contains("mssql")) return "mssql";
+        if (lower.contains("oracle")) return "oracle";
+        return lower;
+    }
+
+    private String extractDatabaseFromOracleUrl(String url) {
+        try {
+            String baseUrl = url;
+            int queryIdx = url.indexOf('?');
+            if (queryIdx > 0) baseUrl = url.substring(0, queryIdx);
+            int atIdx = baseUrl.indexOf('@');
+            if (atIdx < 0) return null;
+            String afterAt = baseUrl.substring(atIdx + 1);
+            if (afterAt.startsWith("//")) {
+                int lastSlash = afterAt.lastIndexOf('/');
+                if (lastSlash > 1) return afterAt.substring(lastSlash + 1);
+            }
+            int lastColon = afterAt.lastIndexOf(':');
+            if (lastColon > 0) {
+                String candidate = afterAt.substring(lastColon + 1);
+                try { Integer.parseInt(candidate); return null; }
+                catch (NumberFormatException e) { return candidate; }
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
         }
     }
     
