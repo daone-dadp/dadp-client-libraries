@@ -30,20 +30,15 @@ import java.util.Base64;
  * @version 3.0.8
  */
 class Java8HttpClientAdapter implements HttpClientAdapter {
-    
+
     private static final DadpLogger log = DadpLoggerFactory.getLogger(Java8HttpClientAdapter.class);
-    
+
     private final int connectTimeout;
     private final int readTimeout;
     private final String caCertPath;
-    
-    /**
-     * DADP CA 인증서 경로 가져오기 (인스턴스 변수만 사용, 시스템 프로퍼티 사용 안 함)
-     */
-    private String getDadpCaCertPath() {
-        return caCertPath != null && !caCertPath.trim().isEmpty() ? caCertPath.trim() : null;
-    }
-    
+    private final SSLContext sslContext;
+    private final javax.net.ssl.HostnameVerifier hostnameVerifier;
+
     /**
      * PEM 형식 인증서를 X.509 인증서로 변환
      */
@@ -55,107 +50,80 @@ class Java8HttpClientAdapter implements HttpClientAdapter {
         CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
         return (X509Certificate) certFactory.generateCertificate(new java.io.ByteArrayInputStream(certBytes));
     }
-    
+
     /**
-     * DADP CA 인증서만 신뢰하는 SSLContext 생성
+     * DADP CA 인증서만 신뢰하는 SSLContext 생성 (초기화 시 1회만 호출)
      */
-    private SSLContext createDadpCaSSLContext() {
-        String certPath = getDadpCaCertPath();
-        if (caCertPath == null) {
-            log.debug("DADP CA 인증서 경로가 설정되지 않음");
+    private static SSLContext createDadpCaSSLContext(String caCertPath) {
+        if (caCertPath == null || caCertPath.trim().isEmpty()) {
             return null;
         }
-        
-        if (certPath == null) {
-            log.debug("DADP CA 인증서 경로가 설정되지 않음");
-            return null;
-        }
-        
+
+        String certPath = caCertPath.trim();
+
         try {
-            // 인증서 파일 존재 확인
             java.nio.file.Path certFilePath = Paths.get(certPath);
             if (!Files.exists(certFilePath)) {
-                log.warn("DADP CA 인증서 파일이 존재하지 않습니다: path={}", certPath);
+                log.warn("DADP CA certificate file not found: path={}", certPath);
                 return null;
             }
-            
-            // PEM 파일 읽기
+
             String pem = new String(Files.readAllBytes(certFilePath), "UTF-8");
-            if (pem == null || pem.trim().isEmpty()) {
-                log.warn("DADP CA 인증서 파일이 비어있습니다: path={}", certPath);
+            if (pem.trim().isEmpty()) {
+                log.warn("DADP CA certificate file is empty: path={}", certPath);
                 return null;
             }
-            
+
             X509Certificate caCert = pemToCertificate(pem);
-            
+
             KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
             trustStore.load(null, null);
             trustStore.setCertificateEntry("dadp-root-ca", caCert);
-            
+
             TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm()
             );
             trustManagerFactory.init(trustStore);
-            
+
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, trustManagerFactory.getTrustManagers(), new java.security.SecureRandom());
-            
-            log.debug("DADP Root CA SSLContext 생성 완료: path={}, subject={}", 
+
+            log.debug("DADP Root CA SSLContext initialized: path={}, subject={}",
                 certPath, caCert.getSubjectX500Principal().getName());
-            
+
             return sslContext;
         } catch (Exception e) {
             String errorMessage = e.getMessage();
             if (errorMessage == null || errorMessage.trim().isEmpty()) {
                 errorMessage = e.getClass().getSimpleName();
             }
-            log.error("DADP CA 인증서로 SSLContext 생성 실패: path={}, error={}", 
+            log.warn("Failed to create SSLContext with DADP CA certificate: path={}, error={}",
                 certPath, errorMessage);
             return null;
         }
     }
-    
+
     /**
-     * HTTPS 연결인 경우 SSL 설정 적용
-     * DADP Root CA만 신뢰하여 DADP에서 발급한 인증서만 검증
+     * HTTPS 연결인 경우 SSL 설정 적용 (캐싱된 SSLContext 사용)
      */
     private void configureSSL(HttpURLConnection conn) {
-        if (conn instanceof HttpsURLConnection) {
+        if (conn instanceof HttpsURLConnection && sslContext != null) {
             HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-            
-            String certPath = getDadpCaCertPath();
-            log.info("SSL 설정 시작: url={}, caCertPath={}", conn.getURL(), certPath);
-            
-            if (certPath == null) {
-                log.error("DADP CA 인증서 경로가 설정되지 않았습니다.");
-                return;
-            }
-            
-            SSLContext sslContext = createDadpCaSSLContext();
-            if (sslContext != null) {
-                httpsConn.setSSLSocketFactory(sslContext.getSocketFactory());
-                httpsConn.setHostnameVerifier((hostname, session) -> {
-                    log.debug("호스트명 검증: hostname={}", hostname);
-                    return true;
-                });
-                log.info("DADP Root CA SSL 설정 적용 완료: url={}", conn.getURL());
-            } else {
-                log.error("DADP CA 인증서로 SSLContext 생성 실패: url={}, caCertPath={}", 
-                    conn.getURL(), certPath);
-            }
-        } else {
-            log.debug("HTTP 연결 (SSL 설정 불필요): url={}", conn.getURL());
+            httpsConn.setSSLSocketFactory(sslContext.getSocketFactory());
+            httpsConn.setHostnameVerifier(hostnameVerifier);
         }
     }
-    
+
     public Java8HttpClientAdapter(int connectTimeout, int readTimeout) {
         this(connectTimeout, readTimeout, null);
     }
-    
+
     public Java8HttpClientAdapter(int connectTimeout, int readTimeout, String caCertPath) {
         this.connectTimeout = connectTimeout;
         this.readTimeout = readTimeout;
         this.caCertPath = caCertPath;
+        this.sslContext = createDadpCaSSLContext(caCertPath);
+        this.hostnameVerifier = (hostname, session) -> true;
     }
     
     @Override

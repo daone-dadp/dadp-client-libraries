@@ -74,7 +74,7 @@ public class CryptoService {
         
         try {
             // Hub/Engine에서 암호화 여부 판단 및 처리
-            String decrypted = directCryptoAdapter.decrypt(encryptedData, maskPolicyName, maskPolicyUid, includeStats);
+            String decrypted = directCryptoAdapter.decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, includeStats);
             
             // null 반환 시 "데이터가 암호화되지 않았습니다" 의미 (원본 데이터 반환)
             if (decrypted == null) {
@@ -109,7 +109,7 @@ public class CryptoService {
             return directCryptoAdapter.batchDecrypt(encryptedDataList, maskPolicyName, maskPolicyUid, includeStats);
         } catch (Exception e) {
             // 예외 발생 시 개별 복호화로 폴백 (상위에서 처리)
-            throw new RuntimeException("배치 복호화 실패: " + e.getMessage(), e);
+            throw new RuntimeException("Batch decryption failed: " + e.getMessage(), e);
         }
     }
     
@@ -127,14 +127,14 @@ public class CryptoService {
         }
         
         if (policyList == null || policyList.size() != dataList.size()) {
-            throw new IllegalArgumentException("정책 목록의 크기가 데이터 목록과 일치하지 않습니다");
+            throw new IllegalArgumentException("Policy list size does not match data list size");
         }
         
         try {
             return directCryptoAdapter.batchEncrypt(dataList, policyList);
         } catch (Exception e) {
             // 예외 발생 시 개별 암호화로 폴백 (상위에서 처리)
-            throw new RuntimeException("배치 암호화 실패: " + e.getMessage(), e);
+            throw new RuntimeException("Batch encryption failed: " + e.getMessage(), e);
         }
     }
     

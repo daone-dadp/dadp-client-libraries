@@ -62,9 +62,9 @@ public class PolicyResolver {
         Map<String, String> storedMappings = storage.loadMappings();
         if (!storedMappings.isEmpty()) {
             policyCache.putAll(storedMappings);
-            log.info("📂 영구 저장소에서 정책 매핑 로드 완료: {}개 매핑", storedMappings.size());
+            log.info("Policy mappings loaded from persistent storage: {} mappings", storedMappings.size());
         } else {
-            log.debug("📋 영구 저장소에 정책 매핑 정보 없음 (Hub에서 로드 예정)");
+            log.debug("No policy mappings in persistent storage (will load from Hub)");
         }
     }
     
@@ -92,14 +92,14 @@ public class PolicyResolver {
         }
         
         // 디버깅: 정책 조회 시도 키 로그 출력
-        log.debug("🔍 정책 조회 시도: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}", 
+        log.trace("Policy lookup: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}",
                 key, datasourceId, schemaName, tableName, columnName);
         
         // Hub에서 로드한 매핑 정보만 사용 (캐시에서 조회)
         String policy = policyCache.get(key);
         
         if (policy != null) {
-            log.debug("✅ 정책 캐시 적중: {} → {}", key, policy);
+            log.trace("Policy cache hit: {} -> {}", key, policy);
             return policy;
         }
         
@@ -109,14 +109,14 @@ public class PolicyResolver {
                 String fallbackKey = schemaName + "." + tableName + "." + columnName;
                 policy = policyCache.get(fallbackKey);
                 if (policy != null) {
-                    log.debug("✅ 정책 캐시 적중 (fallback): {} → {}", fallbackKey, policy);
+                    log.trace("Policy cache hit (fallback): {} -> {}", fallbackKey, policy);
                     return policy;
                 }
             }
             String fallbackKey2 = tableName + "." + columnName;
             policy = policyCache.get(fallbackKey2);
             if (policy != null) {
-                log.debug("✅ 정책 캐시 적중 (fallback2): {} → {}", fallbackKey2, policy);
+                log.trace("Policy cache hit (fallback2): {} -> {}", fallbackKey2, policy);
                 return policy;
             }
         }
@@ -195,7 +195,7 @@ public class PolicyResolver {
      * @param version 정책 버전 (null 가능)
      */
     public void refreshMappings(Map<String, String> mappings, Long version) {
-        log.trace("🔄 정책 매핑 캐시 갱신 시작: {}개 매핑, version={}", mappings.size(), version);
+        log.trace("Policy mapping cache refresh starting: {} mappings, version={}", mappings.size(), version);
         policyCache.clear();
         policyCache.putAll(mappings);
         
@@ -207,12 +207,12 @@ public class PolicyResolver {
         // 영구 저장소에 저장 (Hub 다운 시에도 사용 가능하도록)
         boolean saved = storage.saveMappings(mappings);
         if (saved) {
-            log.info("💾 정책 매핑 정보 영구 저장 완료: {}개 매핑, version={}", mappings.size(), version);
+            log.info("Policy mappings persisted: {} mappings, version={}", mappings.size(), version);
         } else {
-            log.warn("⚠️ 정책 매핑 정보 영구 저장 실패 (메모리 캐시만 사용)");
+            log.warn("Failed to persist policy mappings (using memory cache only)");
         }
         
-        log.trace("✅ 정책 매핑 캐시 갱신 완료");
+        log.trace("Policy mapping cache refresh completed");
     }
     
     /**
@@ -260,7 +260,7 @@ public class PolicyResolver {
             key = tableName + "." + columnName;
         }
         policyCache.put(key, policyName);
-        log.trace("➕ 정책 매핑 추가: {} → {}", key, policyName);
+        log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
     
     /**
@@ -288,7 +288,7 @@ public class PolicyResolver {
             key = tableName + "." + columnName;
         }
         policyCache.remove(key);
-        log.trace("➖ 정책 매핑 제거: {}", key);
+        log.trace("Policy mapping removed: {}", key);
     }
     
     /**
@@ -306,7 +306,7 @@ public class PolicyResolver {
      */
     public void clearCache() {
         policyCache.clear();
-        log.trace("🧹 정책 매핑 캐시 초기화");
+        log.trace("Policy mapping cache cleared");
     }
     
     /**
@@ -318,9 +318,9 @@ public class PolicyResolver {
         if (!storedMappings.isEmpty()) {
             policyCache.clear();
             policyCache.putAll(storedMappings);
-            log.info("📂 영구 저장소에서 정책 매핑 재로드 완료: {}개 매핑", storedMappings.size());
+            log.info("Policy mappings reloaded from persistent storage: {} mappings", storedMappings.size());
         } else {
-            log.warn("⚠️ 영구 저장소에 정책 매핑 정보 없음");
+            log.warn("No policy mappings in persistent storage");
         }
     }
     

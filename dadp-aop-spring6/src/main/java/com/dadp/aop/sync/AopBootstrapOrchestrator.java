@@ -100,25 +100,25 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
     public void onApplicationEvent(ApplicationReadyEvent event) {
         // 1회 실행 보장
         if (!started.compareAndSet(false, true)) {
-            log.debug("⏭️ AopBootstrapOrchestrator는 이미 실행되었습니다.");
+            log.debug("AopBootstrapOrchestrator already executed.");
             return;
         }
         
         // Hub URL이 없으면 실행하지 않음
         String hubUrl = properties.getHubBaseUrl();
         if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            log.debug("⏭️ Hub URL이 설정되지 않아 부팅 플로우를 건너뜁니다.");
+            log.debug("Hub URL not configured, skipping bootstrap flow.");
             return;
         }
         
-        log.info("🚀 AOP 부팅 플로우 오케스트레이터 시작");
+        log.info("AOP bootstrap flow orchestrator started");
         
         // 별도 스레드에서 실행 (애플리케이션 시작을 블로킹하지 않음)
         CompletableFuture.runAsync(() -> {
             try {
                 runBootstrapFlow();
             } catch (Exception e) {
-                log.error("❌ AOP 부팅 플로우 실패: {}", e.getMessage(), e);
+                log.error("AOP bootstrap flow failed: {}", e.getMessage(), e);
             }
         }, java.util.concurrent.ForkJoinPool.commonPool());
     }
@@ -129,21 +129,21 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
     private void runBootstrapFlow() {
         try {
             // 1. 스키마 로드 완료 대기 (게이트)
-            log.info("⏳ 1단계: 스키마 로드 완료 대기");
+            log.info("Step 1: Waiting for schema load to complete");
             CompletableFuture<Void> schemaLoaded = metadataInitializer.awaitLoaded();
-            schemaLoaded.get(30, TimeUnit.SECONDS); // 최대 30초 대기
-            log.info("✅ 스키마 로드 완료");
+            schemaLoaded.get(30, TimeUnit.SECONDS); // wait up to 30 seconds
+            log.info("Schema load completed");
             
             // 1-1. 스키마를 영구저장소에 저장 (정책명 없이)
             saveSchemasToStorage();
             
             // 2. 영구저장소 로드 (hubId, 정책매핑, 버전, URL)
-            log.info("📂 2단계: 영구저장소에서 데이터 로드");
+            log.info("Step 2: Loading data from persistent storage");
             String hubId = loadFromPersistentStorage();
             
             // 3. Hub 버전 체크 및 동기화는 policyMappingSyncService의 checkMappingChange()로 통일
             // 부팅 시에는 hubId만 설정하고, 실제 버전 체크는 policyMappingSyncService가 주기적으로 수행
-            log.info("🔄 3단계: Hub 버전 체크 및 동기화 (policyMappingSyncService에 위임)");
+            log.info("Step 3: Hub version check and sync (delegated to policyMappingSyncService)");
             if (hubId == null) {
                 // hubId가 없으면 스키마와 함께 등록
                 registerWithHub();
@@ -153,7 +153,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             }
             
             initialized = true;
-            log.info("✅ AOP 부팅 플로우 완료: hubId={}, initialized={}", cachedHubId, initialized);
+            log.info("AOP bootstrap flow completed: hubId={}, initialized={}", cachedHubId, initialized);
             
             // AopPolicyMappingSyncService에 초기화 완료 알림
             if (policyMappingSyncService != null) {
@@ -161,7 +161,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             }
             
         } catch (java.util.concurrent.TimeoutException e) {
-            log.warn("⚠️ 스키마 로드 대기 시간 초과 (30초), 계속 진행합니다.");
+            log.warn("Schema load wait timed out (30 seconds), continuing.");
             // 타임아웃이어도 계속 진행
             try {
                 String hubId = loadFromPersistentStorage();
@@ -175,10 +175,10 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                     policyMappingSyncService.setInitialized(true, cachedHubId);
                 }
             } catch (Exception ex) {
-                log.error("❌ 부팅 플로우 실패: {}", ex.getMessage(), ex);
+                log.error("Bootstrap flow failed: {}", ex.getMessage(), ex);
             }
         } catch (Exception e) {
-            log.error("❌ 부팅 플로우 실패: {}", e.getMessage(), e);
+            log.error("Bootstrap flow failed: {}", e.getMessage(), e);
         }
     }
     
@@ -218,16 +218,16 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                     String currentHash = calculateSchemaHash(currentSchemas);
                     
                     if (!storedHash.equals(currentHash)) {
-                        log.info("📋 스키마 변경 감지: 저장된 스키마와 현재 스키마가 다릅니다. (저장: {}개, 현재: {}개)", 
+                        log.info("Schema change detected: stored schema differs from current schema. (stored: {}, current: {})",
                                 storedSchemas.size(), currentSchemas != null ? currentSchemas.size() : 0);
                     } else {
-                        log.info("✅ 스키마 변경 없음: 저장된 스키마와 동일합니다. ({}개)", storedSchemas.size());
+                        log.info("No schema change: stored schema matches current schema. ({})", storedSchemas.size());
                     }
                 } else {
-                    log.debug("📋 영구저장소에 스키마 없음 (첫 실행 또는 Hub에서 동기화 예정)");
+                    log.debug("No schemas in persistent storage (first run or pending Hub sync)");
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 스키마 로드 실패: {}", e.getMessage());
+                log.warn("Schema load failed: {}", e.getMessage());
             }
         }
         
@@ -237,21 +237,21 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                 EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     directCryptoAdapter.setEndpointData(endpointData);
-                    log.info("✅ DirectCryptoAdapter 초기화 완료: cryptoUrl={}, hubId={}, version={}",
+                    log.info("DirectCryptoAdapter initialized: cryptoUrl={}, hubId={}, version={}",
                             endpointData.getCryptoUrl(),
                             endpointData.getHubId(),
                             endpointData.getVersion());
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 엔드포인트 정보 로드 실패: {}", e.getMessage());
+                log.warn("Endpoint data load failed: {}", e.getMessage());
             }
         }
         
         if (hubId != null) {
             cachedHubId = hubId;
-            log.info("✅ 영구저장소에서 hubId 로드 완료: hubId={}", hubId);
+            log.info("hubId loaded from persistent storage: hubId={}", hubId);
         } else {
-            log.info("📋 영구저장소에 hubId 없음 → Hub 등록 시도");
+            log.info("hubId not found in persistent storage -> attempting Hub registration");
         }
         
         return hubId;
@@ -267,7 +267,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             List<SchemaMetadata> currentSchemas = schemaCollector.collectSchemas();
             
             if (currentSchemas == null || currentSchemas.isEmpty()) {
-                log.debug("📋 수집된 스키마가 없어 저장하지 않습니다.");
+                log.debug("No schemas collected, skipping storage.");
                 return;
             }
             
@@ -280,10 +280,10 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             
             // 영구저장소와 비교하여 상태 업데이트
             int updatedCount = schemaStorage.compareAndUpdateSchemas(currentSchemas);
-            log.info("💾 스키마 영구저장소에 저장 및 상태 업데이트 완료: {}개 스키마 업데이트", updatedCount);
-            
+            log.info("Schemas saved to persistent storage and status updated: {} schemas updated", updatedCount);
+
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 저장 실패: {}", e.getMessage());
+            log.warn("Schema storage failed: {}", e.getMessage());
         }
     }
     
@@ -297,17 +297,17 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             // Java 17 버전에서는 getAllMappings() 메서드 사용 가능 (core 라이브러리에 있음)
             Map<String, String> policyMappings = policyResolver.getAllMappings();
             if (policyMappings == null || policyMappings.isEmpty()) {
-                log.debug("📋 업데이트할 정책 매핑이 없음");
+                log.debug("No policy mappings to update");
                 return;
             }
             
             // SchemaStorage의 공통 메서드 사용
             int updatedCount = schemaStorage.updatePolicyNames(policyMappings);
             if (updatedCount > 0) {
-                log.info("✅ 스키마 정책명 업데이트 완료: {}개 스키마", updatedCount);
+                log.info("Schema policy name update completed: {} schemas", updatedCount);
             }
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 정책명 업데이트 실패: {}", e.getMessage());
+            log.warn("Schema policy name update failed: {}", e.getMessage());
         }
     }
     
@@ -351,7 +351,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             
             return hashString.toString();
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 해시 계산 실패, 기본값 사용: {}", e.getMessage());
+            log.warn("Schema hash calculation failed, using default: {}", e.getMessage());
             // 해시 계산 실패 시 타임스탬프 사용 (항상 변경된 것으로 간주)
             return String.valueOf(System.currentTimeMillis());
         }
@@ -364,14 +364,14 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
      */
     private void checkAndSyncWithHub(String hubId) {
         if (mappingSyncService == null) {
-            log.warn("⚠️ MappingSyncService가 없어 Hub 버전 체크를 건너뜁니다.");
+            log.warn("MappingSyncService not available, skipping Hub version check.");
             return;
         }
         
         try {
             // 현재 버전 확인
             Long currentVersion = policyResolver.getCurrentVersion();
-            log.debug("📋 Hub 버전 확인 요청: 현재 버전={}", currentVersion);
+            log.debug("Hub version check request: current version={}", currentVersion);
             
             // 재등록 감지용 배열
             String[] reregisteredHubId = new String[1];
@@ -383,7 +383,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             boolean isReregistered = reregisteredHubId[0] != null;
             if (isReregistered) {
                 String reregisteredHubIdValue = reregisteredHubId[0];
-                log.info("🔄 재등록 발생: hubId={}, 스키마 재전송", reregisteredHubIdValue);
+                log.info("Re-registration detected: hubId={}, resending schemas", reregisteredHubIdValue);
                 
                 // hubId 업데이트
                 String hubUrl = properties.getHubBaseUrl();
@@ -407,7 +407,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             // 버전 체크 결과에 따라 처리
             if (hasChange) {
                 // 200 OK: 버전 변경 -> 갱신
-                log.info("🔄 정책 매핑 변경 감지, Hub에서 최신 정보 로드 시작");
+                log.info("Policy mapping change detected, loading latest data from Hub");
                 
                 // 정책 매핑 동기화 및 버전 업데이트
                 // 정책 매핑의 키가 스키마 정보(table.column)이고, 값이 null이면 스키마는 있지만 정책이 없는 상태
@@ -427,7 +427,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                                 if (directCryptoAdapter != null) {
                                     directCryptoAdapter.setEndpointData(endpointData);
                                 }
-                                log.info("✅ 정책 매핑 및 엔드포인트 동기화 완료: 매핑={}개, cryptoUrl={}, hubId={}, version={}",
+                                log.info("Policy mapping and endpoint sync completed: mappings={}, cryptoUrl={}, hubId={}, version={}",
                                         loadedCount,
                                         endpointData.getCryptoUrl(),
                                         endpointData.getHubId(),
@@ -435,24 +435,24 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                             }
                         }
                     } catch (Exception e) {
-                        log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
+                        log.warn("Endpoint sync failed: {}", e.getMessage());
                     }
                 }
             } else {
                 // 304 Not Modified: 버전 동일 -> 아무것도 하지 않음
-                log.trace("⏭️ 정책 매핑 변경 없음 (version={}, 304 Not Modified)", currentVersion);
+                log.trace("No policy mapping change (version={}, 304 Not Modified)", currentVersion);
             }
             
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             // 404 Not Found: hubId를 찾을 수 없음 -> 등록
             if (e.getStatusCode() == org.springframework.http.HttpStatus.NOT_FOUND) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
+                log.info("hubId not found in Hub (404), performing registration");
                 registerWithHub();
             } else {
-                log.warn("⚠️ Hub 버전 체크 실패: HTTP {}, message={}", e.getStatusCode(), e.getMessage());
+                log.warn("Hub version check failed: HTTP {}, message={}", e.getStatusCode(), e.getMessage());
             }
         } catch (Exception e) {
-            log.warn("⚠️ Hub 버전 체크 실패: {}", e.getMessage());
+            log.warn("Hub version check failed: {}", e.getMessage());
         }
     }
     
@@ -464,31 +464,31 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
         String instanceId = getInstanceId();
         
         // 1단계: 인스턴스 등록 (hubId 발급)
-        log.info("📝 1단계: Hub 인스턴스 등록 시작: instanceId={}", instanceId);
+        log.info("Step 1: Hub instance registration started: instanceId={}", instanceId);
         String hubId = registerInstance(hubUrl, instanceId);
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ Hub 인스턴스 등록 실패");
+            log.warn("Hub instance registration failed");
             return;
         }
-        
-        // hubId 저장
+
+        // Save hubId
         configStorage.saveConfig(hubId, hubUrl, instanceId, null);
         cachedHubId = hubId;
-        log.info("✅ Hub 인스턴스 등록 완료: hubId={}", hubId);
+        log.info("Hub instance registration completed: hubId={}", hubId);
         
         // EndpointSyncService 재생성
         updateEndpointSyncService(hubId, instanceId);
         
         // 2단계: 생성 상태 스키마 전송 (hubId 획득 후)
         if (aopSchemaSyncService == null) {
-            log.warn("⚠️ AopSchemaSyncService가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("AopSchemaSyncService not available, cannot perform schema sync.");
             return;
         }
-        
-        // 생성 상태의 스키마 조회
+
+        // Get schemas in CREATED state
         List<SchemaMetadata> createdSchemas = schemaStorage.getCreatedSchemas();
         if (!createdSchemas.isEmpty()) {
-            log.info("📝 2단계: 생성 상태 스키마 Hub 전송 시작: hubId={}, 스키마 개수={}", hubId, createdSchemas.size());
+            log.info("Step 2: Sending CREATED schemas to Hub: hubId={}, schema count={}", hubId, createdSchemas.size());
             
             // 생성 상태 스키마만 전송 (Hub의 /schemas/sync 엔드포인트 호출)
             boolean synced = syncCreatedSchemasToHub(hubId, createdSchemas);
@@ -501,20 +501,20 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                     }
                 }
                 int updatedCount = schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.REGISTERED);
-                log.info("✅ 생성 상태 스키마 전송 완료 및 상태 업데이트: {}개 스키마 (CREATED -> REGISTERED)", updatedCount);
+                log.info("CREATED schemas sent and status updated: {} schemas (CREATED -> REGISTERED)", updatedCount);
             } else {
-                log.warn("⚠️ 생성 상태 스키마 전송 실패 (Hub 응답 없음)");
+                log.warn("CREATED schemas send failed (no Hub response)");
             }
         } else {
-            log.info("📝 2단계: 생성 상태 스키마 없음, 전체 스키마 동기화 수행: hubId={}", hubId);
-            // 생성 상태 스키마가 없으면 전체 스키마 동기화 (Hub의 /schemas/sync 엔드포인트 호출)
+            log.info("Step 2: No CREATED schemas, performing full schema sync: hubId={}", hubId);
+            // Perform full schema sync if no CREATED schemas exist
             boolean synced = aopSchemaSyncService.syncSchemasToHub();
             if (!synced) {
-                log.warn("⚠️ Hub 스키마 동기화 실패 (Hub 응답 없음)");
+                log.warn("Hub schema sync failed (no Hub response)");
                 return;
             }
-            
-            // Hub의 /schemas/sync 엔드포인트 응답을 받았으므로 모든 스키마를 REGISTERED로 변경
+
+            // Update all schemas to REGISTERED after successful Hub response
             List<SchemaMetadata> allSchemas = schemaStorage.loadSchemas();
             List<String> allSchemaKeys = new java.util.ArrayList<>();
             for (SchemaMetadata schema : allSchemas) {
@@ -524,11 +524,11 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             }
             if (!allSchemaKeys.isEmpty()) {
                 int updatedCount = schemaStorage.updateSchemasStatus(allSchemaKeys, SchemaMetadata.Status.REGISTERED);
-                log.info("✅ 전체 스키마 전송 완료 및 상태 업데이트: {}개 스키마 (REGISTERED)", updatedCount);
+                log.info("Full schema send completed and status updated: {} schemas (REGISTERED)", updatedCount);
             }
         }
-        
-        log.info("✅ Hub 등록 완료: hubId={}", hubId);
+
+        log.info("Hub registration completed: hubId={}", hubId);
         
         // 엔드포인트 정보는 정책 매핑 동기화 시 함께 받아옴 (별도 조회 불필요)
     }
@@ -540,16 +540,16 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
      */
     private void ensureSchemasSyncedToHub(String hubId) {
         if (aopSchemaSyncService == null) {
-            log.warn("⚠️ AopSchemaSyncService가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("AopSchemaSyncService not available, cannot perform schema sync.");
             return;
         }
-        
+
         try {
-            // 영구저장소에서 스키마 로드
+            // Load schemas from persistent storage
             List<SchemaMetadata> storedSchemas = schemaStorage.loadSchemas();
             
             if (storedSchemas == null || storedSchemas.isEmpty()) {
-                log.info("📋 영구저장소에 스키마 없음, 스키마 수집 및 전송");
+                log.info("No schemas in persistent storage, collecting and sending schemas");
                 // 스키마 수집 및 전송
                 AopSchemaCollector schemaCollector = new AopSchemaCollector(metadataInitializer);
                 List<SchemaMetadata> currentSchemas = schemaCollector.collectSchemas();
@@ -595,7 +595,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                 // 저장된 스키마가 있으면 생성 상태 스키마 전송
                 List<SchemaMetadata> createdSchemas = schemaStorage.getCreatedSchemas();
                 if (!createdSchemas.isEmpty()) {
-                    log.info("📝 생성 상태 스키마 Hub 전송: hubId={}, 스키마 개수={}", hubId, createdSchemas.size());
+                    log.info("Sending CREATED schemas to Hub: hubId={}, schema count={}", hubId, createdSchemas.size());
                     boolean synced = syncCreatedSchemasToHub(hubId, createdSchemas);
                     if (synced) {
                         List<String> schemaKeys = new java.util.ArrayList<>();
@@ -605,37 +605,35 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                             }
                         }
                         schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.REGISTERED);
-                        log.info("✅ 생성 상태 스키마 전송 완료 및 상태 업데이트: {}개 스키마", createdSchemas.size());
+                        log.info("CREATED schemas sent and status updated: {} schemas", createdSchemas.size());
                     }
                 } else {
-                    // 생성 상태 스키마가 없으면 REGISTERED 상태 스키마도 전송 (Hub 재배포 등으로 인해 없을 수 있음)
+                    // Also send REGISTERED schemas in case Hub was redeployed
                     List<SchemaMetadata> registeredSchemas = storedSchemas.stream()
                         .filter(s -> s != null && SchemaMetadata.Status.REGISTERED.equals(s.getStatus()))
                         .collect(java.util.stream.Collectors.toList());
-                    
+
                     if (!registeredSchemas.isEmpty()) {
-                        log.info("📝 REGISTERED 상태 스키마 Hub 재전송 (Hub 재배포 등으로 인해 없을 수 있음): hubId={}, 스키마 개수={}", 
+                        log.info("Re-sending REGISTERED schemas to Hub (Hub may have been redeployed): hubId={}, schema count={}",
                                 hubId, registeredSchemas.size());
-                        // Hub 등록 엔드포인트 응답을 받은 후에만 REGISTERED 유지
                         boolean synced = syncCreatedSchemasToHub(hubId, registeredSchemas);
                         if (synced) {
-                            // Hub의 /schemas/sync 엔드포인트 응답을 받았으므로 REGISTERED 상태 유지
-                            log.info("✅ REGISTERED 상태 스키마 재전송 완료: {}개 스키마", registeredSchemas.size());
+                            log.info("REGISTERED schemas re-send completed: {} schemas", registeredSchemas.size());
                         } else {
-                            // 전송 실패 시 CREATED로 변경하여 재시도 가능하도록
+                            // On failure, revert to CREATED for retry
                             List<String> schemaKeys = registeredSchemas.stream()
                                 .map(SchemaMetadata::getKey)
                                 .collect(java.util.stream.Collectors.toList());
                             schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.CREATED);
-                            log.warn("⚠️ REGISTERED 상태 스키마 재전송 실패, CREATED로 변경: {}개 스키마", registeredSchemas.size());
+                            log.warn("REGISTERED schemas re-send failed, reverting to CREATED: {} schemas", registeredSchemas.size());
                         }
                     } else {
-                        log.debug("📋 전송할 스키마 없음, Hub에 이미 동기화된 것으로 간주");
+                        log.debug("No schemas to send, assumed already synced with Hub");
                     }
                 }
             }
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 동기화 확인 실패: {}", e.getMessage());
+            log.warn("Schema sync check failed: {}", e.getMessage());
         }
     }
     
@@ -655,7 +653,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
             // 특정 스키마만 전송
             return aopSchemaSyncService.syncSpecificSchemasToHub(createdSchemas);
         } catch (Exception e) {
-            log.warn("⚠️ 생성 상태 스키마 전송 실패: {}", e.getMessage());
+            log.warn("CREATED schemas send failed: {}", e.getMessage());
             return false;
         }
     }
@@ -700,21 +698,21 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
                         java.util.Map<String, Object> data = (java.util.Map<String, Object>) dataObj;
                         String hubId = (String) data.get("hubId");
                         if (hubId != null && !hubId.trim().isEmpty()) {
-                            log.info("✅ Hub 인스턴스 등록 성공: hubId={}, instanceId={}", hubId, instanceId);
+                            log.info("Hub instance registration succeeded: hubId={}, instanceId={}", hubId, instanceId);
                             return hubId;
                         }
                     }
                 }
             }
-            
-            log.warn("⚠️ Hub 인스턴스 등록 실패: 응답 형식 오류");
+
+            log.warn("Hub instance registration failed: invalid response format");
             return null;
         } catch (Exception e) {
-            log.warn("⚠️ Hub 인스턴스 등록 실패: {}", e.getMessage());
+            log.warn("Hub instance registration failed: {}", e.getMessage());
             return null;
         }
     }
-    
+
     /**
      * EndpointSyncService 재생성 (hubId 업데이트)
      */
@@ -723,7 +721,7 @@ public class AopBootstrapOrchestrator implements ApplicationListener<Application
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             properties.getHubBaseUrl(), hubId, instanceId, storageDir, fileName);
-        log.info("🔄 EndpointSyncService 재생성 완료: hubId={}", hubId);
+        log.info("EndpointSyncService recreated: hubId={}", hubId);
         
         // AopPolicyMappingSyncService의 endpointSyncService도 업데이트
         if (policyMappingSyncService != null) {

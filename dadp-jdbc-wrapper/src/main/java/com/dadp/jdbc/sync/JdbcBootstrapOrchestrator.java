@@ -10,6 +10,7 @@ import com.dadp.common.sync.mapping.MappingSyncService;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.schema.SchemaMetadata;
 import com.dadp.common.sync.schema.SchemaStorage;
+import com.dadp.jdbc.config.ExportedConfigLoader;
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -138,7 +139,7 @@ public class JdbcBootstrapOrchestrator {
             (oldHubId, newHubId) -> {
                 // hubId 변경 시 MappingSyncService 재생성
                 if (newHubId != null && !newHubId.equals(oldHubId)) {
-                    log.debug("🔄 hubId 변경 감지: {} -> {}, MappingSyncService 재생성", oldHubId, newHubId);
+                    log.debug("hubId changed: {} -> {}, recreating MappingSyncService", oldHubId, newHubId);
                     initializeServicesWithHubId(newHubId);
                 }
             }
@@ -203,10 +204,10 @@ public class JdbcBootstrapOrchestrator {
                 if (storedDatabase == null || storedDatabase.trim().isEmpty()) {
                     storedDatabase = storedSchema; // 스키마를 database로 사용
                 }
-                log.debug("Oracle database 대체값 설정: {}", storedDatabase);
+                log.debug("Oracle database fallback value set: {}", storedDatabase);
             }
         } catch (Exception e) {
-            log.debug("메타데이터 추출 실패 (무시): {}", e.getMessage());
+            log.debug("Metadata extraction failed (ignored): {}", e.getMessage());
         }
     }
     
@@ -231,7 +232,7 @@ public class JdbcBootstrapOrchestrator {
         AtomicBoolean instanceStarted = instanceStartedMap.computeIfAbsent(instanceId, k -> new AtomicBoolean(false));
         
         if (!instanceStarted.compareAndSet(false, true)) {
-            log.trace("⏭️ JdbcBootstrapOrchestrator는 이미 실행되었습니다 (instanceId={})", instanceId);
+            log.trace("JdbcBootstrapOrchestrator already executed (instanceId={})", instanceId);
             // 이미 실행된 경우: 서비스는 첫 부팅에서 이미 초기화됨. 재초기화하지 않음 (커넥션마다 HubNotificationService 등 중복 생성 방지)
             String loadedHubId = hubIdManager.loadFromStorage();
             if (loadedHubId != null && !loadedHubId.trim().isEmpty()) {
@@ -245,7 +246,7 @@ public class JdbcBootstrapOrchestrator {
                             this.cachedDatasourceId = cached;
                         }
                     } catch (Exception e) {
-                        log.debug("datasourceId 로드 실패 (무시): {}", e.getMessage());
+                        log.debug("datasourceId load failed (ignored): {}", e.getMessage());
                     }
                 }
                 return true;
@@ -256,7 +257,7 @@ public class JdbcBootstrapOrchestrator {
         
         // 인스턴스별 실행 플래그도 설정
         if (!started.compareAndSet(false, true)) {
-            log.trace("⏭️ 이 인스턴스는 이미 실행되었습니다.");
+            log.trace("This instance has already been executed.");
             return initialized;
         }
         
@@ -264,38 +265,57 @@ public class JdbcBootstrapOrchestrator {
             // Hub URL이 없으면 실행하지 않음
             String hubUrl = config.getHubUrl();
             if (hubUrl == null || hubUrl.trim().isEmpty()) {
-                log.debug("⏭️ Hub URL이 설정되지 않아 부팅 플로우를 건너뜁니다.");
+                log.debug("Hub URL not configured, skipping bootstrap flow.");
                 return false;
             }
             
-            log.info("🚀 JDBC Wrapper 부팅 플로우 오케스트레이터 시작");
+            log.info("JDBC Wrapper bootstrap flow orchestrator starting");
             
             // Connection에서 메타데이터 추출·저장 (재등록·이미 실행됨 분기에서 Connection 없이 사용)
             storeMetadataFrom(connection);
             
             // 1. DB 스키마 1회 수집 (호출 시점에 Connection 전달, 필드로 보관하지 않음)
-            log.info("⏳ 1단계: DB 스키마 수집 (1회)");
+            log.info("Step 1: DB schema collection (one-time)");
             List<SchemaMetadata> currentSchemas = schemaSyncService.collectSchemasWithRetry(connection, 5, 2000);
             if (currentSchemas == null || currentSchemas.isEmpty()) {
-                log.warn("⚠️ 스키마 수집 실패 또는 0개 (fail-open 모드로 계속 진행)");
+                log.warn("Schema collection failed or returned 0 (continuing in fail-open mode)");
             } else {
-                log.info("✅ 스키마 수집 완료: {}개", currentSchemas.size());
+                log.info("Schema collection completed: {} schemas", currentSchemas.size());
             }
             
             // 2. 영구저장소 로드 (hubId, 정책매핑, 엔드포인트, 스키마 목록, datasourceId 등)
-            log.info("📂 2단계: 영구저장소에서 데이터 로드");
+            log.info("Step 2: Loading data from persistent storage");
             String hubId = hubIdManager.loadFromStorage();
             loadOtherDataFromPersistentStorage();
             
+            // 2.5. Try loading from exported config file (initial bootstrap or policy update)
+            // ExportedConfigLoader internally compares policyVersion and skips if current >= file
+            {
+                String storageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+                String exportedDatasourceId = ExportedConfigLoader.loadIfExists(
+                    storageDir,
+                    instanceId,
+                    hubIdManager,
+                    policyResolver,
+                    endpointStorage
+                );
+                if (exportedDatasourceId != null) {
+                    hubId = hubIdManager.getCachedHubId();
+                    this.cachedDatasourceId = exportedDatasourceId;
+                    log.info("Step 2.5: Applied exported config: hubId={}, datasourceId={}",
+                            hubId, exportedDatasourceId);
+                }
+            }
+
             // 3. 영구저장소 DB 스키마 vs 1단계 수집 결과 비교 (생성/등록/삭제 판단), 저장
             if (currentSchemas != null && !currentSchemas.isEmpty()) {
                 saveSchemasToStorage(currentSchemas);
             }
-            
+
             // 3. Hub 등록 및 스키마 등록 (hubId가 없으면 등록, 있으면 스키마만 동기화)
-            log.info("🔄 3단계: Hub 등록 및 스키마 등록");
+            log.info("Step 3: Hub registration and schema registration");
             boolean schemaRegistrationCompleted = false;
-            
+
             if (hubId == null) {
                 // hubId가 없으면 Datasource 등록 및 스키마 등록
                 schemaRegistrationCompleted = registerWithHub();
@@ -309,14 +329,14 @@ public class JdbcBootstrapOrchestrator {
                 // 재등록이 발생했다면 HubIdManager에서 최신 hubId 가져오기
                 String newHubId = hubIdManager.getCachedHubId();
                 if (newHubId != null && !newHubId.equals(oldHubId)) {
-                    log.info("🔄 재등록으로 인한 hubId 변경: {} -> {}", oldHubId, newHubId);
+                    log.info("hubId changed due to re-registration: {} -> {}", oldHubId, newHubId);
                     hubId = newHubId;
                 }
             }
             
             // hubId가 없으면 다음 단계 진행 불가
             if (hubId == null || hubId.trim().isEmpty()) {
-                log.warn("⚠️ hubId가 없어 서비스를 초기화할 수 없습니다.");
+                log.warn("Cannot initialize services without hubId.");
                 initialized = false;
                 return false;
             }
@@ -326,12 +346,12 @@ public class JdbcBootstrapOrchestrator {
             
             // 4. 서비스 초기화 (hubId가 있으면 암복호화 서비스는 항상 초기화)
             // 중요: Hub 등록이 실패해도 저장된 hubId와 엔드포인트 정보로 암복호화는 가능해야 함
-            log.info("🔄 4단계: 서비스 초기화 (Hub 등록 실패 여부와 무관하게 암복호화 서비스 초기화)");
+            log.info("Step 4: Service initialization (crypto service initialized regardless of Hub registration result)");
             initializeServicesWithHubId(hubId);
             
             // 5. 정책 매핑 동기화 서비스 초기화 (스키마 등록이 완료된 경우에만)
             if (schemaRegistrationCompleted) {
-                log.info("🔄 5단계: 정책 매핑 동기화 서비스 초기화");
+                log.info("Step 5: Policy mapping sync service initialization");
                 initializePolicyMappingSyncService(hubId);
                 
                 // 6. 스키마 등록 완료 후 정책 매핑 동기화 서비스 활성화 (30초 주기 버전 체크 시작)
@@ -339,13 +359,13 @@ public class JdbcBootstrapOrchestrator {
                 if (policyMappingSyncService != null) {
                     policyMappingSyncService.setInitialized(true, hubId);
                 }
-                log.info("✅ JDBC Wrapper 부팅 플로우 완료: hubId={}, datasourceId={}", hubIdManager.getCachedHubId(), cachedDatasourceId);
+                log.info("JDBC Wrapper bootstrap flow completed: hubId={}, datasourceId={}", hubIdManager.getCachedHubId(), cachedDatasourceId);
             } else {
                 // Hub 등록이 실패했지만 저장된 hubId로 암복호화 서비스는 초기화됨
                 // 정책 매핑 동기화는 나중에 Hub 연결이 복구되면 재시도됨
-                log.warn("⚠️ Hub 등록 실패: 암복호화 서비스는 초기화되었지만 정책 매핑 동기화는 시작하지 않습니다. Hub 연결 복구 후 재시도됩니다.");
+                log.warn("Hub registration failed: crypto service initialized but policy mapping sync not started. Will retry when Hub connection is restored.");
                 initialized = true; // 암복호화 서비스는 사용 가능하므로 초기화 완료로 간주
-                log.info("✅ JDBC Wrapper 부팅 플로우 완료 (제한적): hubId={}, datasourceId={}, 암복호화 사용 가능", 
+                log.info("JDBC Wrapper bootstrap flow completed (limited): hubId={}, datasourceId={}, crypto available",
                         hubIdManager.getCachedHubId(), cachedDatasourceId);
             }
             return true;
@@ -357,7 +377,7 @@ public class JdbcBootstrapOrchestrator {
             if (errorMessage == null || errorMessage.trim().isEmpty()) {
                 errorMessage = e.getClass().getSimpleName();
             }
-            log.warn("⚠️ 부팅 플로우 실패: {}", errorMessage);
+            log.warn("Bootstrap flow failed: {}", errorMessage);
             return false;
         }
     }
@@ -369,20 +389,20 @@ public class JdbcBootstrapOrchestrator {
         // PolicyResolver는 싱글톤이므로 이미 로드됨
         Long loadedPolicyVersion = policyResolver.getCurrentVersion();
         if (loadedPolicyVersion != null) {
-            log.info("📂 영구저장소에서 정책 매핑 로드 완료: version={}", loadedPolicyVersion);
+            log.debug("Policy mappings loaded from persistent storage: version={}", loadedPolicyVersion);
         }
         
         // EndpointStorage에서 엔드포인트 정보 로드
         EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
         if (endpointData != null) {
-            log.info("📂 영구저장소에서 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}", 
+            log.debug("Endpoint info loaded from persistent storage: cryptoUrl={}, hubId={}, version={}",
                     endpointData.getCryptoUrl(), endpointData.getHubId(), endpointData.getVersion());
         }
         
         // SchemaStorage에서 스키마 로드
         List<SchemaMetadata> storedSchemas = schemaStorage.loadSchemas();
         if (!storedSchemas.isEmpty()) {
-            log.info("📂 영구저장소에서 스키마 로드 완료: {}개", storedSchemas.size());
+            log.debug("Schemas loaded from persistent storage: {} schemas", storedSchemas.size());
         }
         
         // DatasourceStorage에서 datasourceId 로드 (저장된 메타데이터 사용, Connection 없음)
@@ -392,10 +412,10 @@ public class JdbcBootstrapOrchestrator {
                     storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
                 if (cached != null && !cached.trim().isEmpty()) {
                     this.cachedDatasourceId = cached;
-                    log.info("✅ 저장된 datasourceId 로드: datasourceId={}", this.cachedDatasourceId);
+                    log.debug("Stored datasourceId loaded: datasourceId={}", this.cachedDatasourceId);
                 }
             } catch (Exception e) {
-                log.warn("⚠️ datasourceId 로드 실패: {}", e.getMessage());
+                log.warn("Failed to load datasourceId: {}", e.getMessage());
             }
         }
     }
@@ -409,23 +429,23 @@ public class JdbcBootstrapOrchestrator {
         String instanceId = instanceIdProvider.getInstanceId();
         
         // V1 API: Datasource 등록 (인증서 확인/다운로드 없음, HTTP Hub 또는 기본 신뢰 저장소 사용)
-        log.info("📝 Hub Datasource 등록 시작: instanceId={}", instanceId);
+        log.info("Hub Datasource registration starting: instanceId={}", instanceId);
         DatasourceRegistrationService.DatasourceInfo datasourceInfo = registerDatasource(null);
         if (datasourceInfo == null) {
-            log.warn("⚠️ Datasource 등록 실패: Hub 연결 불가 또는 응답 오류");
+            log.warn("Datasource registration failed: Hub unreachable or response error");
             return false;
         }
         
         // hubId와 datasourceId 저장
         String hubId = datasourceInfo.getHubId();
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ Datasource 등록 응답에 hubId가 없습니다");
+            log.warn("Datasource registration response missing hubId");
             return false;
         }
         
         // HubIdManager에 hubId 설정 (전역 관리, 영구저장소에 자동 저장)
         hubIdManager.setHubId(hubId, true);
-        log.info("✅ Hub Datasource 등록 완료: hubId={}, datasourceId={}", hubId, datasourceInfo.getDatasourceId());
+        log.info("Hub Datasource registration completed: hubId={}, datasourceId={}", hubId, datasourceInfo.getDatasourceId());
         
         // EndpointSyncService 초기화 (instanceId를 사용하여 경로 생성)
         String endpointStorageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
@@ -452,7 +472,7 @@ public class JdbcBootstrapOrchestrator {
                 3000,   // initialDelayMs
                 2000    // backoffMs
             );
-            log.debug("✅ datasourceId 설정 후 schemaCollector 재생성: datasourceId={}", cachedDatasourceId);
+            log.debug("schemaCollector recreated after datasourceId set: datasourceId={}", cachedDatasourceId);
         }
         
         // 저장된 스키마에 datasourceId 업데이트 (Datasource 등록 전에 저장된 스키마에 datasourceId가 없을 수 있음)
@@ -467,20 +487,20 @@ public class JdbcBootstrapOrchestrator {
             }
             if (needsUpdate) {
                 schemaStorage.saveSchemas(allStoredSchemas);
-                log.info("✅ 저장된 스키마에 datasourceId 업데이트 완료: datasourceId={}, 스키마 개수={}", 
+                log.info("Stored schemas updated with datasourceId: datasourceId={}, schemaCount={}",
                     cachedDatasourceId, allStoredSchemas.size());
             }
         }
         
         // 3단계: 생성 상태 스키마 전송 (AOP와 동일한 구조)
         if (schemaSyncService == null) {
-            log.warn("⚠️ JdbcSchemaSyncService가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("JdbcSchemaSyncService unavailable, cannot perform schema sync.");
             return false;
         }
         
         List<SchemaMetadata> createdSchemas = schemaStorage.getCreatedSchemas();
         if (!createdSchemas.isEmpty()) {
-            log.info("📝 3단계: 생성 상태 스키마 Hub 전송 시작: hubId={}, 스키마 개수={}", hubId, createdSchemas.size());
+            log.info("Step 3: Sending CREATED schemas to Hub: hubId={}, schemaCount={}", hubId, createdSchemas.size());
             boolean synced = syncCreatedSchemasToHub(hubId, createdSchemas);
             if (synced) {
                 // Hub의 /schemas/sync 엔드포인트 응답을 받았으므로 REGISTERED로 변경
@@ -491,16 +511,16 @@ public class JdbcBootstrapOrchestrator {
                     }
                 }
                 int updatedCount = schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.REGISTERED);
-                log.info("✅ 생성 상태 스키마 전송 완료 및 상태 업데이트: {}개 스키마 (CREATED -> REGISTERED)", updatedCount);
-                log.info("✅ Hub 등록 완료: hubId={}", hubId);
+                log.info("CREATED schemas sent and status updated: {} schemas (CREATED -> REGISTERED)", updatedCount);
+                log.info("Hub registration completed: hubId={}", hubId);
                 return true;  // 스키마 등록 성공
             } else {
-                log.warn("⚠️ 생성 상태 스키마 전송 실패 (Hub 응답 없음)");
+                log.warn("CREATED schemas send failed (no Hub response)");
                 return false;  // 스키마 등록 실패
             }
         } else {
-            log.info("📝 3단계: 생성 상태 스키마 없음 (이미 등록된 스키마만 존재)");
-        log.info("✅ Hub 등록 완료: hubId={}", hubId);
+            log.info("Step 3: No CREATED schemas (only already-registered schemas exist)");
+        log.info("Hub registration completed: hubId={}", hubId);
             return true;  // 등록할 스키마가 없으면 완료로 간주
         }
         
@@ -520,7 +540,7 @@ public class JdbcBootstrapOrchestrator {
         // V1 API는 인스턴스 등록과 datasource 등록을 동시에 처리하므로,
         // 이 메서드는 사용하지 않고 registerDatasource()에서만 처리
         // registerDatasource()에서 hubId를 받아옴
-        log.warn("⚠️ registerInstance()는 더 이상 사용되지 않습니다. registerDatasource()에서 hubId를 받아옵니다.");
+        log.warn("registerInstance() is deprecated. Use registerDatasource() to obtain hubId.");
             return null;
     }
     
@@ -534,7 +554,7 @@ public class JdbcBootstrapOrchestrator {
         try {
             // 저장된 메타데이터 사용 (재등록·첫 부팅 모두, Connection 필드 없음)
             if (!hasStoredMetadata()) {
-                log.warn("⚠️ 저장된 메타데이터 없음: registerDatasource 건너뜀");
+                log.warn("No stored metadata: skipping registerDatasource");
                 return null;
             }
             String dbVendor = storedDbVendor;
@@ -557,7 +577,7 @@ public class JdbcBootstrapOrchestrator {
             );
             
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
-                log.info("✅ Datasource 등록 완료: datasourceId={}, displayName={}, hubId={}", 
+                log.info("Datasource registration completed: datasourceId={}, displayName={}, hubId={}",
                     datasourceInfo.getDatasourceId(), datasourceInfo.getDisplayName(), datasourceInfo.getHubId());
                 
                 // datasourceId 저장
@@ -565,12 +585,12 @@ public class JdbcBootstrapOrchestrator {
                 
                 return datasourceInfo;
             } else {
-                log.warn("⚠️ Datasource 등록 실패: Hub 연결 불가 또는 응답이 null. hubUrl={}, instanceId={}",
+                log.warn("Datasource registration failed: Hub unreachable or null response. hubUrl={}, instanceId={}",
                     config.getHubUrl(), instanceIdProvider.getInstanceId());
                 return null;
             }
         } catch (Exception e) {
-            log.warn("⚠️ Datasource 등록 실패: hubUrl={}, instanceId={}, error={}", 
+            log.warn("Datasource registration failed: hubUrl={}, instanceId={}, error={}",
                 config.getHubUrl(), instanceIdProvider.getInstanceId(), e.getMessage());
             return null;
         }
@@ -589,7 +609,7 @@ public class JdbcBootstrapOrchestrator {
      * @return 인증서 파일 경로 (검증 완료 시 경로, 없거나 실패 시 null)
      */
     private String ensureRootCACertificate(String hubUrl, String instanceId) {
-        log.info("🔐 Root CA 인증서 확인 시작: hubUrl={}, instanceId={}", hubUrl, instanceId);
+        log.info("Root CA certificate verification starting: hubUrl={}, instanceId={}", hubUrl, instanceId);
         
         // DADP_CA_CERT_PATH가 수동으로 설정되어 있으면 그것을 사용 (최우선)
         String manualCaCertPath = System.getProperty("dadp.ca.cert.path");
@@ -601,14 +621,14 @@ public class JdbcBootstrapOrchestrator {
             java.nio.file.Path certPath = java.nio.file.Paths.get(manualCaCertPath);
             if (java.nio.file.Files.exists(certPath)) {
                 if (validateRootCACertificate(certPath)) {
-                    log.info("✅ 수동 설정된 Root CA 인증서 검증 완료: path={}", manualCaCertPath);
+                    log.info("Manually configured Root CA certificate verified: path={}", manualCaCertPath);
                     return manualCaCertPath;
                 } else {
-                    log.warn("⚠️ 수동 설정된 Root CA 인증서 검증 실패: path={}", manualCaCertPath);
+                    log.warn("Manually configured Root CA certificate verification failed: path={}", manualCaCertPath);
                     return null;
                 }
             } else {
-                log.warn("⚠️ 수동 설정된 Root CA 인증서 파일이 존재하지 않습니다: path={}", manualCaCertPath);
+                log.warn("Manually configured Root CA certificate file does not exist: path={}", manualCaCertPath);
                 return null;
             }
         }
@@ -617,37 +637,37 @@ public class JdbcBootstrapOrchestrator {
             System.getProperty("user.dir"), "dadp", "wrapper", instanceId);
         java.nio.file.Path caCertPath = wrapperDir.resolve("dadp-root-ca.crt");
         
-        log.debug("Root CA 인증서 저장 경로: {}", caCertPath.toAbsolutePath());
+        log.debug("Root CA certificate storage path: {}", caCertPath.toAbsolutePath());
         
         try {
             // 저장소에 인증서 확인 (다운로드 없음)
             boolean certExists = java.nio.file.Files.exists(caCertPath);
             
             if (certExists) {
-                log.info("📂 저장소에서 Root CA 인증서 발견: path={}", caCertPath);
+                log.info("Root CA certificate found in storage: path={}", caCertPath);
             } else {
-                log.info("📂 저장소에 Root CA 인증서가 없습니다 (수동 설정 또는 파일 배치 필요): path={}", caCertPath);
+                log.info("Root CA certificate not found in storage (manual config or file placement required): path={}", caCertPath);
                 return null;
             }
             
             // 검증
             if (validateRootCACertificate(caCertPath)) {
                 String certPathStr = caCertPath.toAbsolutePath().toString();
-                log.info("✅ Root CA 인증서 검증 완료: path={}", certPathStr);
+                log.info("Root CA certificate verified: path={}", certPathStr);
                 
                 if (verifySSLContextCreation(certPathStr)) {
-                    log.info("✅ Root CA 인증서로 SSLContext 생성 검증 완료: path={}", certPathStr);
+                    log.info("SSLContext creation verified with Root CA certificate: path={}", certPathStr);
                     return certPathStr;
                 } else {
-                    log.warn("⚠️ Root CA 인증서로 SSLContext 생성 실패: path={}", certPathStr);
+                    log.warn("SSLContext creation failed with Root CA certificate: path={}", certPathStr);
                     return null;
                 }
             } else {
-                log.warn("⚠️ Root CA 인증서 검증 실패: path={}", caCertPath);
+                log.warn("Root CA certificate verification failed: path={}", caCertPath);
                 try {
                     java.nio.file.Files.deleteIfExists(caCertPath);
                 } catch (Exception deleteEx) {
-                    log.warn("⚠️ Root CA 인증서 파일 삭제 실패: error={}", deleteEx.getMessage());
+                    log.warn("Failed to delete Root CA certificate file: error={}", deleteEx.getMessage());
                 }
                 return null;
             }
@@ -657,7 +677,7 @@ public class JdbcBootstrapOrchestrator {
             if (errorMessage == null || errorMessage.trim().isEmpty()) {
                 errorMessage = e.getClass().getSimpleName();
             }
-            log.warn("⚠️ Root CA 인증서 설정 실패: error={}", errorMessage);
+            log.warn("Root CA certificate setup failed: error={}", errorMessage);
             return null;
         }
     }
@@ -675,7 +695,7 @@ public class JdbcBootstrapOrchestrator {
             // 인증서 파일 읽기
             String pem = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caCertPath)), "UTF-8");
             if (pem == null || pem.trim().isEmpty()) {
-                log.warn("⚠️ SSLContext 생성 검증 실패: 인증서 파일이 비어있습니다");
+                log.warn("SSLContext creation verification failed: certificate file is empty");
                 return false;
             }
             
@@ -713,7 +733,7 @@ public class JdbcBootstrapOrchestrator {
             if (errorMessage == null || errorMessage.trim().isEmpty()) {
                 errorMessage = e.getClass().getSimpleName();
             }
-            log.warn("⚠️ SSLContext 생성 검증 실패: error={}", errorMessage);
+            log.warn("SSLContext creation verification failed: error={}", errorMessage);
             return false;
         }
     }
@@ -729,7 +749,7 @@ public class JdbcBootstrapOrchestrator {
             // 파일 읽기
             String pem = new String(java.nio.file.Files.readAllBytes(certPath), "UTF-8");
             if (pem == null || pem.trim().isEmpty()) {
-                log.warn("Root CA 인증서 파일이 비어있습니다");
+                log.warn("Root CA certificate file is empty");
                 return false;
             }
             
@@ -739,7 +759,7 @@ public class JdbcBootstrapOrchestrator {
                                     .replaceAll("\\s", "");
             
             if (certContent.isEmpty()) {
-                log.warn("Root CA 인증서 PEM 형식이 올바르지 않습니다");
+                log.warn("Root CA certificate PEM format is invalid");
                 return false;
             }
             
@@ -753,20 +773,20 @@ public class JdbcBootstrapOrchestrator {
             // 유효기간 검증
             cert.checkValidity();
             
-            log.debug("✅ Root CA 인증서 검증 완료: Subject={}, Valid From={}, Valid To={}", 
+            log.debug("Root CA certificate verified: Subject={}, Valid From={}, Valid To={}",
                 cert.getSubjectX500Principal().getName(),
                 cert.getNotBefore(),
                 cert.getNotAfter());
             
             return true;
         } catch (java.security.cert.CertificateExpiredException e) {
-            log.warn("Root CA 인증서가 만료되었습니다: {}", e.getMessage());
+            log.warn("Root CA certificate has expired: {}", e.getMessage());
             return false;
         } catch (java.security.cert.CertificateNotYetValidException e) {
-            log.warn("Root CA 인증서가 아직 유효하지 않습니다: {}", e.getMessage());
+            log.warn("Root CA certificate is not yet valid: {}", e.getMessage());
             return false;
         } catch (Exception e) {
-            log.warn("Root CA 인증서 검증 실패: error={}", e.getMessage());
+            log.warn("Root CA certificate validation failed: error={}", e.getMessage());
             return false;
         }
     }
@@ -778,7 +798,7 @@ public class JdbcBootstrapOrchestrator {
      */
     private void saveSchemasToStorage(List<SchemaMetadata> currentSchemas) {
         if (currentSchemas == null || currentSchemas.isEmpty()) {
-            log.debug("📋 수집된 스키마가 없어 저장하지 않습니다.");
+            log.debug("No collected schemas to save.");
             return;
         }
         try {
@@ -791,9 +811,9 @@ public class JdbcBootstrapOrchestrator {
                 }
             }
             int updatedCount = schemaStorage.compareAndUpdateSchemas(currentSchemas);
-            log.info("💾 스키마 영구저장소에 저장 및 상태 업데이트 완료: {}개 스키마 업데이트", updatedCount);
+            log.info("Schemas saved to persistent storage and status updated: {} schemas updated", updatedCount);
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 저장 실패: {}", e.getMessage());
+            log.warn("Schema save failed: {}", e.getMessage());
         }
     }
     
@@ -807,7 +827,7 @@ public class JdbcBootstrapOrchestrator {
         // 생성 상태 스키마 전송
         List<SchemaMetadata> createdSchemas = schemaStorage.getCreatedSchemas();
         if (!createdSchemas.isEmpty()) {
-            log.info("📝 생성 상태 스키마 Hub 전송: hubId={}, 스키마 개수={}", hubId, createdSchemas.size());
+            log.info("Sending CREATED schemas to Hub: hubId={}, schemaCount={}", hubId, createdSchemas.size());
             boolean synced = syncCreatedSchemasToHub(hubId, createdSchemas);
             if (synced) {
                 // Hub의 /schemas/sync 엔드포인트 응답을 받았으므로 REGISTERED로 변경
@@ -818,25 +838,25 @@ public class JdbcBootstrapOrchestrator {
                     }
                 }
                 schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.REGISTERED);
-                log.info("✅ 생성 상태 스키마 전송 완료 및 상태 업데이트: {}개 스키마 (CREATED -> REGISTERED)", 
+                log.info("CREATED schemas sent and status updated: {} schemas (CREATED -> REGISTERED)",
                         createdSchemas.size());
                 return true;  // 스키마 등록 성공
             } else {
                 // 스키마 전송 실패: 404 응답 가능성 -> 재등록 필요
-                log.info("🔄 생성 상태 스키마 전송 실패 (404 가능성): hubId={}, 재등록 시도", hubId);
+                log.info("CREATED schemas send failed (possible 404): hubId={}, attempting re-registration", hubId);
                 boolean reRegistered = registerWithHub();
                 if (reRegistered) {
                     String newHubId = hubIdManager.getCachedHubId(); // HubIdManager에서 최신 hubId 가져오기
-                    log.info("✅ 재등록 완료: 새로운 hubId={}", newHubId);
+                    log.info("Re-registration completed: new hubId={}", newHubId);
                     // 재등록 후 스키마 재전송 시도
                     return ensureSchemasSyncedToHub(newHubId);
                 } else {
-                    log.warn("⚠️ 재등록 실패");
+                    log.warn("Re-registration failed");
                     return false;
                 }
             }
         } else {
-            log.debug("📋 전송할 스키마 없음, Hub에 이미 동기화된 것으로 간주");
+            log.debug("No schemas to send, assumed already synced with Hub");
             return true;  // 등록할 스키마가 없으면 완료로 간주
         }
     }
@@ -854,7 +874,7 @@ public class JdbcBootstrapOrchestrator {
             for (SchemaMetadata schema : createdSchemas) {
                 if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
                     schema.setDatasourceId(cachedDatasourceId);
-                    log.info("✅ 전송 전 스키마에 datasourceId 설정: schema={}.{}.{}, datasourceId={}", 
+                    log.trace("Set datasourceId on schema before sending: schema={}.{}.{}, datasourceId={}",
                         schema.getSchemaName(), schema.getTableName(), schema.getColumnName(), cachedDatasourceId);
                 }
             }
@@ -868,7 +888,7 @@ public class JdbcBootstrapOrchestrator {
         if (!success) {
             // RetryableSchemaSyncService에서 404를 확인하고 false를 반환했을 수 있음
             // 여기서는 false만 반환하고, 상위에서 재등록 처리
-            log.info("🔄 스키마 동기화 실패 (404 가능성), 재등록 필요");
+            log.info("Schema sync failed (possible 404), re-registration required");
         }
         
         return success;
@@ -911,7 +931,7 @@ public class JdbcBootstrapOrchestrator {
         if (endpointData != null && endpointData.getCryptoUrl() != null && 
             !endpointData.getCryptoUrl().trim().isEmpty()) {
             directCryptoAdapter.setEndpointData(endpointData);
-            log.info("✅ 암복호화 어댑터 초기화 완료: cryptoUrl={}, hubId={}, version={}", 
+            log.info("Crypto adapter initialized: cryptoUrl={}, hubId={}, version={}",
                     endpointData.getCryptoUrl(), endpointData.getHubId(), endpointData.getVersion());
         }
         
@@ -924,9 +944,9 @@ public class JdbcBootstrapOrchestrator {
                     instanceId,
                     config.isEnableLogging()
                 );
-                log.debug("✅ Hub 알림 서비스 초기화 완료 (공유): hubId={}", hubId);
+                log.debug("Hub notification service initialized (shared): hubId={}", hubId);
             } catch (Exception e) {
-                log.warn("⚠️ Hub 알림 서비스 초기화 실패 (무시): {}", e.getMessage());
+                log.warn("Hub notification service initialization failed (ignored): {}", e.getMessage());
                 this.notificationService = null;
             }
         }
@@ -955,14 +975,14 @@ public class JdbcBootstrapOrchestrator {
             // 재등록 콜백 설정 (404 응답 시 호출됨)
             final JdbcBootstrapOrchestrator self = this;
             policyMappingSyncService.setReregistrationCallback(() -> {
-                log.info("🔄 재등록 콜백 호출: Datasource 재등록 수행");
+                log.info("Re-registration callback invoked: performing Datasource re-registration");
                 // registerWithHub()를 호출하여 Datasource 재등록 및 스키마 재전송
                 self.registerWithHub();
             });
             
-            log.info("✅ JdbcPolicyMappingSyncService 초기화 완료: hubId={}", hubId);
+            log.info("JdbcPolicyMappingSyncService initialized: hubId={}", hubId);
         } catch (Exception e) {
-            log.warn("⚠️ JdbcPolicyMappingSyncService 초기화 실패: {}", e.getMessage());
+            log.warn("JdbcPolicyMappingSyncService initialization failed: {}", e.getMessage());
         }
     }
     
@@ -1181,7 +1201,7 @@ public class JdbcBootstrapOrchestrator {
                 try {
                     schema = connection.getMetaData().getUserName();
                 } catch (SQLException e) {
-                    log.debug("Oracle userName 조회 실패: {}", e.getMessage());
+                    log.debug("Failed to retrieve Oracle userName: {}", e.getMessage());
                 }
             }
             return schema;

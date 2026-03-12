@@ -44,9 +44,9 @@
     </scm>
 
     <properties>
-        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <!-- GPG 서명 건너뛰기 (Maven Central 배포 비활성화) -->
         <gpg.skip>true</gpg.skip>
-        <!-- Maven 배포 비활성화 (당분간 정식 배포 전까지) -->
+        <!-- Maven 배포 비활성화 -->
         <maven.deploy.skip>true</maven.deploy.skip>
         <!-- Java 8 호환 (최소 버전) -->
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -131,7 +131,6 @@
             </plugin>
             
             <!-- Central Publishing 플러그인 -->
-            <!-- 당분간 Maven 배포 비활성화 -->
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
@@ -140,7 +139,7 @@
                 <configuration>
                     <skip>true</skip>
                     <publishingServerId>central</publishingServerId>
-                    <autoPublish>false</autoPublish>
+                    <autoPublish>true</autoPublish>
                     <waitUntil>validated</waitUntil>
                 </configuration>
             </plugin>

@@ -31,7 +31,7 @@ public class HubNotificationService {
     public HubNotificationService(String hubBaseUrl, String hubId, String alias, Boolean enableLogging) {
         this.hubId = hubId;
         this.alias = alias;
-        log.debug("HubNotificationService 초기화 (no-op): hubBaseUrl={}, hubId={}, alias={}",
+        log.debug("HubNotificationService initialized (no-op): hubBaseUrl={}, hubId={}, alias={}",
                 hubBaseUrl, hubId, alias);
     }
 
@@ -60,7 +60,7 @@ public class HubNotificationService {
      * @param errorMessage 오류 메시지
      */
     public void notifyEngineConnectionError(String engineUrl, String errorMessage) {
-        log.debug("알림 전송 건너뜀 (no-op): 엔진 연결 실패 - engineUrl={}, error={}", engineUrl, errorMessage);
+        log.debug("Notification skipped (no-op): engine connection failed - engineUrl={}, error={}", engineUrl, errorMessage);
     }
 
     /**
@@ -70,7 +70,7 @@ public class HubNotificationService {
      * @param context 컨텍스트 정보 (선택사항)
      */
     public void notifyUnexpectedException(Exception exception, String context) {
-        log.debug("알림 전송 건너뜀 (no-op): 예외 발생 - type={}, message={}, context={}",
+        log.debug("Notification skipped (no-op): exception occurred - type={}, message={}, context={}",
                 exception.getClass().getName(), exception.getMessage(), context);
     }
 
@@ -84,6 +84,6 @@ public class HubNotificationService {
      * @param metadata 메타데이터 (JSON 문자열, 선택)
      */
     public void sendNotification(String type, String level, String title, String message, String metadata) {
-        log.debug("알림 전송 건너뜀 (no-op): type={}, level={}, title={}", type, level, title);
+        log.debug("Notification skipped (no-op): type={}, level={}, title={}", type, level, title);
     }
 }

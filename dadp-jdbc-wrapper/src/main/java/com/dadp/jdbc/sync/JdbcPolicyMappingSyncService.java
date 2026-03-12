@@ -130,7 +130,7 @@ public class JdbcPolicyMappingSyncService {
                     // 재등록 시에는 스키마 재전송 불필요
                     // Hub에서 인스턴스 삭제해도 스키마는 datasourceId 기반으로 유지되므로 재전송할 필요 없음
                     // 첫 구동시에만 스키마 전송 (JdbcBootstrapOrchestrator에서 처리)
-                    log.info("✅ 재등록 완료: hubId={} (스키마 재전송 생략, Hub에서 datasourceId 기반으로 유지됨)", newHubId);
+                    log.info("Re-registration completed: hubId={} (schema re-send skipped, Hub retains by datasourceId)", newHubId);
                 }
                 
                 @Override
@@ -143,8 +143,10 @@ public class JdbcPolicyMappingSyncService {
                         saveEndpointFromPolicyMapping(endpointInfo);
                     } else {
                         // 엔드포인트 정보가 없으면 별도 엔드포인트 조회 (하위 호환성)
-                    syncEndpointsAfterPolicyMapping();
+                        syncEndpointsAfterPolicyMapping();
                     }
+                    // Hub PolicySnapshot logConfig 적용 (매핑 갱신 시마다 반영)
+                    applyLogConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
                 }
             }
         );
@@ -164,12 +166,12 @@ public class JdbcPolicyMappingSyncService {
             hubIdManager.setHubId(hubId, false); // 이미 저장되어 있으므로 저장 불필요
         }
         
-        log.info("✅ JdbcPolicyMappingSyncService 초기화 완료 알림: initialized={}, hubId={}", initialized, hubId);
+        log.info("JdbcPolicyMappingSyncService initialization notification: initialized={}, hubId={}", initialized, hubId);
         
         // 중요: 스키마 등록이 완료된 후에만 버전 체크 시작
         // hubId가 있고 스키마 등록이 완료된 상태에서만 30초 주기 버전 체크 시작
         if (!initialized || hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ 초기화 조건 미충족: initialized={}, hubId={}", initialized, hubId);
+            log.warn("Initialization conditions not met: initialized={}, hubId={}", initialized, hubId);
             return;
         }
         
@@ -181,7 +183,7 @@ public class JdbcPolicyMappingSyncService {
         
         // 첫 번째 주기적 버전 체크는 30초 후에 실행됨
         // Hub 버전=1, Wrapper 초기 버전=0이므로 첫 버전 체크에서 무조건 갱신 발생
-        log.info("✅ 30초 주기 버전 체크 시작: hubId={} (첫 체크는 30초 후 실행)", hubId);
+        log.info("30-second periodic version check started: hubId={} (first check in 30 seconds)", hubId);
     }
     
     /**
@@ -192,7 +194,7 @@ public class JdbcPolicyMappingSyncService {
             return; // 이미 시작됨
         }
         
-        log.info("🔄 주기적 정책 매핑 동기화 시작: 30초 주기, instanceId={}, hubId={}, enabled={}, initialized={}", 
+        log.info("Periodic policy mapping sync starting: 30s interval, instanceId={}, hubId={}, enabled={}, initialized={}",
                 instanceId, hubIdManager.getCachedHubId(), enabled.get(), initialized);
         
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -204,19 +206,19 @@ public class JdbcPolicyMappingSyncService {
         scheduler.scheduleWithFixedDelay(() -> {
             try {
                 if (!enabled.get() || !initialized) {
-                    log.debug("⏭️ 주기적 정책 매핑 동기화 스킵: enabled={}, initialized={}", enabled.get(), initialized);
+                    log.debug("Periodic policy mapping sync skipped: enabled={}, initialized={}", enabled.get(), initialized);
                     return;
                 }
                 
-                log.trace("🔄 Wrapper 정책 매핑 버전 체크 시작");
+                log.trace("Wrapper policy mapping version check starting");
                 checkMappingChange();
             } catch (Exception e) {
                 // 예외가 발생해도 스케줄러는 계속 실행되도록 예외를 잡아서 로그만 출력
-                log.warn("⚠️ 주기적 정책 매핑 버전 체크 중 예외 발생 (다음 주기에서 재시도): {}", e.getMessage(), e);
+                log.warn("Exception during periodic policy mapping version check (will retry next cycle): {}", e.getMessage(), e);
             }
         }, 30, 30, TimeUnit.SECONDS);
         
-        log.info("✅ 주기적 정책 매핑 동기화 스케줄러 등록 완료: 30초 주기, instanceId={}", instanceId);
+        log.info("Periodic policy mapping sync scheduler registered: 30s interval, instanceId={}", instanceId);
     }
     
     /**
@@ -228,7 +230,7 @@ public class JdbcPolicyMappingSyncService {
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(), hubId, instanceId, storageDir, fileName);
-        log.info("🔄 EndpointSyncService 재생성 완료: hubId={}", hubId);
+        log.info("EndpointSyncService recreated: hubId={}", hubId);
     }
     
     /**
@@ -239,7 +241,7 @@ public class JdbcPolicyMappingSyncService {
         String apiBasePath = "/hub/api/v1/proxy";  // V1 API 경로
         this.mappingSyncService = new MappingSyncService(
             hubUrl, hubId, instanceId, datasourceId, apiBasePath, policyResolver);
-        log.info("🔄 MappingSyncService 재생성 완료: hubId={}", hubId);
+        log.info("MappingSyncService recreated: hubId={}", hubId);
     }
     
     /**
@@ -260,13 +262,13 @@ public class JdbcPolicyMappingSyncService {
      */
     private void saveEndpointFromPolicyMapping(MappingSyncService.EndpointInfo endpointInfo) {
         if (endpointInfo == null) {
-            log.warn("⚠️ 엔드포인트 정보가 null입니다");
+            log.warn("Endpoint info is null");
             return;
         }
         
         String cryptoUrl = endpointInfo.getCryptoUrl();
         if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-            log.warn("⚠️ 엔드포인트 정보에 cryptoUrl이 없습니다");
+            log.warn("Endpoint info missing cryptoUrl");
             return;
         }
         
@@ -294,16 +296,16 @@ public class JdbcPolicyMappingSyncService {
                     if (directCryptoAdapter != null) {
                         directCryptoAdapter.setEndpointData(endpointData);
                     }
-                    log.info("✅ 정책 매핑 응답에서 엔드포인트 정보 저장 및 적용 완료: cryptoUrl={}, hubId={}, version={}", 
+                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, hubId={}, version={}",
                             cryptoUrl, currentHubId, currentVersion);
                 } else {
-                    log.warn("⚠️ 엔드포인트 정보 저장 후 로드 실패");
+                    log.warn("Failed to load endpoint info after saving");
                 }
             } else {
-                log.warn("⚠️ 엔드포인트 정보 저장 실패");
+                log.warn("Failed to save endpoint info");
             }
         } catch (Exception e) {
-            log.warn("⚠️ 엔드포인트 정보 저장 실패: {}", e.getMessage());
+            log.warn("Failed to save endpoint info: {}", e.getMessage());
         }
     }
     
@@ -328,20 +330,44 @@ public class JdbcPolicyMappingSyncService {
                         if (directCryptoAdapter != null) {
                             directCryptoAdapter.setEndpointData(endpointData);
                         }
-                        log.info("✅ 엔드포인트 동기화 완료: cryptoUrl={}, hubId={}, version={}",
+                        log.info("Endpoint sync completed: cryptoUrl={}, hubId={}, version={}",
                                 endpointData.getCryptoUrl(),
                                 endpointData.getHubId(),
                                 endpointData.getVersion());
                     }
                 } else {
-                    log.warn("⚠️ 엔드포인트 동기화 실패 (다음 주기에서 재시도)");
+                    log.warn("Endpoint sync failed (will retry next cycle)");
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
+                log.warn("Endpoint sync failed: {}", e.getMessage());
             }
         }
     }
     
+    /**
+     * Hub PolicySnapshot logConfig를 DadpLoggerFactory에 반영합니다.
+     * logConfig가 null이거나 필드가 없으면 아무것도 하지 않습니다.
+     *
+     * @param snapshot 마지막으로 수신한 PolicySnapshot
+     */
+    private void applyLogConfigFromSnapshot(MappingSyncService.PolicySnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        MappingSyncService.LogConfig logConfig = snapshot.getLogConfig();
+        if (logConfig == null) {
+            return;
+        }
+        if (logConfig.getEnabled() != null) {
+            DadpLoggerFactory.setLoggingEnabled(logConfig.getEnabled());
+        }
+        if (logConfig.getLevel() != null && !logConfig.getLevel().trim().isEmpty()) {
+            DadpLoggerFactory.setLogLevel(logConfig.getLevel());
+        }
+        log.info("Log config applied from Hub PolicySnapshot: enabled={}, level={}",
+                logConfig.getEnabled(), logConfig.getLevel());
+    }
+
     /**
      * 재등록 콜백 설정 (JdbcBootstrapOrchestrator에서 호출)
      */
@@ -356,15 +382,15 @@ public class JdbcPolicyMappingSyncService {
     private void registerWithHub() {
         try {
             if (reregistrationCallback != null) {
-                log.info("📝 Hub 재등록 시작 (저장 메타데이터 사용): instanceId={}", instanceId);
+                log.info("Hub re-registration starting (using stored metadata): instanceId={}", instanceId);
                 reregistrationCallback.run();
-                String hubId = hubIdManager.hasHubId() ? "hubId 설정됨" : "hubId 없음";
-                log.info("✅ Hub 등록 완료: {} (재등록이므로 스키마 재전송 생략)", hubId);
+                String hubId = hubIdManager.hasHubId() ? "hubId set" : "hubId not available";
+                log.info("Hub registration completed: {} (re-registration, schema re-send skipped)", hubId);
             } else {
-                log.warn("⚠️ Hub 재등록 필요하지만 reregistrationCallback이 설정되지 않았습니다.");
+                log.warn("Hub re-registration needed but reregistrationCallback is not set.");
             }
         } catch (Exception e) {
-            log.error("❌ Hub 재등록 실패: {}", e.getMessage(), e);
+            log.error("Hub re-registration failed: {}", e.getMessage(), e);
         }
     }
     
@@ -374,9 +400,9 @@ public class JdbcPolicyMappingSyncService {
     public void setEnabled(boolean enabled) {
         this.enabled.set(enabled);
         if (enabled) {
-            log.info("✅ Wrapper 정책 매핑 동기화 활성화");
+            log.info("Wrapper policy mapping sync enabled");
         } else {
-            log.info("⏸️ Wrapper 정책 매핑 동기화 비활성화");
+            log.info("Wrapper policy mapping sync disabled");
         }
     }
     

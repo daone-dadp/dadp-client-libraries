@@ -121,20 +121,20 @@ public class PolicyResolver {
             } else {
                 // 버전이 없으면 0으로 초기화 (첫 실행 시)
                 this.currentVersion = 0L;
-                log.debug("📋 영구 저장소에 버전 정보 없음, 0으로 초기화");
+                log.debug("No version info in persistent storage, initializing to 0");
             }
             // 정책 속성도 로드
             Map<String, PolicyAttributes> storedAttributes = storage.loadPolicyAttributes();
             if (storedAttributes != null && !storedAttributes.isEmpty()) {
                 policyAttributeCache.putAll(storedAttributes);
-                log.info("📂 영구 저장소에서 정책 속성 로드 완료: {}개", storedAttributes.size());
+                log.debug("Policy attributes loaded from persistent storage: {} entries", storedAttributes.size());
             }
-            log.info("📂 영구 저장소에서 정책 매핑 로드 완료: {}개 매핑, version={}",
+            log.debug("Policy mappings loaded from persistent storage: {} mappings, version={}",
                     storedMappings.size(), this.currentVersion);
         } else {
             // 매핑이 없어도 버전은 0으로 초기화 (첫 실행 시)
             this.currentVersion = 0L;
-            log.debug("📋 영구 저장소에 정책 매핑 정보 없음 (Hub에서 로드 예정), version=0으로 초기화");
+            log.debug("No policy mappings in persistent storage (will load from Hub), initializing version=0");
         }
     }
     
@@ -162,23 +162,23 @@ public class PolicyResolver {
         }
         
         // 디버깅: 정책 조회 시도 키 로그 출력
-        log.debug("🔍 정책 조회 시도: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}", 
+        log.trace("Policy lookup: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}",
                 key, datasourceId, schemaName, tableName, columnName);
         
         // Hub에서 로드한 매핑 정보만 사용 (캐시에서 조회)
         String policy = policyCache.get(key);
         
         if (policy != null) {
-            log.debug("✅ 정책 캐시 적중: {} → {}", key, policy);
+            log.trace("Policy cache hit: {} -> {}", key, policy);
             return policy;
         }
-        
+
         // 이미 대문자로 저장된 정책 매핑도 찾을 수 있도록 소문자로 변환한 키로도 조회 시도
         String lowerKey = key.toLowerCase();
         if (!lowerKey.equals(key)) {
             policy = policyCache.get(lowerKey);
             if (policy != null) {
-                log.debug("✅ 정책 캐시 적중 (소문자 변환): {} → {}", lowerKey, policy);
+                log.trace("Policy cache hit (lowercase): {} -> {}", lowerKey, policy);
                 return policy;
             }
         }
@@ -189,7 +189,7 @@ public class PolicyResolver {
                 String fallbackKey = schemaName + "." + tableName + "." + columnName;
                 policy = policyCache.get(fallbackKey);
                 if (policy != null) {
-                    log.debug("✅ 정책 캐시 적중 (fallback): {} → {}", fallbackKey, policy);
+                    log.trace("Policy cache hit (fallback): {} -> {}", fallbackKey, policy);
                     return policy;
                 }
                 // fallback 키도 소문자로 변환해서 조회 시도
@@ -197,7 +197,7 @@ public class PolicyResolver {
                 if (!fallbackLowerKey.equals(fallbackKey)) {
                     policy = policyCache.get(fallbackLowerKey);
                     if (policy != null) {
-                        log.debug("✅ 정책 캐시 적중 (fallback 소문자): {} → {}", fallbackLowerKey, policy);
+                        log.trace("Policy cache hit (fallback lowercase): {} -> {}", fallbackLowerKey, policy);
                         return policy;
                     }
                 }
@@ -205,7 +205,7 @@ public class PolicyResolver {
             String fallbackKey2 = tableName + "." + columnName;
             policy = policyCache.get(fallbackKey2);
             if (policy != null) {
-                log.debug("✅ 정책 캐시 적중 (fallback2): {} → {}", fallbackKey2, policy);
+                log.trace("Policy cache hit (fallback2): {} -> {}", fallbackKey2, policy);
                 return policy;
             }
             // fallback2 키도 소문자로 변환해서 조회 시도
@@ -213,7 +213,7 @@ public class PolicyResolver {
             if (!fallback2LowerKey.equals(fallbackKey2)) {
                 policy = policyCache.get(fallback2LowerKey);
                 if (policy != null) {
-                    log.debug("✅ 정책 캐시 적중 (fallback2 소문자): {} → {}", fallback2LowerKey, policy);
+                    log.trace("Policy cache hit (fallback2 lowercase): {} -> {}", fallback2LowerKey, policy);
                     return policy;
                 }
             }
@@ -294,7 +294,7 @@ public class PolicyResolver {
      * @param version 정책 버전 (null 가능)
      */
     public void refreshMappings(Map<String, String> mappings, Long version) {
-        log.trace("🔄 정책 매핑 캐시 갱신 시작: {}개 매핑, version={}", mappings.size(), version);
+        log.trace("Policy mapping cache refresh started: {} mappings, version={}", mappings.size(), version);
         policyCache.clear();
         policyCache.putAll(mappings);
         
@@ -302,23 +302,23 @@ public class PolicyResolver {
         // 재등록 후 버전이 0으로 초기화되므로 0도 유효한 버전으로 처리
         if (version != null) {
             this.currentVersion = version;
-            log.debug("📋 정책 버전 업데이트: version={}", version);
+            log.debug("Policy version updated: version={}", version);
         } else {
             // Hub에서 버전을 받지 못한 경우 0으로 초기화 (첫 실행 시나 재등록 시)
             this.currentVersion = 0L;
-            log.warn("⚠️ Hub에서 버전 정보를 받지 못함 (version=null), 0으로 초기화");
+            log.debug("No version info received from Hub (version=null), initializing to 0");
         }
         
         // 영구 저장소에 저장 (Hub 다운 시에도 사용 가능하도록)
         // 버전이 null이어도 매핑 정보는 저장 (버전은 별도로 저장)
         boolean saved = storage.saveMappings(mappings, version);
         if (saved) {
-            log.info("💾 정책 매핑 정보 영구 저장 완료: {}개 매핑, version={}", mappings.size(), version);
+            log.debug("Policy mappings persisted: {} mappings, version={}", mappings.size(), version);
         } else {
-            log.warn("⚠️ 정책 매핑 정보 영구 저장 실패 (메모리 캐시만 사용)");
+            log.warn("Policy mappings persistence failed (using memory cache only)");
         }
         
-        log.trace("✅ 정책 매핑 캐시 갱신 완료");
+        log.trace("Policy mapping cache refresh completed");
     }
     
     /**
@@ -336,7 +336,7 @@ public class PolicyResolver {
         if (attributes != null && !attributes.isEmpty()) {
             policyAttributeCache.clear();
             policyAttributeCache.putAll(attributes);
-            log.debug("📋 정책 속성 캐시 갱신: {}개 정책", attributes.size());
+            log.debug("Policy attributes cache refreshed: {} policies", attributes.size());
 
             // 영구 저장소에도 저장
             storage.saveMappings(mappings, attributes, version);
@@ -416,7 +416,7 @@ public class PolicyResolver {
             key = tableName + "." + columnName;
         }
         policyCache.put(key, policyName);
-        log.trace("➕ 정책 매핑 추가: {} → {}", key, policyName);
+        log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
     
     /**
@@ -444,7 +444,7 @@ public class PolicyResolver {
             key = tableName + "." + columnName;
         }
         policyCache.remove(key);
-        log.trace("➖ 정책 매핑 제거: {}", key);
+        log.trace("Policy mapping removed: {}", key);
     }
     
     /**
@@ -462,7 +462,7 @@ public class PolicyResolver {
      */
     public void clearCache() {
         policyCache.clear();
-        log.trace("🧹 정책 매핑 캐시 초기화");
+        log.trace("Policy mapping cache cleared");
     }
     
     /**
@@ -478,10 +478,10 @@ public class PolicyResolver {
             if (storedVersion != null) {
                 this.currentVersion = storedVersion;
             }
-            log.info("📂 영구 저장소에서 정책 매핑 재로드 완료: {}개 매핑, version={}", 
+            log.debug("Policy mappings reloaded from persistent storage: {} mappings, version={}",
                     storedMappings.size(), storedVersion);
         } else {
-            log.warn("⚠️ 영구 저장소에 정책 매핑 정보 없음");
+            log.warn("No policy mappings in persistent storage");
         }
     }
     

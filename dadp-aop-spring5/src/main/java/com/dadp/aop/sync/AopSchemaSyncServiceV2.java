@@ -53,7 +53,7 @@ public class AopSchemaSyncServiceV2 {
             @Override
             public void saveHubId(String receivedHubId, String instanceIdParam) {
                 configStorage.saveConfig(receivedHubId, hubUrl, instanceIdParam, null);
-                log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}, instanceId={}", receivedHubId, instanceIdParam);
+                log.info("hubId received from Hub saved: hubId={}, instanceId={}", receivedHubId, instanceIdParam);
             }
         };
         
@@ -121,7 +121,7 @@ public class AopSchemaSyncServiceV2 {
                         java.util.Map<String, Object> data = (java.util.Map<String, Object>) dataObj;
                         String hubId = (String) data.get("hubId");
                         if (hubId != null && !hubId.trim().isEmpty()) {
-                            log.info("✅ Hub 인스턴스 등록 성공: hubId={}, instanceId={}", hubId, instanceId);
+                            log.info("Hub instance registration succeeded: hubId={}, instanceId={}", hubId, instanceId);
                             // hubId 저장
                             configStorage.saveConfig(hubId, hubUrl, instanceId, null);
                             return hubId;
@@ -130,10 +130,10 @@ public class AopSchemaSyncServiceV2 {
                 }
             }
             
-            log.warn("⚠️ Hub 인스턴스 등록 실패: 응답 형식 오류");
+            log.warn("Hub instance registration failed: invalid response format");
             return null;
         } catch (Exception e) {
-            log.warn("⚠️ Hub 인스턴스 등록 실패: {}", e.getMessage());
+            log.warn("Hub instance registration failed: {}", e.getMessage());
             return null;
         }
     }
@@ -149,7 +149,7 @@ public class AopSchemaSyncServiceV2 {
         
         // hubId는 오케스트레이터에서 이미 등록되어 있어야 함
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다. 오케스트레이터에서 인스턴스 등록을 먼저 수행해야 합니다.");
+            log.warn("hubId not found, cannot perform schema sync. Instance registration must be done first by the orchestrator.");
             return false;
         }
         
@@ -168,7 +168,7 @@ public class AopSchemaSyncServiceV2 {
      */
     public boolean syncSpecificSchemasToHub(List<SchemaMetadata> schemas) {
         if (schemas == null || schemas.isEmpty()) {
-            log.debug("📋 전송할 스키마가 없습니다.");
+            log.debug("No schemas to send.");
             return true;
         }
         
@@ -176,25 +176,25 @@ public class AopSchemaSyncServiceV2 {
         String hubId = loadHubIdFromStorage();
         
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("hubId not found, cannot perform schema sync.");
             return false;
         }
-        
+
         // 현재 버전 조회
         Long currentVersion = policyResolver != null ? policyResolver.getCurrentVersion() : null;
-        
+
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송
             com.dadp.common.sync.schema.SchemaSyncExecutor executor = createExecutor(hubUrl);
             boolean synced = executor.syncToHub(schemas, hubId, instanceId, currentVersion);
-            
+
             if (synced) {
-                log.info("✅ 특정 스키마 전송 완료: hubId={}, 스키마 개수={}", hubId, schemas.size());
+                log.info("Specific schemas sent successfully: hubId={}, schema count={}", hubId, schemas.size());
             }
-            
+
             return synced;
         } catch (Exception e) {
-            log.warn("⚠️ 특정 스키마 전송 실패: {}", e.getMessage());
+            log.warn("Specific schemas send failed: {}", e.getMessage());
             return false;
         }
     }

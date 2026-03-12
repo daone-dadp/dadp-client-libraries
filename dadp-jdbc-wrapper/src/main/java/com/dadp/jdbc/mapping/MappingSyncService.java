@@ -86,7 +86,7 @@ public class MappingSyncService {
                 checkUrl += "&datasourceId=" + java.net.URLEncoder.encode(datasourceId, "UTF-8");
             }
             
-            log.trace("🔗 Hub 매핑 변경 확인 URL: {}", checkUrl);
+            log.trace("Hub mapping change check URL: {}", checkUrl);
             
             // 헤더에 버전 포함 (Hub는 헤더에서 버전을 읽음)
             java.util.Map<String, String> headers = new java.util.HashMap<>();
@@ -117,9 +117,9 @@ public class MappingSyncService {
                             String newHubId = (String) dataMap.get("hubId");
                             if (newHubId != null) {
                                 reregisteredHubId[0] = newHubId;
-                                log.info("🔄 Hub에서 재등록 발생: hubId={}", newHubId);
+                                log.info("Re-registration occurred at Hub: hubId={}", newHubId);
                             } else {
-                                log.info("🔄 Hub에서 재등록 발생 (hubId 정보 없음)");
+                                log.info("Re-registration occurred at Hub (no hubId info)");
                             }
                         }
                         
@@ -133,7 +133,7 @@ public class MappingSyncService {
             }
             return false;
         } catch (IOException e) {
-            log.warn("⚠️ 매핑 변경 확인 실패: {}", e.getMessage());
+            log.warn("Mapping change check failed: {}", e.getMessage());
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         }
     }
@@ -146,7 +146,7 @@ public class MappingSyncService {
      */
     public int loadPolicySnapshotFromHub(Long currentVersion) {
         try {
-            log.trace("🔄 Hub에서 정책 스냅샷 로드 시작: hubId={}, currentVersion={}", 
+            log.trace("Loading policy snapshot from Hub: hubId={}, currentVersion={}",
                 hubId, currentVersion);
             
             // V1 API 사용: /hub/api/v1/proxy/policies
@@ -163,7 +163,7 @@ public class MappingSyncService {
             
             // 304 Not Modified: 변경 없음
             if (statusCode == 304) {
-                log.trace("⏭️ 정책 스냅샷 변경 없음 (version={})", currentVersion);
+                log.trace("Policy snapshot unchanged (version={})", currentVersion);
                 return 0;
             }
             
@@ -184,9 +184,9 @@ public class MappingSyncService {
                                         mapping.getTableName() + "." + 
                                         mapping.getColumnName();
                             policyMap.put(key, mapping.getPolicyName());
-                            log.info("📋 정책 매핑 로드: {} → {}", key, mapping.getPolicyName());
+                            log.info("Policy mapping loaded: {} -> {}", key, mapping.getPolicyName());
                         } else {
-                            log.debug("⏭️ 정책 매핑 건너뜀: enabled={}, policyName={}, datasourceId={}, schema={}, table={}, column={}", 
+                            log.debug("Policy mapping skipped: enabled={}, policyName={}, datasourceId={}, schema={}, table={}, column={}",
                                     mapping.isEnabled(), mapping.getPolicyName(), 
                                     mapping.getDatasourceId(), mapping.getSchemaName(), 
                                     mapping.getTableName(), mapping.getColumnName());
@@ -196,13 +196,13 @@ public class MappingSyncService {
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨, 버전 정보 포함)
                     policyResolver.refreshMappings(policyMap, snapshot.getVersion());
                     
-                    log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑 (영구 저장소에 저장됨)", 
+                    log.info("Policy snapshot loaded from Hub: version={}, {} mappings (persisted to storage)",
                         snapshot.getVersion(), policyMap.size());
                     return policyMap.size();
                 }
             }
             
-            log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: HTTP {}", statusCode);
+            log.warn("Failed to load policy snapshot from Hub: HTTP {}", statusCode);
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             return 0;
             
@@ -210,19 +210,19 @@ public class MappingSyncService {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Failed to load policy snapshot from Hub: {} (Hub unreachable)", errorMsg);
             } else {
                 // 예측 불가능한 문제만 ERROR로 처리
-                log.error("❌ Hub에서 정책 스냅샷 로드 실패: {}", errorMsg, e);
+                log.error("Failed to load policy snapshot from Hub: {}", errorMsg, e);
             }
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             // Hub 연결 실패 시 영구 저장소에서 로드 시도
-            log.info("📂 Hub 연결 실패, 영구 저장소에서 정책 매핑 정보 로드 시도");
+            log.info("Hub connection failed, loading policy mappings from persistent storage");
             policyResolver.reloadFromStorage();
             return 0;
         }
     }
-    
+
     /**
      * Hub에서 정책 매핑 정보를 가져와서 PolicyResolver에 저장 (하위 호환성)
      * 
@@ -232,12 +232,12 @@ public class MappingSyncService {
     @Deprecated
     public int loadMappingsFromHub() {
         try {
-            log.trace("🔄 Hub에서 정책 매핑 정보 로드 시작: hubId={}", hubId);
+            log.trace("Loading policy mappings from Hub: hubId={}", hubId);
             
             // V1 API 사용: /hub/api/v1/proxy/mappings
             String mappingsPath = "/hub/api/v1/proxy/mappings";
             String mappingsUrl = hubUrl + mappingsPath + "?instanceId=" + hubId;
-            log.trace("🔗 Hub 매핑 조회 URL: {}", mappingsUrl);
+            log.trace("Hub mapping query URL: {}", mappingsUrl);
             
             // Java 버전에 따라 적절한 HTTP 클라이언트 사용
             URI uri = URI.create(mappingsUrl);
@@ -266,21 +266,21 @@ public class MappingSyncService {
                                 key = mapping.getTableName() + "." + mapping.getColumnName();
                             }
                             policyMap.put(key, mapping.getPolicyName());
-                            log.trace("📋 매핑 로드: {} → {}", key, mapping.getPolicyName());
+                            log.trace("Mapping loaded: {} -> {}", key, mapping.getPolicyName());
                         }
                     }
                     
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨)
                     policyResolver.refreshMappings(policyMap);
                     
-                    log.info("✅ Hub에서 정책 매핑 정보 로드 완료: {}개 매핑 (영구 저장소에 저장됨)", policyMap.size());
+                    log.info("Policy mappings loaded from Hub: {} mappings (persisted to storage)", policyMap.size());
                     return policyMap.size();
                 } else {
-                    log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: 응답 없음 또는 실패");
+                    log.warn("Failed to load policy mappings from Hub: no response or failure");
                     return 0;
                 }
             } else {
-                log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: HTTP {}", statusCode);
+                log.warn("Failed to load policy mappings from Hub: HTTP {}", statusCode);
                 return 0;
             }
             
@@ -288,13 +288,13 @@ public class MappingSyncService {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Failed to load policy mappings from Hub: {} (Hub unreachable)", errorMsg);
             } else {
                 // 예측 불가능한 문제만 ERROR로 처리
-                log.error("❌ Hub에서 정책 매핑 정보 로드 실패: {}", errorMsg, e);
+                log.error("Failed to load policy mappings from Hub: {}", errorMsg, e);
             }
             // Hub 연결 실패 시 영구 저장소에서 로드 시도
-            log.info("📂 Hub 연결 실패, 영구 저장소에서 정책 매핑 정보 로드 시도");
+            log.info("Hub connection failed, loading policy mappings from persistent storage");
             policyResolver.reloadFromStorage();
             // 로드 실패해도 계속 진행 (Fail-open)
             return 0;

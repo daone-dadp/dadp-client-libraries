@@ -53,9 +53,9 @@ public class AopNotificationService {
         this.instanceId = instanceId.trim();
         
         if (this.notificationClient != null && this.notificationClient.isInitialized()) {
-            log.info("✅ AopNotificationService 초기화 완료: instanceId={}", this.instanceId);
+            log.info("AopNotificationService initialized: instanceId={}", this.instanceId);
         } else {
-            log.debug("AopNotificationService 초기화 완료 (알림 클라이언트 없음): instanceId={}", this.instanceId);
+            log.debug("AopNotificationService initialized (no notification client): instanceId={}", this.instanceId);
         }
     }
     
@@ -76,20 +76,20 @@ public class AopNotificationService {
      */
     public void notifyUnexpectedException(Exception exception, String context) {
         if (!isAvailable()) {
-            log.debug("알림 전송 건너뜀: HubNotificationClient가 초기화되지 않음");
+            log.debug("Notification skipped: HubNotificationClient not initialized");
             return;
         }
-        
-        String message = String.format("예외 타입: %s, 메시지: %s", 
+
+        String message = String.format("Exception type: %s, message: %s",
                 exception.getClass().getName(), exception.getMessage());
         if (context != null && !context.trim().isEmpty()) {
-            message += ", 컨텍스트: " + context;
+            message += ", context: " + context;
         }
-        
+
         notificationClient.sendNotification(
             "SYSTEM_ERROR",
             "ERROR",
-            "의도치 않은 예외 발생",
+            "Unexpected exception occurred",
             message,
             "AOP",
             instanceId,
@@ -108,7 +108,7 @@ public class AopNotificationService {
      */
     public void sendNotification(String type, String level, String title, String message, String metadata) {
         if (!isAvailable()) {
-            log.debug("알림 전송 건너뜀: HubNotificationClient가 초기화되지 않음");
+            log.debug("Notification skipped: HubNotificationClient not initialized");
             return;
         }
         

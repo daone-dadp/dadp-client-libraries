@@ -100,22 +100,22 @@ public class SchemaCollectionConfigStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 String fallbackDir = getDefaultStorageDir();
                 Files.createDirectories(Paths.get(fallbackDir));
                 finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
+                log.warn("Failed to create default storage directory: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
-        
+
         this.storagePath = finalStoragePath;
-        
+
         this.objectMapper = new ObjectMapper();
-        log.info("✅ 스키마 수집 설정 저장소 초기화: {}", this.storagePath);
+        log.info("Schema collection config storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -127,7 +127,7 @@ public class SchemaCollectionConfigStorage {
      */
     public boolean saveConfig(SchemaCollectionConfig config, Long version) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 스키마 수집 설정 저장 불가");
+            log.warn("Storage path not set, cannot save schema collection config");
             return false;
         }
         
@@ -142,16 +142,16 @@ public class SchemaCollectionConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 스키마 수집 설정 저장 완료: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={} → {}", 
+            log.debug("Schema collection config saved: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={} -> {}",
                     config != null ? config.getTimeoutMs() : null,
                     config != null ? config.getMaxSchemas() : null,
                     config != null ? config.getAllowlist() : null,
                     config != null ? config.getFailMode() : null,
                     version, storagePath);
             return true;
-            
+
         } catch (IOException e) {
-            log.error("❌ 스키마 수집 설정 저장 실패: {}", storagePath, e);
+            log.warn("Schema collection config save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -163,13 +163,13 @@ public class SchemaCollectionConfigStorage {
      */
     public SchemaCollectionConfig loadConfig() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 스키마 수집 설정 로드 불가");
+            log.warn("Storage path not set, cannot load schema collection config");
             return null;
         }
-        
+
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 스키마 수집 설정 저장 파일이 없음: {} (Hub에서 로드 예정)", storagePath);
+            log.debug("Schema collection config file not found: {} (will load from Hub)", storagePath);
             return null;
         }
         
@@ -177,7 +177,7 @@ public class SchemaCollectionConfigStorage {
             SchemaCollectionConfigData data = objectMapper.readValue(storageFile, SchemaCollectionConfigData.class);
             
             if (data == null || data.getConfig() == null) {
-                log.warn("⚠️ 스키마 수집 설정 데이터가 비어있음: {}", storagePath);
+                log.warn("Schema collection config data is empty: {}", storagePath);
                 return null;
             }
             
@@ -185,13 +185,13 @@ public class SchemaCollectionConfigStorage {
             long timestamp = data.getTimestamp();
             Long version = data.getVersion();
             
-            log.info("📂 스키마 수집 설정 로드 완료: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={} (저장 시각: {})", 
+            log.debug("Schema collection config loaded: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={} (saved at: {})",
                     config.getTimeoutMs(), config.getMaxSchemas(), config.getAllowlist(), config.getFailMode(),
                     version, new java.util.Date(timestamp));
             return config;
             
         } catch (IOException e) {
-            log.warn("⚠️ 스키마 수집 설정 로드 실패: {} (null 반환)", storagePath, e);
+            log.warn("Schema collection config load failed: {} (returning null)", storagePath, e);
             return null;
         }
     }
@@ -215,7 +215,7 @@ public class SchemaCollectionConfigStorage {
             SchemaCollectionConfigData data = objectMapper.readValue(storageFile, SchemaCollectionConfigData.class);
             return data != null ? data.getVersion() : null;
         } catch (IOException e) {
-            log.warn("⚠️ 버전 정보 로드 실패: {}", storagePath, e);
+            log.warn("Version info load failed: {}", storagePath, e);
             return null;
         }
     }
@@ -246,9 +246,9 @@ public class SchemaCollectionConfigStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 스키마 수집 설정 저장 파일 삭제 완료: {}", storagePath);
+                log.debug("Schema collection config file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 스키마 수집 설정 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Schema collection config file deletion failed: {}", storagePath);
             }
             return deleted;
         }

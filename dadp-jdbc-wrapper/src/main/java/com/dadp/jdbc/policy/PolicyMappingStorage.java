@@ -57,13 +57,13 @@ public class PolicyMappingStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
                 finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("Failed to create default storage directory: {}", DEFAULT_STORAGE_DIR, e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
@@ -71,7 +71,7 @@ public class PolicyMappingStorage {
         this.storagePath = finalStoragePath;
         
         this.objectMapper = new ObjectMapper();
-        log.info("✅ 정책 매핑 저장소 초기화: {}", this.storagePath);
+        log.debug("Policy mapping storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -82,7 +82,7 @@ public class PolicyMappingStorage {
      */
     public boolean saveMappings(Map<String, String> mappings) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책 매핑 저장 불가");
+            log.warn("Storage path not set, cannot save policy mappings");
             return false;
         }
         
@@ -96,11 +96,11 @@ public class PolicyMappingStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 정책 매핑 정보 저장 완료: {}개 매핑 → {}", mappings.size(), storagePath);
+            log.debug("Policy mappings saved: {} mappings -> {}", mappings.size(), storagePath);
             return true;
             
         } catch (IOException e) {
-            log.error("❌ 정책 매핑 정보 저장 실패: {}", storagePath, e);
+            log.error("Failed to save policy mappings: {}", storagePath, e);
             return false;
         }
     }
@@ -112,13 +112,13 @@ public class PolicyMappingStorage {
      */
     public Map<String, String> loadMappings() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책 매핑 로드 불가");
+            log.warn("Storage path not set, cannot load policy mappings");
             return new HashMap<>();
         }
         
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 정책 매핑 저장 파일이 없음: {} (새로 생성될 예정)", storagePath);
+            log.debug("Policy mapping storage file not found: {} (will be created)", storagePath);
             return new HashMap<>();
         }
         
@@ -126,19 +126,19 @@ public class PolicyMappingStorage {
             PolicyMappingData data = objectMapper.readValue(storageFile, PolicyMappingData.class);
             
             if (data == null || data.getMappings() == null) {
-                log.warn("⚠️ 정책 매핑 데이터가 비어있음: {}", storagePath);
+                log.warn("Policy mapping data is empty: {}", storagePath);
                 return new HashMap<>();
             }
             
             Map<String, String> mappings = data.getMappings();
             long timestamp = data.getTimestamp();
             
-            log.info("📂 정책 매핑 정보 로드 완료: {}개 매핑 (저장 시각: {})", 
+            log.debug("Policy mappings loaded: {} mappings (saved at: {})",
                     mappings.size(), new java.util.Date(timestamp));
             return mappings;
             
         } catch (IOException e) {
-            log.warn("⚠️ 정책 매핑 정보 로드 실패: {} (빈 맵 반환)", storagePath, e);
+            log.warn("Failed to load policy mappings: {} (returning empty map)", storagePath, e);
             return new HashMap<>();
         }
     }
@@ -169,9 +169,9 @@ public class PolicyMappingStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 정책 매핑 저장 파일 삭제 완료: {}", storagePath);
+                log.info("Policy mapping storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 정책 매핑 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Failed to delete policy mapping storage file: {}", storagePath);
             }
             return deleted;
         }

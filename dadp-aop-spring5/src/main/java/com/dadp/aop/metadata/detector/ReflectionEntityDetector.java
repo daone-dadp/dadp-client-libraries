@@ -102,17 +102,17 @@ public class ReflectionEntityDetector implements EntityDetector {
                 
                 if (!fields.isEmpty()) {
                     entities.add(new EntityMetadata(clazz, tableName, schemaName, fields));
-                    log.debug("📋 리플렉션 엔티티 감지: {} (테이블: {}, 필드: {}개)", 
+                    log.debug("Reflection entity detected: {} (table: {}, fields: {})",
                         clazz.getSimpleName(), tableName, fields.size());
                 }
             }
-            
-            log.info("✅ 리플렉션 엔티티 감지 완료: {}개 엔티티, {}개 암호화 필드", 
-                entities.size(), 
+
+            log.info("Reflection entity detection completed: {} entities, {} encrypted fields",
+                entities.size(),
                 entities.stream().mapToInt(e -> e.getFields().size()).sum());
-            
+
         } catch (Exception e) {
-            log.error("❌ 리플렉션 엔티티 감지 실패", e);
+            log.error("Reflection entity detection failed", e);
         }
         
         return entities;
@@ -152,7 +152,7 @@ public class ReflectionEntityDetector implements EntityDetector {
                 }
             } catch (Exception e) {
                 // 클래스 로드 실패는 무시 (내부 클래스 등)
-                log.trace("클래스 로드 실패 (무시): {}", resource, e);
+                log.trace("Class load failed (ignored): {}", resource, e);
             }
         }
         

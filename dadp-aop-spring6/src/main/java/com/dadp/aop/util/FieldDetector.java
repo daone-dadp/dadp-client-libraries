@@ -52,7 +52,7 @@ public class FieldDetector {
                         fields.add(new FieldInfo(field, field.getAnnotation(EncryptField.class)));
                     }
                 } catch (NoSuchFieldException e) {
-                    log.warn("필드를 찾을 수 없습니다: {}", fieldName);
+                    log.warn("Field not found: {}", fieldName);
                 }
             }
         } else {
@@ -65,10 +65,10 @@ public class FieldDetector {
                     if (encryptField != null) {
                         field.setAccessible(true);
                         fields.add(new FieldInfo(field, encryptField));
-                        log.trace("암호화 대상 필드 감지: {}.{} (policy={})", 
+                        log.trace("Encryption target field detected: {}.{} (policy={})",
                                 clazz.getSimpleName(), field.getName(), encryptField.policy());
                     } else {
-                        log.trace("암호화 제외 필드: {}.{} (@EncryptField 없음)", 
+                        log.trace("Field excluded from encryption: {}.{} (no @EncryptField)",
                                 clazz.getSimpleName(), field.getName());
                     }
                 }
@@ -109,7 +109,7 @@ public class FieldDetector {
                         fields.add(new FieldInfo(field, field.getAnnotation(DecryptField.class)));
                     }
                 } catch (NoSuchFieldException e) {
-                    log.warn("필드를 찾을 수 없습니다: {}", fieldName);
+                    log.warn("Field not found: {}", fieldName);
                 }
             }
             
@@ -224,7 +224,7 @@ public class FieldDetector {
             try {
                 return field.get(obj);
             } catch (IllegalAccessException e) {
-                log.error("필드 값 읽기 실패: {}", field.getName(), e);
+                log.error("Field value read failed: {}", field.getName(), e);
                 return null;
             }
         }
@@ -233,7 +233,7 @@ public class FieldDetector {
             try {
                 field.set(obj, value);
             } catch (IllegalAccessException e) {
-                log.error("필드 값 설정 실패: {}", field.getName(), e);
+                log.error("Field value set failed: {}", field.getName(), e);
             }
         }
     }

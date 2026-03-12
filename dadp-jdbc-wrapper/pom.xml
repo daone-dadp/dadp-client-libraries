@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.5.7</version>
+    <version>5.5.11</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -66,9 +66,9 @@
         <junit.version>5.9.3</junit.version>
         <java.version>1.8</java.version>
         <classifier></classifier>
-        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <!-- GPG 서명 건너뛰기 (Maven Central 배포 비활성화) -->
         <gpg.skip>true</gpg.skip>
-        <!-- Maven 배포 비활성화 (당분간 배포 안 함) -->
+        <!-- Maven 배포 비활성화 -->
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 
@@ -112,6 +112,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
+            <version>5.5.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.github.daone-dadp</groupId>
@@ -119,12 +120,12 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        
+
         <!-- Common Sync Library Core (Java 8) - 스키마 동기화 공통 로직 -->
-        <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-core</artifactId>
+            <version>5.5.0</version>
         </dependency>
         
         <!-- Jackson for JSON processing -->
@@ -188,6 +189,10 @@
                     <useAgent>false</useAgent>
                     <passphrase>${env.GPG_PASSPHRASE}</passphrase>
                     <skip>${gpg.skip}</skip>
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
                 </configuration>
                 <executions>
                     <execution>
@@ -200,8 +205,7 @@
                 </executions>
             </plugin>
 
-            <!-- Central Publishing 플러그인 (공식 문서 기준) -->
-            <!-- 당분간 Maven 배포 비활성화 -->
+            <!-- Central Publishing 플러그인 -->
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
@@ -210,7 +214,7 @@
                 <configuration>
                     <skip>true</skip>
                     <publishingServerId>central</publishingServerId>
-                    <autoPublish>false</autoPublish>
+                    <autoPublish>true</autoPublish>
                     <waitUntil>validated</waitUntil>
                 </configuration>
             </plugin>

@@ -48,7 +48,7 @@ class Slf4jAdapter implements DadpLogger {
         } catch (Exception e) {
             // SLF4J 동작 체계가 깨진 경우 NoOp로 폴백
             // 생성 시에 실패하는 경우 DadpLoggerFactory에서 NoOp로 대체하도록 설계
-            throw new RuntimeException("SLF4J Logger 생성 실패: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to create SLF4J Logger: " + e.getMessage(), e);
         }
     }
     

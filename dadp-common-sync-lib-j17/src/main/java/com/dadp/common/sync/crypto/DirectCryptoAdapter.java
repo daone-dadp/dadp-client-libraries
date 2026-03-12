@@ -32,7 +32,7 @@ public class DirectCryptoAdapter {
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
-        log.debug("✅ 직접 암복호화 어댑터 생성: failOpen={}", failOpen);
+        log.trace("Direct crypto adapter created: failOpen={}", failOpen);
     }
     
     /**
@@ -42,7 +42,7 @@ public class DirectCryptoAdapter {
      */
     public void setEndpointData(EndpointStorage.EndpointData endpointData) {
         if (endpointData == null) {
-            log.warn("⚠️ 엔드포인트 데이터가 null입니다");
+            log.warn("Endpoint data is null");
             return;
         }
         
@@ -50,14 +50,14 @@ public class DirectCryptoAdapter {
             // cryptoUrl만 사용
             String cryptoUrl = endpointData.getCryptoUrl();
             if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                log.warn("⚠️ cryptoUrl이 없습니다");
+                log.warn("cryptoUrl is missing");
                 return;
             }
             
             // 이미 같은 cryptoUrl로 초기화되어 있으면 다시 초기화하지 않음
             String trimmedCryptoUrl = cryptoUrl.trim();
             if (currentCryptoService != null && currentCryptoUrl != null && currentCryptoUrl.equals(trimmedCryptoUrl)) {
-                log.trace("✅ 암복호화 서비스가 이미 초기화되어 있음: cryptoUrl={}", trimmedCryptoUrl);
+                log.trace("Crypto service already initialized: cryptoUrl={}", trimmedCryptoUrl);
                 return;
             }
             
@@ -70,12 +70,12 @@ public class DirectCryptoAdapter {
             // cryptoUrl로 암복호화 서비스 초기화
             this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
             this.currentCryptoUrl = trimmedCryptoUrl;
-            log.info("✅ 암복호화 서비스 초기화: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
+            log.debug("Crypto service initialized: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
             
             endpointAvailable = true;
             
         } catch (Exception e) {
-            log.error("❌ 암복호화 서비스 초기화 실패: {}", e.getMessage(), e);
+            log.warn("Crypto service initialization failed: {}", e.getMessage(), e);
             endpointAvailable = false;
         }
     }
@@ -100,32 +100,32 @@ public class DirectCryptoAdapter {
         }
         
         if (currentCryptoService == null) {
-            log.warn("⚠️ 암복호화 서비스가 초기화되지 않았습니다");
+            log.warn("Crypto service is not initialized");
             if (failOpen) {
                 return data;
             } else {
-                throw new RuntimeException("암복호화 서비스가 초기화되지 않았습니다");
+                throw new RuntimeException("Crypto service is not initialized");
             }
         }
-        
+
         try {
-            log.debug("🔐 직접 암호화 요청: policy={}, dataLength={}", policyName, data != null ? data.length() : 0);
+            log.trace("Direct encryption request: policy={}, dataLength={}", policyName, data != null ? data.length() : 0);
             // 엔진은 includeStats와 무관하게 항상 통계를 자동 수집함
             String encrypted = currentCryptoService.encrypt(data, policyName);
-            log.debug("✅ 직접 암호화 완료");
+            log.trace("Direct encryption completed");
             endpointAvailable = true;
             return encrypted;
         } catch (Exception e) {
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("⚠️ 직접 암호화 실패 (정책: {}): {}", policyName, errorMsg);
-            
+            log.warn("Direct encryption failed (policy: {}): {}", policyName, errorMsg);
+
             endpointAvailable = false;
-            
+
             if (failOpen) {
-                log.debug("Fail-open 모드: 평문으로 저장");
+                log.warn("Fail-open mode: storing as plaintext");
                 return data;
             } else {
-                throw new RuntimeException("암호화 실패 (Fail-closed 모드)", e);
+                throw new RuntimeException("Encryption failed (Fail-closed mode)", e);
             }
         }
     }
@@ -144,19 +144,19 @@ public class DirectCryptoAdapter {
         }
 
         if (currentCryptoService == null) {
-            log.warn("암복호화 서비스가 초기화되지 않았습니다 (encryptForSearch)");
+            log.warn("Crypto service is not initialized (encryptForSearch)");
             return data;
         }
 
         try {
-            log.debug("검색용 암호화 요청: policy={}, dataLength={}", policyName, data.length());
+            log.trace("Encrypt-for-search request: policy={}, dataLength={}", policyName, data.length());
             String result = currentCryptoService.encryptForSearch(data, policyName);
-            log.debug("검색용 암호화 완료");
+            log.trace("Encrypt-for-search completed");
             endpointAvailable = true;
             return result;
         } catch (Exception e) {
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("검색용 암호화 실패 (정책: {}): {}, 평문 반환", policyName, errorMsg);
+            log.warn("Encrypt-for-search failed (policy: {}): {}, returning plaintext", policyName, errorMsg);
             return data;
         }
     }
@@ -210,39 +210,39 @@ public class DirectCryptoAdapter {
         }
         
         if (currentCryptoService == null) {
-            log.warn("⚠️ 암복호화 서비스가 초기화되지 않았습니다");
+            log.warn("Crypto service is not initialized");
             if (failOpen) {
                 return encryptedData;
             } else {
-                throw new RuntimeException("암복호화 서비스가 초기화되지 않았습니다");
+                throw new RuntimeException("Crypto service is not initialized");
             }
         }
-        
+
         try {
-            log.debug("🔓 직접 복호화 요청: dataLength={}, policyName={}, maskPolicyName={}, maskPolicyUid={}",
+            log.trace("Direct decryption request: dataLength={}, policyName={}, maskPolicyName={}, maskPolicyUid={}",
                     encryptedData != null ? encryptedData.length() : 0, policyName, maskPolicyName, maskPolicyUid);
             // 엔진은 includeStats와 무관하게 항상 통계를 자동 수집함
             String decrypted = currentCryptoService.decrypt(encryptedData, policyName, maskPolicyName, maskPolicyUid, includeStats);
-            
+
             if (decrypted == null) {
-                log.debug("데이터가 암호화되지 않았습니다 - 원본 데이터 반환");
+                log.trace("Data is not encrypted - returning original data");
                 return encryptedData;
             }
-            
-            log.debug("✅ 직접 복호화 완료");
+
+            log.trace("Direct decryption completed");
             endpointAvailable = true;
             return decrypted;
         } catch (Exception e) {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("⚠️ 직접 복호화 실패: {}", errorMessage);
+            log.warn("Direct decryption failed: {}", errorMessage);
             
             endpointAvailable = false;
             
             if (failOpen) {
-                log.debug("Fail-open 모드: 평문으로 저장");
+                log.warn("Fail-open mode: storing as plaintext");
                 return encryptedData;
             } else {
-                throw new RuntimeException("복호화 실패 (Fail-closed 모드)", e);
+                throw new RuntimeException("Decryption failed (Fail-closed mode)", e);
             }
         }
     }
@@ -265,26 +265,26 @@ public class DirectCryptoAdapter {
         }
         
         if (currentCryptoService == null) {
-            log.warn("⚠️ 암복호화 서비스가 초기화되지 않았습니다");
+            log.warn("Crypto service is not initialized");
             if (failOpen) {
                 return encryptedDataList; // 원본 반환
             } else {
-                throw new RuntimeException("암복호화 서비스가 초기화되지 않았습니다");
+                throw new RuntimeException("Crypto service is not initialized");
             }
         }
-        
+
         try {
-            log.debug("🔓 배치 복호화 요청: itemsCount={}, maskPolicyName={}, maskPolicyUid={}", 
+            log.trace("Batch decryption request: itemsCount={}, maskPolicyName={}, maskPolicyUid={}",
                     encryptedDataList.size(), maskPolicyName, maskPolicyUid);
             return currentCryptoService.batchDecrypt(encryptedDataList, maskPolicyName, maskPolicyUid, includeStats);
         } catch (Exception e) {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("⚠️ 배치 복호화 실패: {}", errorMessage);
+            log.warn("Batch decryption failed: {}", errorMessage);
             
             if (failOpen) {
                 return encryptedDataList; // 원본 반환
             } else {
-                throw new RuntimeException("배치 복호화 실패 (Fail-closed 모드)", e);
+                throw new RuntimeException("Batch decryption failed (Fail-closed mode)", e);
             }
         }
     }
@@ -303,29 +303,29 @@ public class DirectCryptoAdapter {
         }
         
         if (policyList == null || policyList.size() != dataList.size()) {
-            throw new IllegalArgumentException("정책 목록의 크기가 데이터 목록과 일치하지 않습니다");
+            throw new IllegalArgumentException("Policy list size does not match data list size");
         }
         
         if (currentCryptoService == null) {
-            log.warn("⚠️ 암복호화 서비스가 초기화되지 않았습니다");
+            log.warn("Crypto service is not initialized");
             if (failOpen) {
                 return dataList; // 원본 반환
             } else {
-                throw new RuntimeException("암복호화 서비스가 초기화되지 않았습니다");
+                throw new RuntimeException("Crypto service is not initialized");
             }
         }
-        
+
         try {
-            log.debug("🔐 배치 암호화 요청: itemsCount={}", dataList.size());
+            log.trace("Batch encryption request: itemsCount={}", dataList.size());
             return currentCryptoService.batchEncrypt(dataList, policyList);
         } catch (Exception e) {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("⚠️ 배치 암호화 실패: {}", errorMessage);
+            log.warn("Batch encryption failed: {}", errorMessage);
             
             if (failOpen) {
                 return dataList; // 원본 반환
             } else {
-                throw new RuntimeException("배치 암호화 실패 (Fail-closed 모드)", e);
+                throw new RuntimeException("Batch encryption failed (Fail-closed mode)", e);
             }
         }
     }

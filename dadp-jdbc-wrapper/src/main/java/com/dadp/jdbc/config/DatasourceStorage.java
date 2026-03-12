@@ -45,9 +45,9 @@ public class DatasourceStorage {
             datasources.put(key, datasourceId);
             
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(file, datasources);
-            log.debug("Datasource ID 저장: {} → {}", key, datasourceId);
+            log.debug("Datasource ID saved: {} -> {}", key, datasourceId);
         } catch (Exception e) {
-            log.warn("Datasource ID 저장 실패: {}", e.getMessage());
+            log.warn("Failed to save Datasource ID: {}", e.getMessage());
         }
     }
     
@@ -68,7 +68,7 @@ public class DatasourceStorage {
             String key = buildKey(dbVendor, host, port, database, schema);
             return (String) datasources.get(key);
         } catch (Exception e) {
-            log.debug("Datasource ID 로드 실패: {}", e.getMessage());
+            log.debug("Failed to load Datasource ID: {}", e.getMessage());
             return null;
         }
     }
@@ -90,7 +90,7 @@ public class DatasourceStorage {
                 return objectMapper.readValue(file, new TypeReference<Map<String, Object>>() {});
             }
         } catch (Exception e) {
-            log.debug("Datasource 저장 파일 로드 실패: {}", e.getMessage());
+            log.debug("Failed to load Datasource storage file: {}", e.getMessage());
         }
         return new HashMap<>();
     }

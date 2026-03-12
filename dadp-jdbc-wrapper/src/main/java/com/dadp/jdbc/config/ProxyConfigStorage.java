@@ -59,20 +59,20 @@ public class ProxyConfigStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
                 finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("Failed to create default storage directory: {}", DEFAULT_STORAGE_DIR, e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
         
         this.storagePath = finalStoragePath;
         this.objectMapper = new ObjectMapper();
-        log.info("✅ Proxy 설정 저장소 초기화: {}", this.storagePath);
+        log.debug("Proxy config storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -86,7 +86,7 @@ public class ProxyConfigStorage {
      */
     public boolean saveConfig(String hubId, String hubUrl, String instanceId, boolean failOpen) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 Proxy 설정 저장 불가");
+            log.warn("Storage path not set, cannot save proxy config");
             return false;
         }
         
@@ -103,12 +103,12 @@ public class ProxyConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 Proxy 설정 저장 완료: hubId={}, hubUrl={}, instanceId={} → {}", 
+            log.debug("Proxy config saved: hubId={}, hubUrl={}, instanceId={} -> {}",
                     hubId, hubUrl, instanceId, storagePath);
             return true;
             
         } catch (IOException e) {
-            log.error("❌ Proxy 설정 저장 실패: {}", storagePath, e);
+            log.error("Failed to save proxy config: {}", storagePath, e);
             return false;
         }
     }
@@ -120,13 +120,13 @@ public class ProxyConfigStorage {
      */
     public ConfigData loadConfig() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 Proxy 설정 로드 불가");
+            log.warn("Storage path not set, cannot load proxy config");
             return null;
         }
         
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 Proxy 설정 저장 파일이 없음: {} (Hub에서 등록 예정)", storagePath);
+            log.debug("Proxy config storage file not found: {} (will register with Hub)", storagePath);
             return null;
         }
         
@@ -134,18 +134,18 @@ public class ProxyConfigStorage {
             ConfigData data = objectMapper.readValue(storageFile, ConfigData.class);
             
             if (data == null) {
-                log.warn("⚠️ Proxy 설정 데이터가 비어있음: {}", storagePath);
+                log.warn("Proxy config data is empty: {}", storagePath);
                 return null;
             }
             
             long timestamp = data.getTimestamp();
-            log.info("📂 Proxy 설정 로드 완료: hubId={}, hubUrl={}, instanceId={} (저장 시각: {})", 
+            log.debug("Proxy config loaded: hubId={}, hubUrl={}, instanceId={} (saved at: {})",
                     data.getHubId(), data.getHubUrl(), data.getInstanceId(),
                     new java.util.Date(timestamp));
             return data;
             
         } catch (IOException e) {
-            log.warn("⚠️ Proxy 설정 로드 실패: {} (빈 데이터 반환)", storagePath, e);
+            log.warn("Failed to load proxy config: {} (returning empty data)", storagePath, e);
             return null;
         }
     }
@@ -176,9 +176,9 @@ public class ProxyConfigStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ Proxy 설정 저장 파일 삭제 완료: {}", storagePath);
+                log.info("Proxy config storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ Proxy 설정 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Failed to delete proxy config storage file: {}", storagePath);
             }
             return deleted;
         }

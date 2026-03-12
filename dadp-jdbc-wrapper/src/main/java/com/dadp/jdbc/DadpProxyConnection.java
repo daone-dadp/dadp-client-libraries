@@ -52,6 +52,7 @@ public class DadpProxyConnection implements Connection {
     private final HubNotificationService notificationService;
     private final String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
     private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
+    private volatile String cachedSchemaName;  // 캐싱된 스키마 이름 (매 SQL마다 DB 조회 방지, setSchema() 시 갱신)
     private String datasourceId;  // Hub에서 받은 논리 데이터소스 ID
     private boolean closed = false;
     private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
@@ -72,7 +73,7 @@ public class DadpProxyConnection implements Connection {
             DatabaseMetaData metaData = actualConnection.getMetaData();
             vendor = metaData.getDatabaseProductName().toLowerCase();
         } catch (SQLException e) {
-            log.debug("DB 벤더 정보 조회 실패 (무시): {}", e.getMessage());
+            log.debug("DB vendor info lookup failed (ignored): {}", e.getMessage());
         }
         this.dbVendor = vendor;
         
@@ -85,14 +86,19 @@ public class DadpProxyConnection implements Connection {
                 try {
                     dbName = actualConnection.getSchema();  // PostgreSQL: schema
                 } catch (SQLException e) {
-                    log.debug("스키마 정보 조회 실패 (무시): {}", e.getMessage());
+                    log.debug("Schema info lookup failed (ignored): {}", e.getMessage());
                 }
             }
         } catch (SQLException e) {
-            log.warn("⚠️ 현재 데이터베이스명 조회 실패 (무시): {}", e.getMessage());
+            log.warn("Failed to retrieve current database name (ignored): {}", e.getMessage());
         }
         this.currentDatabaseName = dbName;
-        log.trace("📋 현재 데이터베이스/스키마: {}", currentDatabaseName != null ? currentDatabaseName : "null");
+
+        // 스키마 이름을 Connection 생성 시 1회만 조회하여 캐싱 (매 SQL마다 DB 조회 방지)
+        this.cachedSchemaName = resolveSchemaName(actualConnection, vendor, dbName);
+        log.trace("Current database/schema: {}, cachedSchema: {}",
+                currentDatabaseName != null ? currentDatabaseName : "null",
+                cachedSchemaName != null ? cachedSchemaName : "null");
         
         // instanceId당 오케스트레이터 1세트 공유: 캐시에서 조회 또는 생성
         String instanceId = config.getInstanceId();
@@ -102,9 +108,9 @@ public class DadpProxyConnection implements Connection {
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
             if (config.isFailOpen()) {
-                log.warn("⚠️ 부팅 플로우 실패 (fail-open 모드): 계속 진행합니다.");
+                log.warn("Bootstrap flow failed (fail-open mode): continuing.");
             } else {
-                throw new RuntimeException("JDBC Wrapper 초기화 실패");
+                throw new RuntimeException("JDBC Wrapper initialization failed");
             }
         }
         
@@ -119,10 +125,10 @@ public class DadpProxyConnection implements Connection {
         // hubId가 없으면 외부 요청 차단
         if (hubId == null || hubId.trim().isEmpty()) {
             if (config.isFailOpen()) {
-                log.warn("⚠️ hubId가 없지만 fail-open 모드이므로 계속 진행합니다. 외부 요청은 제한될 수 있습니다.");
+                log.warn("hubId not available but continuing in fail-open mode. External requests may be limited.");
                 // hubId는 null로 유지 (instanceId로 대체하지 않음)
             } else {
-                throw new RuntimeException("hubId가 없습니다. Hub 연결을 확인하거나 fail-open 모드를 활성화하세요.");
+                throw new RuntimeException("hubId is not available. Please check Hub connection or enable fail-open mode.");
             }
         }
         
@@ -140,7 +146,7 @@ public class DadpProxyConnection implements Connection {
         // 기존 loadMappingsFromHub()와 startMappingPolling()은 오케스트레이터에서 처리됨
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-        log.trace("✅ DADP Proxy Connection 생성 완료");
+        log.trace("DADP Proxy Connection created");
     }
     
     /**
@@ -156,7 +162,7 @@ public class DadpProxyConnection implements Connection {
         if (hubId != null && schemaSyncService != null) {
             schemaSyncService.clearSchemaHash(hubId);
         }
-        log.debug("🔄 로컬 데이터 초기화 완료: hubId={}", hubId);
+        log.debug("Local data reset completed: hubId={}", hubId);
     }
     
     /**
@@ -170,7 +176,7 @@ public class DadpProxyConnection implements Connection {
         // 1. Hub에 등록
         String datasourceId = registerDatasource(connection, originalUrl);
         if (datasourceId == null) {
-            log.warn("⚠️ Hub 등록 실패");
+            log.warn("Hub registration failed");
             return null;
         }
         this.datasourceId = datasourceId;
@@ -178,19 +184,19 @@ public class DadpProxyConnection implements Connection {
         // 2. hubId 확인
         String hubId = config.getHubId();
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 Hub에 재등록을 시도합니다: instanceId={}", config.getInstanceId());
+            log.warn("hubId not available, attempting Hub re-registration: instanceId={}", config.getInstanceId());
             String retryHubId = retryRegisterProxyInstance(connection, originalUrl);
             if (retryHubId != null && !retryHubId.trim().isEmpty()) {
                 hubId = retryHubId;
                 // hubId는 HubIdManager에서 전역으로 관리되므로 config.setHubId() 제거
-                log.info("✅ Hub에서 hubId 재등록 완료: hubId={}", hubId);
+                log.info("Hub re-registration completed: hubId={}", hubId);
             } else {
                 // fail-open 모드에서만 허용
                 if (config.isFailOpen()) {
                     hubId = config.getInstanceId();
-                    log.warn("⚠️ Hub 연결 실패 (fail-open 모드): instanceId를 임시로 사용합니다: instanceId={}", hubId);
+                    log.warn("Hub connection failed (fail-open mode): using instanceId as temporary ID: instanceId={}", hubId);
                 } else {
-                    log.error("❌ Hub에서 hubId를 발급받지 못했습니다. Hub 연결을 확인하거나 fail-open 모드를 활성화하세요.");
+                    log.error("Failed to obtain hubId from Hub. Check Hub connection or enable fail-open mode.");
                     return null;
                 }
             }
@@ -243,19 +249,19 @@ public class DadpProxyConnection implements Connection {
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
                 // hubId는 HubIdManager에서 전역으로 관리되므로 config.setHubId() 제거
                 if (datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {
-                    log.info("✅ Hub가 발급한 고유 ID: hubId={} (HubIdManager에서 관리됨)", datasourceInfo.getHubId());
+                    log.debug("Hub-issued unique ID: hubId={} (managed by HubIdManager)", datasourceInfo.getHubId());
                 }
-                log.info("✅ Datasource 등록 완료: datasourceId={}, displayName={}, hubId={}",
+                log.info("Datasource registration completed: datasourceId={}, displayName={}, hubId={}",
                     datasourceInfo.getDatasourceId(), datasourceInfo.getDisplayName(), datasourceInfo.getHubId());
                 return datasourceInfo.getDatasourceId();
             } else {
                 // Hub 연결 실패 시 datasourceId 없음
                 // 정책이 없으면 암호화/복호화 대상이 없으므로 평문 그대로 통과
-                log.debug("Datasource 등록 실패: Hub 연결 불가");
+                log.debug("Datasource registration failed: Hub unreachable");
                 return null;
             }
         } catch (Exception e) {
-            log.warn("⚠️ Datasource 등록 실패: {}", e.getMessage());
+            log.warn("Datasource registration failed: {}", e.getMessage());
             return null;
         }
     }
@@ -304,7 +310,7 @@ public class DadpProxyConnection implements Connection {
             
             return null;
         } catch (Exception e) {
-            log.warn("⚠️ Proxy Instance 재등록 실패: {}", e.getMessage());
+            log.warn("Proxy Instance re-registration failed: {}", e.getMessage());
             return null;
         }
     }
@@ -462,7 +468,7 @@ public class DadpProxyConnection implements Connection {
                 try {
                     schema = connection.getMetaData().getUserName();
                 } catch (SQLException e) {
-                    log.debug("Oracle userName 조회 실패: {}", e.getMessage());
+                    log.debug("Oracle userName lookup failed: {}", e.getMessage());
                 }
             }
             return schema;
@@ -485,7 +491,7 @@ public class DadpProxyConnection implements Connection {
     @Deprecated
     private void syncSchemaMetadata() {
         // 오케스트레이터에서 이미 처리됨
-        log.trace("⏭️ 스키마 동기화는 오케스트레이터에서 처리됨");
+        log.trace("Schema sync handled by orchestrator");
     }
     
     /**
@@ -496,7 +502,7 @@ public class DadpProxyConnection implements Connection {
     @Deprecated
     private void loadMappingsFromHub() {
         // 오케스트레이터에서 이미 처리됨
-        log.trace("⏭️ 정책 매핑 로드는 오케스트레이터에서 처리됨");
+        log.trace("Policy mapping load handled by orchestrator");
     }
     
     /**
@@ -518,7 +524,7 @@ public class DadpProxyConnection implements Connection {
     @Deprecated
     private void startMappingPolling(String hubId) {
         // 오케스트레이터에서 이미 처리됨
-        log.trace("⏭️ 주기적 동기화는 오케스트레이터에서 처리됨");
+        log.trace("Periodic sync handled by orchestrator");
     }
     
     /**
@@ -553,7 +559,7 @@ public class DadpProxyConnection implements Connection {
         
         // 모든 DB 벤더에 대해 소문자로 정규화 (스키마 저장 및 매칭 모두 소문자 기준)
         String normalized = identifier.toLowerCase();
-        log.trace("🔤 식별자 정규화: {} → {} (dbVendor={})", identifier, normalized, dbVendor);
+        log.trace("Identifier normalized: {} -> {} (dbVendor={})", identifier, normalized, dbVendor);
         return normalized;
     }
     
@@ -567,61 +573,57 @@ public class DadpProxyConnection implements Connection {
     }
     
     /**
-     * 현재 스키마 이름 반환 (DB 벤더별로 적절한 값 반환)
-     * PostgreSQL: connection.getSchema() (기본값: "public")
-     * Oracle/Tibero: connection.getSchema() 또는 getUserName() (USER가 스키마 역할)
-     * MSSQL: connection.getSchema() (기본값: "dbo")
-     * MySQL/MariaDB: connection.getCatalog() (데이터베이스 이름)
-     * 
+     * 현재 스키마 이름 반환 (캐싱된 값 사용 - Connection 생성 시 1회만 조회)
+     *
      * @return 스키마 이름 (없으면 null)
      */
     public String getCurrentSchemaName() {
+        return cachedSchemaName;
+    }
+
+    /**
+     * Connection 생성 시 스키마 이름을 1회 해석하여 캐싱용 값 반환.
+     * 매 SQL 실행마다 connection.getSchema() / getMetaData().getUserName()을 호출하면
+     * Oracle 등에서 sysauth$ 등 시스템 딕셔너리 쿼리가 반복 발생하므로 이를 방지.
+     */
+    private static String resolveSchemaName(Connection connection, String dbVendor, String currentDatabaseName) {
         if (dbVendor != null) {
-            // PostgreSQL, Oracle, Tibero, MSSQL: 스키마 이름 사용
-            if (dbVendor.contains("postgresql") || dbVendor.contains("oracle") || 
-                dbVendor.contains("tibero") || dbVendor.contains("microsoft sql server") || 
+            if (dbVendor.contains("postgresql") || dbVendor.contains("oracle") ||
+                dbVendor.contains("tibero") || dbVendor.contains("microsoft sql server") ||
                 dbVendor.contains("sql server") || dbVendor.contains("mssql")) {
                 try {
-                    String schema = actualConnection.getSchema();
+                    String schema = connection.getSchema();
                     if (schema != null && !schema.trim().isEmpty()) {
+                        // MSSQL: 데이터베이스 이름과 같으면 "dbo" 반환
+                        if ((dbVendor.contains("microsoft sql server") || dbVendor.contains("sql server") ||
+                             dbVendor.contains("mssql")) && schema.equalsIgnoreCase(currentDatabaseName)) {
+                            return "dbo";
+                        }
                         return schema;
                     }
-                    // PostgreSQL 기본 스키마
                     if (dbVendor.contains("postgresql")) {
                         return "public";
                     }
-                    // MSSQL 기본 스키마
-                    if (dbVendor.contains("microsoft sql server") || dbVendor.contains("sql server") || 
+                    if (dbVendor.contains("microsoft sql server") || dbVendor.contains("sql server") ||
                         dbVendor.contains("mssql")) {
-                        // MSSQL: getSchema()가 null이거나 데이터베이스 이름을 반환할 수 있음
-                        // 데이터베이스 이름과 같으면 "dbo" 반환, 아니면 스키마 이름 반환
-                        if (schema != null && !schema.trim().isEmpty()) {
-                            // schema가 currentDatabaseName과 같으면 데이터베이스 이름이므로 "dbo" 반환
-                            if (schema.equalsIgnoreCase(currentDatabaseName)) {
-                                return "dbo";
-                            }
-                            // 그 외의 경우는 실제 스키마 이름으로 간주
-                            return schema;
-                        }
                         return "dbo";
                     }
                     // Oracle, Tibero: getSchema()가 null이면 getUserName() 사용
                     if (dbVendor.contains("oracle") || dbVendor.contains("tibero")) {
                         try {
-                            schema = actualConnection.getMetaData().getUserName();
+                            schema = connection.getMetaData().getUserName();
                             if (schema != null && !schema.trim().isEmpty()) {
                                 return schema;
                             }
                         } catch (SQLException e) {
-                            log.debug("Oracle/Tibero userName 조회 실패: {}", e.getMessage());
+                            log.debug("Oracle/Tibero userName lookup failed: {}", e.getMessage());
                         }
                     }
                 } catch (SQLException e) {
-                    log.debug("스키마 정보 조회 실패: {}", e.getMessage());
+                    log.debug("Schema info lookup failed: {}", e.getMessage());
                 }
             }
         }
-        // MySQL, MariaDB 등: 데이터베이스 이름 사용
         return currentDatabaseName;
     }
     
@@ -635,9 +637,9 @@ public class DadpProxyConnection implements Connection {
                 Long currentVersion = policyResolver.getCurrentVersion();
                 // 정책 매핑 동기화 및 버전 업데이트 (공통 로직)
                 int count = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
-                log.info("🔄 정책 매핑 정보 강제 새로고침 완료: {}개 매핑", count);
+                log.debug("Policy mapping force refresh completed: {} mappings", count);
             } catch (Exception e) {
-                log.warn("⚠️ 정책 매핑 정보 새로고침 실패: {}", e.getMessage());
+                log.warn("Policy mapping refresh failed: {}", e.getMessage());
             }
         }, "dadp-proxy-mapping-refresh").start();
     }
@@ -655,7 +657,7 @@ public class DadpProxyConnection implements Connection {
                 // 오케스트레이터의 어댑터가 있으면 그것을 사용 (엔드포인트 정보가 설정되어 있을 수 있음)
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
-                    log.debug("✅ 오케스트레이터의 직접 암복호화 어댑터 사용");
+                    log.debug("Using orchestrator's direct crypto adapter");
                 }
                 
                 // 어댑터가 있지만 엔드포인트 정보가 설정되지 않았을 수 있음 (지연 초기화)
@@ -683,10 +685,10 @@ public class DadpProxyConnection implements Connection {
                         
                         if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                             this.directCryptoAdapter.setEndpointData(endpointData);
-                            log.info("✅ 직접 암복호화 어댑터 엔드포인트 정보 설정 완료: cryptoUrl={}", endpointData.getCryptoUrl());
+                            log.debug("Direct crypto adapter endpoint info configured: cryptoUrl={}", endpointData.getCryptoUrl());
                         }
                     } catch (Exception e) {
-                        log.warn("⚠️ 직접 암복호화 어댑터 엔드포인트 정보 설정 실패 (무시): {}", e.getMessage());
+                        log.warn("Direct crypto adapter endpoint info setup failed (ignored): {}", e.getMessage());
                     }
                 }
                 
@@ -720,10 +722,10 @@ public class DadpProxyConnection implements Connection {
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
                     this.directCryptoAdapter.setEndpointData(endpointData);
-                    log.info("✅ 직접 암복호화 어댑터 지연 초기화 완료: cryptoUrl={}", endpointData.getCryptoUrl());
+                    log.debug("Direct crypto adapter lazy initialization completed: cryptoUrl={}", endpointData.getCryptoUrl());
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 직접 암복호화 어댑터 지연 초기화 실패 (무시): {}", e.getMessage());
+                log.warn("Direct crypto adapter lazy initialization failed (ignored): {}", e.getMessage());
             }
         }
         return directCryptoAdapter;
@@ -746,7 +748,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public PreparedStatement prepareStatement(String sql) throws SQLException {
-        log.debug("🔍 PreparedStatement 생성: {}", sql);
+        log.trace("PreparedStatement created: {}", sql);
         // 정책 매핑 로드 완료 대기 (첫 번째 쿼리 실행 전 정책 적용 보장)
         ensureMappingsLoaded();
         PreparedStatement actualPs = actualConnection.prepareStatement(sql);
@@ -798,7 +800,7 @@ public class DadpProxyConnection implements Connection {
             actualConnection.close();
             closed = true;
             // TRACE 레벨로 변경: 연결 풀에서 여러 Connection이 종료될 때 로그 스팸 방지
-            log.trace("✅ DADP Proxy Connection 종료");
+            log.trace("DADP Proxy Connection closed");
         }
     }
     
@@ -1009,6 +1011,7 @@ public class DadpProxyConnection implements Connection {
     @Override
     public void setSchema(String schema) throws SQLException {
         actualConnection.setSchema(schema);
+        this.cachedSchemaName = schema;
     }
     
     @Override

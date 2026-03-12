@@ -45,7 +45,7 @@
     </scm>
 
     <properties>
-        <!-- GPG 서명 건너뛰기 (당분간 Maven Central 배포 안 함) -->
+        <!-- GPG 서명 건너뛰기 (Maven Central 배포 비활성화) -->
         <gpg.skip>true</gpg.skip>
         <maven.deploy.skip>true</maven.deploy.skip>
         <maven.compiler.source>1.8</maven.compiler.source>

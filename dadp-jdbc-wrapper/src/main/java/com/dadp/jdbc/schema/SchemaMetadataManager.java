@@ -46,12 +46,12 @@ public class SchemaMetadataManager {
         long now = System.currentTimeMillis();
         
         if (cached != null && (now - lastSyncTime.get()) < CACHE_TTL_MS) {
-            log.debug("✅ 스키마 메타데이터 캐시 적중: {}개 컬럼", cached.size());
+            log.debug("Schema metadata cache hit: {} columns", cached.size());
             return cached;
         }
         
         // 캐시 미스 또는 TTL 만료 → 다시 조회
-        log.info("🔄 스키마 메타데이터 재조회 (캐시 미스 또는 TTL 만료)");
+        log.info("Re-fetching schema metadata (cache miss or TTL expired)");
         // datasourceId는 null로 전달 (스키마 수집 시에는 필요 없음, Hub 전송 시에만 필요)
         List<SchemaRecognizer.SchemaMetadata> schemas = schemaRecognizer.collectSchemaMetadata(connection, null);
         
@@ -66,7 +66,7 @@ public class SchemaMetadataManager {
      * 스키마 메타데이터 강제 갱신
      */
     public List<SchemaRecognizer.SchemaMetadata> refreshSchemaMetadata(Connection connection) throws Exception {
-        log.info("🔄 스키마 메타데이터 강제 갱신");
+        log.info("Forcing schema metadata refresh");
         String cacheKey = getCacheKey(connection);
         
         // datasourceId는 null로 전달 (스키마 수집 시에는 필요 없음, Hub 전송 시에만 필요)
@@ -96,7 +96,7 @@ public class SchemaMetadataManager {
     public void clearCache() {
         schemaCache.clear();
         lastSyncTime.set(0);
-        log.info("🧹 스키마 메타데이터 캐시 초기화");
+        log.info("Schema metadata cache cleared");
     }
 }
 

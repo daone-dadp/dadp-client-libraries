@@ -54,12 +54,12 @@ public class EndpointSyncService {
      */
     public boolean syncEndpointsFromHub() {
         try {
-            log.info("🔄 Hub에서 암복호화 엔드포인트 정보 조회 시작: hubUrl={}, hubId={}", hubUrl, hubId);
+            log.info("Fetching crypto endpoint info from Hub: hubUrl={}, hubId={}", hubUrl, hubId);
             
             // V1 API 사용: /hub/api/v1/engines/endpoint
             String endpointPath = "/hub/api/v1/engines/endpoint";
             String endpointUrl = hubUrl + endpointPath;
-            log.debug("🔗 Hub 엔드포인트 조회 URL: {}", endpointUrl);
+            log.debug("Hub endpoint query URL: {}", endpointUrl);
             
             URI uri = URI.create(endpointUrl);
             
@@ -67,9 +67,9 @@ public class EndpointSyncService {
             java.util.Map<String, String> headers = new java.util.HashMap<>();
             if (hubId != null && !hubId.trim().isEmpty()) {
                 headers.put("X-DADP-TENANT", hubId);
-                log.debug("✅ X-DADP-TENANT 헤더 전송: hubId={}", hubId);
+                log.debug("X-DADP-TENANT header sent: hubId={}", hubId);
             } else {
-                log.warn("⚠️ hubId가 없어 X-DADP-TENANT 헤더를 전송하지 않습니다. Hub가 인스턴스별 설정을 조회할 수 없습니다.");
+                log.warn("hubId not available, X-DADP-TENANT header not sent. Hub cannot retrieve instance-specific config.");
             }
             
             HttpClientAdapter.HttpResponse response = httpClient.get(uri, headers);
@@ -83,13 +83,13 @@ public class EndpointSyncService {
                 boolean success = rootNode.path("success").asBoolean(false);
                 
                 if (!success) {
-                    log.warn("⚠️ Hub 엔드포인트 조회 실패: 응답 success=false");
+                    log.warn("Hub endpoint query failed: response success=false");
                     return false;
                 }
                 
                 JsonNode dataNode = rootNode.path("data");
                 if (dataNode.isMissingNode()) {
-                    log.warn("⚠️ Hub 엔드포인트 조회 실패: data 필드 없음");
+                    log.warn("Hub endpoint query failed: data field missing");
                     return false;
                 }
                 
@@ -112,7 +112,7 @@ public class EndpointSyncService {
                 // 단일 cryptoUrl 필수 (문서 요구사항)
                 String cryptoUrl = dataNode.path("cryptoUrl").asText(null);
                 if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                    log.warn("⚠️ Hub 응답에 cryptoUrl이 없음");
+                    log.warn("Hub response missing cryptoUrl");
                     return false;
                 }
                 
@@ -134,13 +134,13 @@ public class EndpointSyncService {
                         slowThresholdMs);
                 
                 if (saved) {
-                    log.info("✅ Hub에서 엔드포인트 정보 동기화 완료: cryptoUrl={}, hubId={}, version={}, statsEnabled={}", 
+                    log.info("Endpoint info synced from Hub: cryptoUrl={}, hubId={}, version={}, statsEnabled={}",
                             cryptoUrl, hubId, version, statsAggregatorEnabled);
                 }
                 return saved;
                 
             } else {
-                log.warn("⚠️ Hub 엔드포인트 조회 실패: HTTP {}", statusCode);
+                log.warn("Hub endpoint query failed: HTTP {}", statusCode);
                 // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
                 return false;
             }
@@ -149,10 +149,10 @@ public class EndpointSyncService {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 엔드포인트 정보 조회 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Failed to fetch endpoint info from Hub: {} (Hub unreachable)", errorMsg);
             } else {
                 // 예측 불가능한 문제만 ERROR로 처리
-                log.error("❌ Hub에서 엔드포인트 정보 조회 실패: {}", errorMsg, e);
+                log.error("Failed to fetch endpoint info from Hub: {}", errorMsg, e);
             }
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             return false;

@@ -55,12 +55,12 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     @Override
     public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String instanceId, Long currentVersion) throws Exception {
         String syncUrl = hubUrl + apiBasePath + "/schema/sync";
-        log.info("🔗 스키마 동기화 URL 생성: hubUrl={}, apiBasePath={}, syncUrl={}", hubUrl, apiBasePath, syncUrl);
+        log.debug("Schema sync URL created: hubUrl={}, apiBasePath={}, syncUrl={}", hubUrl, apiBasePath, syncUrl);
         
         // hubId 필수 검증
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다.");
-            throw new IllegalStateException("hubId가 필요합니다. 먼저 인스턴스 등록을 수행하세요.");
+            log.warn("Cannot perform schema sync: hubId is missing");
+            throw new IllegalStateException("hubId is required. Please perform instance registration first.");
         }
         
         // AOP 스키마 동기화 요청 DTO 생성
@@ -77,8 +77,8 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         }
         HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<>(request, headers);
         
-        log.debug("📤 요청 본문: {}", request);
-        log.info("📤 RestTemplate.exchange() 호출: syncUrl={}, HttpMethod=POST", syncUrl);
+        log.trace("Request body: {}", request);
+        log.debug("Calling RestTemplate.exchange(): syncUrl={}, HttpMethod=POST", syncUrl);
         ResponseEntity<Map<String, Object>> response;
         try {
             org.springframework.core.ParameterizedTypeReference<Map<String, Object>> typeRef = 
@@ -87,7 +87,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 예외를 다시 던져서 상위에서 등록 처리
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                log.warn("⚠️ Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록이 필요합니다.", hubId);
+                log.warn("Hub returned 404 for hubId={}, re-registration required", hubId);
                 throw e; // 예외를 다시 던져서 상위에서 인스턴스 등록 API 호출
             }
             throw e;
@@ -95,7 +95,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         
         // 304 Not Modified 처리
         if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-            log.debug("✅ 스키마 동기화 불필요 (304): 버전이 동일함, currentVersion={}", currentVersion);
+            log.debug("Schema sync not needed (304): version unchanged, currentVersion={}", currentVersion);
             return true;
         }
         
@@ -103,15 +103,15 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
             Map<String, Object> responseBody = response.getBody();
             Boolean success = (Boolean) responseBody.get("success");
             if (Boolean.TRUE.equals(success)) {
-                log.info("✅ Hub에 AOP 스키마 정보 전송 완료: {}개 필드, hubId={}", schemas.size(), hubId);
+                log.info("AOP schema info sent to Hub: {} fields, hubId={}", schemas.size(), hubId);
                 return true;
             } else {
                 String message = (String) responseBody.get("message");
-                log.warn("⚠️ Hub 스키마 동기화 실패: {}, URL={}", message != null ? message : "Unknown error", syncUrl);
+                log.warn("Hub schema sync failed: {}, URL={}", message != null ? message : "Unknown error", syncUrl);
                 return false;
             }
         } else {
-            log.warn("⚠️ Hub 스키마 동기화 실패: HTTP {}, URL={}", response.getStatusCode(), syncUrl);
+            log.warn("Hub schema sync failed: HTTP {}, URL={}", response.getStatusCode(), syncUrl);
             return false;
         }
     }

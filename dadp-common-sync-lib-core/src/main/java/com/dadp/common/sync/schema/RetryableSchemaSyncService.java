@@ -91,25 +91,25 @@ public class RetryableSchemaSyncService {
             try {
                 List<SchemaMetadata> schemas = schemaCollector.collectSchemas();
                 if (schemas != null && !schemas.isEmpty()) {
-                    log.debug("✅ 스키마 수집 완료: {}개 컬럼", schemas.size());
+                    log.debug("Schema collection completed: {} columns", schemas.size());
                     return true;
                 } else {
                     retryCount++;
                     if (retryCount < maxRetries) {
-                        log.debug("⏭️ 스키마 수집 결과: 0개 (재시도 {}/{})", retryCount, maxRetries);
+                        log.debug("Schema collection result: 0 (retry {}/{})", retryCount, maxRetries);
                         Thread.sleep(retryDelayMs);
                     } else {
-                        log.warn("⚠️ 스키마 수집 실패: 0개 (최대 재시도 횟수 초과)");
+                        log.warn("Schema collection failed: 0 schemas (max retries exceeded)");
                     }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.warn("⚠️ 스키마 수집 중단됨");
+                log.warn("Schema collection interrupted");
                 return false;
             } catch (Exception e) {
                 retryCount++;
                 if (retryCount < maxRetries) {
-                    log.debug("⏭️ 스키마 수집 실패 (재시도 {}/{}): {}", retryCount, maxRetries, e.getMessage());
+                    log.debug("Schema collection failed (retry {}/{}): {}", retryCount, maxRetries, e.getMessage());
                     try {
                         Thread.sleep(retryDelayMs);
                     } catch (InterruptedException ie) {
@@ -117,14 +117,14 @@ public class RetryableSchemaSyncService {
                         return false;
                     }
                 } else {
-                    log.warn("⚠️ 스키마 수집 실패 (최대 재시도 횟수 초과): {}", e.getMessage());
+                    log.warn("Schema collection failed (max retries exceeded): {}", e.getMessage());
                 }
             }
         }
-        
+
         return false;
     }
-    
+
     /**
      * 스키마 수집 (재시도) 후 수집 결과 반환.
      * 논리 순서: 1) DB 스키마 1회 수집 → 2) 영구저장소 로드 → 3) 비교 시 이 결과 재사용 (재수집 금지).
@@ -153,24 +153,24 @@ public class RetryableSchemaSyncService {
                         ? schemaCollector.collectSchemas(connection)
                         : schemaCollector.collectSchemas();
                 if (schemas != null && !schemas.isEmpty()) {
-                    log.debug("✅ 스키마 수집 완료: {}개 컬럼", schemas.size());
+                    log.debug("Schema collection completed: {} columns", schemas.size());
                     return schemas;
                 }
                 retryCount++;
                 if (retryCount < maxRetries) {
-                    log.debug("⏭️ 스키마 수집 결과: 0개 (재시도 {}/{})", retryCount, maxRetries);
+                    log.debug("Schema collection result: 0 (retry {}/{})", retryCount, maxRetries);
                     Thread.sleep(retryDelayMs);
                 } else {
-                    log.warn("⚠️ 스키마 수집 실패: 0개 (최대 재시도 횟수 초과)");
+                    log.warn("Schema collection failed: 0 schemas (max retries exceeded)");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.warn("⚠️ 스키마 수집 중단됨");
+                log.warn("Schema collection interrupted");
                 return null;
             } catch (Exception e) {
                 retryCount++;
                 if (retryCount < maxRetries) {
-                    log.debug("⏭️ 스키마 수집 실패 (재시도 {}/{}): {}", retryCount, maxRetries, e.getMessage());
+                    log.debug("Schema collection failed (retry {}/{}): {}", retryCount, maxRetries, e.getMessage());
                     try {
                         Thread.sleep(retryDelayMs);
                     } catch (InterruptedException ie) {
@@ -178,7 +178,7 @@ public class RetryableSchemaSyncService {
                         return null;
                     }
                 } else {
-                    log.warn("⚠️ 스키마 수집 실패 (최대 재시도 횟수 초과): {}", e.getMessage());
+                    log.warn("Schema collection failed (max retries exceeded): {}", e.getMessage());
                 }
             }
         }
@@ -227,7 +227,7 @@ public class RetryableSchemaSyncService {
                         
                         // 스키마가 변경되지 않았으면 동기화 건너뛰기
                         if (lastHash != null && currentHash.equals(lastHash)) {
-                            log.trace("⏭️ 스키마 변경 없음, 동기화 건너뜀: hubId={} (해시: {})", 
+                            log.trace("Schema unchanged, skipping sync: hubId={} (hash: {})",
                                     hubId, currentHash.substring(0, Math.min(8, currentHash.length())) + "...");
                             return true;
                         }
@@ -237,7 +237,7 @@ public class RetryableSchemaSyncService {
                     // 전송 전에 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
                     if (schemas != null && !schemas.isEmpty()) {
                         for (SchemaMetadata schema : schemas) {
-                            log.info("📤 스키마 전송 데이터 (RetryableSchemaSyncService): schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}", 
+                            log.trace("Schema sync data: schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}",
                                 schema.getSchemaName(), schema.getTableName(), schema.getColumnName(),
                                 schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
                         }
@@ -253,7 +253,7 @@ public class RetryableSchemaSyncService {
                             // hubId 저장 (HubIdSaver 콜백 사용)
                             if (hubIdSaver != null) {
                                 hubIdSaver.saveHubId(receivedHubId, instanceId);
-                                log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}", receivedHubId);
+                                log.debug("Received hubId saved: hubId={}", receivedHubId);
                             }
                             hubId = receivedHubId; // 이후 로직에서 사용할 hubId 업데이트
                         }
@@ -273,7 +273,7 @@ public class RetryableSchemaSyncService {
                         }
                         
                         success = true;
-                        log.info("✅ 스키마 메타데이터 동기화 성공: hubId={}, instanceId={}, 시도 횟수={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
+                        log.info("Schema metadata sync succeeded: hubId={}, instanceId={}, attempts={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
                     } else {
                         throw new RuntimeException("Schema sync failed: syncToHub returned false");
                     }
@@ -285,23 +285,23 @@ public class RetryableSchemaSyncService {
                     
                     // 404 응답: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
                     if (is404) {
-                        log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 재등록 필요");
+                        log.warn("Hub could not find hubId (404), re-registration required");
                         // false 반환하여 호출하는 쪽에서 재등록 처리
                         return false;
                     }
                     
                     if (retryCount < maxRetries) {
                         if (isSchemaEmpty) {
-                            log.debug("🔄 스키마 동기화 재시도: {}/{} (테이블 생성 대기 중...)", retryCount, maxRetries);
+                            log.debug("Schema sync retry: {}/{} (waiting for table creation...)", retryCount, maxRetries);
                         } else {
-                            log.debug("🔄 스키마 동기화 재시도: {}/{} (오류: {})", retryCount, maxRetries, e.getMessage());
+                            log.debug("Schema sync retry: {}/{} (error: {})", retryCount, maxRetries, e.getMessage());
                         }
                         Thread.sleep(backoffMs); // 대기 후 재시도
                     } else {
                         if (isSchemaEmpty) {
-                            log.warn("⚠️ 스키마 메타데이터 동기화 실패: 테이블이 생성되지 않았습니다 (최대 재시도 횟수 초과: {}/{}). Hub에서 수동으로 스키마를 등록하거나, 애플리케이션 시작 후 수동 동기화를 수행하세요.", retryCount, maxRetries);
+                            log.warn("Schema metadata sync failed: tables not created (max retries exceeded: {}/{}). Register schemas manually in Hub or perform manual sync after application startup.", retryCount, maxRetries);
                         } else {
-                            log.warn("⚠️ 스키마 메타데이터 동기화 실패 (최대 재시도 횟수 초과: {}/{}): {}", retryCount, maxRetries, e.getMessage());
+                            log.warn("Schema metadata sync failed (max retries exceeded: {}/{}): {}", retryCount, maxRetries, e.getMessage());
                         }
                         return false;
                     }
@@ -312,10 +312,10 @@ public class RetryableSchemaSyncService {
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("⚠️ 스키마 메타데이터 동기화 중단됨");
+            log.warn("Schema metadata sync interrupted");
             return false;
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 메타데이터 동기화 실패: {}", e.getMessage());
+            log.warn("Schema metadata sync failed: {}", e.getMessage());
             return false;
         }
     }
@@ -360,7 +360,7 @@ public class RetryableSchemaSyncService {
             
             return hashString.toString();
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 해시 계산 실패, 기본값 사용: {}", e.getMessage());
+            log.warn("Schema hash calculation failed, using default: {}", e.getMessage());
             // 해시 계산 실패 시 타임스탬프 사용 (항상 변경된 것으로 간주)
             return String.valueOf(System.currentTimeMillis());
         }
@@ -391,7 +391,7 @@ public class RetryableSchemaSyncService {
             return true;
         }
         String errorMsg = e.getMessage();
-        return errorMsg != null && (errorMsg.contains("404") || errorMsg.contains("재등록이 필요합니다"));
+        return errorMsg != null && (errorMsg.contains("404") || errorMsg.contains("re-registration is required"));
     }
 }
 

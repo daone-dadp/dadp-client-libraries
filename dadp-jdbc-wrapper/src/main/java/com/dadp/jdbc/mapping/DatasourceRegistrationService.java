@@ -69,7 +69,7 @@ public class DatasourceRegistrationService {
         // 먼저 로컬 저장소에서 확인
         String cachedDatasourceId = DatasourceStorage.loadDatasourceId(dbVendor, host, port, database, schema);
         if (cachedDatasourceId != null) {
-            log.debug("로컬 저장소에서 Datasource ID 발견: {}", cachedDatasourceId);
+            log.debug("Datasource ID found in local storage: {}", cachedDatasourceId);
             // Hub에 재등록 요청 (hubId 받기 위해)
             // 로컬에 datasourceId만 있고 hubId가 없을 수 있으므로 Hub에 재등록 시도
             // Hub 연결 실패 시 로컬 datasourceId만 반환 (hubId는 null)
@@ -96,7 +96,7 @@ public class DatasourceRegistrationService {
             int statusCode = response.getStatusCode();
             String responseBody = response.getBody();
             
-            log.debug("Hub Datasource 등록 응답: statusCode={}, responseBody={}", statusCode, responseBody);
+            log.debug("Hub Datasource registration response: statusCode={}, responseBody={}", statusCode, responseBody);
             
             if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
                 try {
@@ -110,20 +110,20 @@ public class DatasourceRegistrationService {
                         DatasourceInfo info = apiResponse.getData();
                         // 로컬에 저장
                         DatasourceStorage.saveDatasource(info.getDatasourceId(), dbVendor, host, port, database, schema);
-                        log.info("✅ Hub에서 Datasource 등록 완료: datasourceId={}, displayName={}, hubId={}", 
+                        log.info("Datasource registered with Hub: datasourceId={}, displayName={}, hubId={}",
                             info.getDatasourceId(), info.getDisplayName(), info.getHubId());
                         return info;
                     } else {
-                        log.warn("⚠️ Hub Datasource 등록 실패: 응답 형식 오류. statusCode={}, success={}, data={}, responseBody={}", 
+                        log.warn("Hub datasource registration failed: invalid response format. statusCode={}, success={}, data={}, responseBody={}",
                             statusCode, apiResponse != null ? apiResponse.isSuccess() : "null", 
                             apiResponse != null ? apiResponse.getData() : "null", responseBody);
                     }
                 } catch (Exception parseEx) {
-                    log.warn("⚠️ Hub Datasource 등록 실패: 응답 파싱 오류. statusCode={}, responseBody={}, error={}", 
+                    log.warn("Hub datasource registration failed: response parsing error. statusCode={}, responseBody={}, error={}",
                         statusCode, responseBody, parseEx.getMessage());
                 }
             } else {
-                log.warn("⚠️ Hub Datasource 등록 실패: HTTP 오류. statusCode={}, responseBody={}", statusCode, responseBody);
+                log.warn("Hub datasource registration failed: HTTP error. statusCode={}, responseBody={}", statusCode, responseBody);
             }
         } catch (IOException e) {
             // 예측 가능한 문제: 연결 실패 (네트워크, SSL 등)
@@ -132,7 +132,7 @@ public class DatasourceRegistrationService {
             if (errorMessage == null || errorMessage.trim().isEmpty()) {
                 errorMessage = e.getClass().getSimpleName();
             }
-            log.warn("⚠️ Hub Datasource 등록 실패: hubUrl={}, registerUrl={}, error={}", 
+            log.warn("Hub datasource registration failed: hubUrl={}, registerUrl={}, error={}",
                 hubUrl, hubUrl + "/hub/api/v1/proxy/datasources/register", errorMessage);
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
         }
@@ -157,7 +157,7 @@ public class DatasourceRegistrationService {
                 // 향후 Hub에 확인 API가 추가되면 여기서 호출
                 // 지금은 로컬 ID를 그대로 사용
             } catch (Exception e) {
-                log.debug("Datasource ID 확인 실패 (무시): {}", e.getMessage());
+                log.debug("Datasource ID verification failed (ignored): {}", e.getMessage());
             }
         }, "dadp-datasource-verify").start();
     }

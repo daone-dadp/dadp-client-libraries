@@ -26,10 +26,10 @@ public class DadpJdbcDriver implements Driver {
     static {
         try {
             DriverManager.registerDriver(new DadpJdbcDriver());
-            log.info("✅ DADP JDBC Driver 등록 완료");
+            log.info("DADP JDBC Driver registered");
         } catch (SQLException e) {
-            log.error("❌ DADP JDBC Driver 등록 실패", e);
-            throw new RuntimeException("DADP JDBC Driver 등록 실패", e);
+            log.error("DADP JDBC Driver registration failed", e);
+            throw new RuntimeException("DADP JDBC Driver registration failed", e);
         }
     }
     
@@ -56,21 +56,21 @@ public class DadpJdbcDriver implements Driver {
         
         try {
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-            log.trace("🔗 DADP JDBC Driver 연결 요청: {}", url);
+            log.trace("DADP JDBC Driver connection request: {}", url);
             
             // JDBC URL에서 Proxy 설정 파라미터 추출 (hubUrl, instanceId, failOpen)
             java.util.Map<String, String> proxyParams = extractProxyParams(url);
             if (!proxyParams.isEmpty()) {
                 // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-                log.trace("✅ Proxy 설정 파라미터 추출: {}", proxyParams);
+                log.trace("Proxy config parameters extracted: {}", proxyParams);
             } else {
-                log.warn("⚠️ Proxy 설정 파라미터가 없습니다. 시스템 프로퍼티나 환경 변수를 사용합니다.");
+                log.warn("No proxy config parameters found. Using system properties or environment variables.");
             }
             
             // DADP URL을 실제 DB URL로 변환 (Proxy 파라미터 제거)
             String actualUrl = extractActualUrl(url);
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-            log.trace("🔗 실제 DB URL: {}", actualUrl);
+            log.trace("Actual DB URL: {}", actualUrl);
             
             // 실제 Driver로 연결
             Connection actualConnection;
@@ -79,10 +79,10 @@ public class DadpJdbcDriver implements Driver {
             } catch (SQLException e) {
                 // 연결 실패 시 변환된 URL 정보를 로그에 출력 (디버깅용)
                 if (e.getMessage() != null && e.getMessage().contains("too many")) {
-                    log.warn("⚠️ JDBC URL 변환 오류 - 원본 DADP URL: {}", url);
-                    log.warn("⚠️ 변환된 실제 DB URL: {}", actualUrl);
-                    log.warn("⚠️ URL 슬래시 개수: {}", countSlashes(actualUrl));
-                    log.warn("⚠️ 드라이버 에러 메시지: {}", e.getMessage());
+                    log.warn("JDBC URL conversion error - original DADP URL: {}", url);
+                    log.warn("Converted actual DB URL: {}", actualUrl);
+                    log.warn("URL slash count: {}", countSlashes(actualUrl));
+                    log.warn("Driver error message: {}", e.getMessage());
                 }
                 throw e;
             }
@@ -91,7 +91,7 @@ public class DadpJdbcDriver implements Driver {
             return new DadpProxyConnection(actualConnection, url, proxyParams);
             
         } catch (SQLException e) {
-            log.warn("⚠️ DADP JDBC Driver 연결 실패: {}", e.getMessage(), e);
+            log.warn("DADP JDBC Driver connection failed: {}", e.getMessage(), e);
             throw e;
         }
     }
@@ -211,8 +211,8 @@ public class DadpJdbcDriver implements Driver {
         // 변환된 URL 검증: 슬래시 개수 체크 (디버깅용)
         int slashCount = countSlashes(actualUrl);
         if (slashCount > 5) { // jdbc:postgresql://host:port/db 형식은 최대 5개 (jdbc:, //, /)
-            log.warn("⚠️ 변환된 JDBC URL에 슬래시가 많습니다 ({}개). URL: {}", slashCount, actualUrl);
-            log.warn("⚠️ 원본 DADP URL: {}", dadpUrl);
+            log.warn("Converted JDBC URL has too many slashes ({} slashes). URL: {}", slashCount, actualUrl);
+            log.warn("Original DADP URL: {}", dadpUrl);
         }
         
         return actualUrl;

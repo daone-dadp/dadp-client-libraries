@@ -63,7 +63,7 @@ public class AopSchemaSyncService {
      */
     public boolean syncSchemasToHub() {
         if (metadataInitializer == null) {
-            log.warn("⚠️ EncryptionMetadataInitializer가 없어 스키마 동기화를 건너뜁니다.");
+            log.warn("EncryptionMetadataInitializer not available, skipping schema sync.");
             return false;
         }
         
@@ -73,14 +73,14 @@ public class AopSchemaSyncService {
         String syncUrl = hubUrl + syncPath;
         
         try {
-            log.info("🔄 Hub에 AOP 스키마 정보 전송 시작: hubUrl={}, instanceId={}, hubId={}, URL={}", 
+            log.info("Sending AOP schema info to Hub: hubUrl={}, instanceId={}, hubId={}, URL={}",
                     hubUrl, instanceId, hubId, syncUrl);
             
             // EncryptionMetadataInitializer에서 암호화 필드 정보 수집
             Map<String, String> encryptedColumns = metadataInitializer.getAllEncryptedColumns();
             
             if (encryptedColumns.isEmpty()) {
-                log.info("📋 암호화 필드가 없어 스키마 동기화를 건너뜁니다.");
+                log.info("No encrypted fields, skipping schema sync.");
                 return true; // 필드가 없는 것은 정상 상태
             }
             
@@ -104,7 +104,7 @@ public class AopSchemaSyncService {
                     schemas.add(schema);
                 }
             }
-            log.info("📤 Hub 스키마 동기화 API 호출: URL={}, instanceId={}, hubId={}, schemas={}", 
+            log.info("Hub schema sync API call: URL={}, instanceId={}, hubId={}, schemas={}",
                     syncUrl, instanceId, hubId, schemas.size());
             
             // 현재 버전 조회 (헤더에 포함)
@@ -123,13 +123,13 @@ public class AopSchemaSyncService {
             }
             HttpEntity<AopSchemaSyncRequest> entity = new HttpEntity<>(request, headers);
             
-            log.debug("📤 요청 본문: {}", request);
+            log.debug("Request body: {}", request);
             ResponseEntity<AopSchemaSyncResponse> response = restTemplate.exchange(
                 syncUrl, HttpMethod.POST, entity, AopSchemaSyncResponse.class);
             
             // 304 Not Modified 처리 (버전이 같으면 스키마 데이터 없이 반환)
             if (response.getStatusCode() == org.springframework.http.HttpStatus.NOT_MODIFIED) {
-                log.debug("✅ 스키마 동기화 불필요 (304): 버전이 동일함, currentVersion={}", currentVersion);
+                log.debug("Schema sync not needed (304): version unchanged, currentVersion={}", currentVersion);
                 return true;
             }
             
@@ -139,38 +139,38 @@ public class AopSchemaSyncService {
                     // hubId가 응답에 포함되어 있으면 업데이트
                     if (syncResponse.getData() != null && syncResponse.getData().getHubId() != null) {
                         String newHubId = syncResponse.getData().getHubId();
-                        log.info("✅ Hub에서 hubId 수신: {}", newHubId);
-                        
+                        log.info("hubId received from Hub: {}", newHubId);
+
                         // hubId를 영구저장소에 저장 (공통 라이브러리 사용)
                         boolean saved = configStorage.saveConfig(newHubId, hubUrl, instanceId, null);
                         if (saved) {
-                            log.info("💾 hubId 영구저장소에 저장 완료: hubId={}, 저장 경로={}", 
+                            log.info("hubId saved to persistent storage: hubId={}, path={}",
                                     newHubId, configStorage.getStoragePath());
                         } else {
-                            log.warn("⚠️ hubId 저장 실패: hubId={}", newHubId);
+                            log.warn("hubId save failed: hubId={}", newHubId);
                         }
                     }
                     
-                    log.info("✅ Hub에 AOP 스키마 정보 전송 완료: {}개 필드, URL={}", schemas.size(), syncUrl);
+                    log.info("AOP schema info sent to Hub: {} fields, URL={}", schemas.size(), syncUrl);
                     return true;
                 } else {
-                    log.warn("⚠️ Hub 스키마 동기화 실패: {}, URL={}", syncResponse.getMessage(), syncUrl);
+                    log.warn("Hub schema sync failed: {}, URL={}", syncResponse.getMessage(), syncUrl);
                     return false;
                 }
             } else {
-                log.warn("⚠️ Hub 스키마 동기화 실패: HTTP {}, URL={}", response.getStatusCode(), syncUrl);
+                log.warn("Hub schema sync failed: HTTP {}, URL={}", response.getStatusCode(), syncUrl);
                 return false;
             }
             
         } catch (org.springframework.web.client.HttpClientErrorException e) {
-            log.error("❌ Hub 스키마 동기화 HTTP 오류: status={}, URL={}, message={}", 
+            log.error("Hub schema sync HTTP error: status={}, URL={}, message={}",
                     e.getStatusCode(), syncUrl, e.getMessage());
             if (e.getResponseBodyAsString() != null) {
-                log.error("❌ 응답 본문: {}", e.getResponseBodyAsString());
+                log.error("Response body: {}", e.getResponseBodyAsString());
             }
             return false;
         } catch (Exception e) {
-            log.error("❌ Hub 스키마 동기화 실패: URL={}, error={}", syncUrl, e.getMessage(), e);
+            log.error("Hub schema sync failed: URL={}, error={}", syncUrl, e.getMessage(), e);
             return false;
         }
     }

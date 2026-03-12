@@ -102,22 +102,22 @@ public class PolicyMappingStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 String fallbackDir = getDefaultStorageDir();
                 Files.createDirectories(Paths.get(fallbackDir));
                 finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
+                log.warn("Failed to create default storage directory: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
-        
+
         this.storagePath = finalStoragePath;
-        
+
         this.objectMapper = new ObjectMapper();
-        log.info("✅ 정책 매핑 저장소 초기화: {}", this.storagePath);
+        log.info("Policy mapping storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -130,10 +130,10 @@ public class PolicyMappingStorage {
      */
     public boolean saveMappings(Map<String, String> mappings, Long version) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책 매핑 저장 불가");
+            log.warn("Storage path not set, cannot save policy mappings");
             return false;
         }
-        
+
         try {
             // 저장 데이터 구조
             PolicyMappingData data = new PolicyMappingData();
@@ -141,21 +141,21 @@ public class PolicyMappingStorage {
             data.setTimestamp(System.currentTimeMillis());
             data.setMappings(mappings);
             data.setVersion(version);
-            
+
             // 파일에 저장
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            
-            log.info("💾 정책 매핑 정보 저장 완료: {}개 매핑, version={}, storageSchemaVersion={} → {}", 
+
+            log.debug("Policy mapping saved: {} mappings, version={}, storageSchemaVersion={} -> {}",
                     mappings.size(), version, PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
             return true;
-            
+
         } catch (IOException e) {
-            log.error("❌ 정책 매핑 정보 저장 실패: {}", storagePath, e);
+            log.warn("Policy mapping save failed: {}", storagePath, e);
             return false;
         }
     }
-    
+
     /**
      * 정책 매핑 + 정책 속성 저장
      *
@@ -166,7 +166,7 @@ public class PolicyMappingStorage {
      */
     public boolean saveMappings(Map<String, String> mappings, Map<String, PolicyResolver.PolicyAttributes> policyAttributes, Long version) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책 매핑 저장 불가");
+            log.warn("Storage path not set, cannot save policy mappings");
             return false;
         }
 
@@ -192,11 +192,11 @@ public class PolicyMappingStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
 
-            log.info("💾 정책 매핑+속성 저장 완료: {}개 매핑, {}개 속성, version={} → {}",
+            log.debug("Policy mapping and attributes saved: {} mappings, {} attributes, version={} -> {}",
                     mappings.size(), policyAttributes != null ? policyAttributes.size() : 0, version, storagePath);
             return true;
         } catch (IOException e) {
-            log.error("❌ 정책 매핑 정보 저장 실패: {}", storagePath, e);
+            log.warn("Policy mapping save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -218,13 +218,13 @@ public class PolicyMappingStorage {
      */
     public Map<String, String> loadMappings() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책 매핑 로드 불가");
+            log.warn("Storage path not set, cannot load policy mappings");
             return new HashMap<>();
         }
-        
+
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 정책 매핑 저장 파일이 없음: {} (새로 생성될 예정)", storagePath);
+            log.debug("Policy mapping storage file not found: {} (will be created)", storagePath);
             return new HashMap<>();
         }
         
@@ -232,7 +232,7 @@ public class PolicyMappingStorage {
             PolicyMappingData data = objectMapper.readValue(storageFile, PolicyMappingData.class);
             
             if (data == null || data.getMappings() == null) {
-                log.warn("⚠️ 정책 매핑 데이터가 비어있음: {}", storagePath);
+                log.warn("Policy mapping data is empty: {}", storagePath);
                 return new HashMap<>();
             }
             
@@ -240,14 +240,14 @@ public class PolicyMappingStorage {
             int storageVersion = data.getStorageSchemaVersion();
             if (storageVersion == 0) {
                 // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
-                log.info("📋 구버전 정책 매핑 포맷 감지 (버전 필드 없음) -> 버전 1으로 처리");
+                log.debug("Legacy policy mapping format detected (no version field) -> treating as version 1");
                 storageVersion = 1;
             }
             
             // 향후 버전 호환성 체크
             if (storageVersion > PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION) {
-                log.warn("⚠️ 알 수 없는 정책 매핑 포맷 버전: {} (현재 지원 버전: {}), " +
-                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                log.warn("Unknown policy mapping format version: {} (current supported version: {}), " +
+                        "proceeding for backward compatibility",
                     storageVersion, PolicyMappingData.CURRENT_STORAGE_SCHEMA_VERSION);
             }
             
@@ -255,12 +255,12 @@ public class PolicyMappingStorage {
             long timestamp = data.getTimestamp();
             Long version = data.getVersion();
             
-            log.info("📂 정책 매핑 정보 로드 완료: {}개 매핑, version={}, storageSchemaVersion={} (저장 시각: {})", 
+            log.debug("Policy mapping loaded: {} mappings, version={}, storageSchemaVersion={} (saved at: {})",
                     mappings.size(), version, storageVersion, new java.util.Date(timestamp));
             return mappings;
             
         } catch (IOException e) {
-            log.warn("⚠️ 정책 매핑 정보 로드 실패: {} (빈 맵 반환)", storagePath, e);
+            log.warn("Policy mapping load failed: {} (returning empty map)", storagePath, e);
             return new HashMap<>();
         }
     }
@@ -284,7 +284,7 @@ public class PolicyMappingStorage {
             PolicyMappingData data = objectMapper.readValue(storageFile, PolicyMappingData.class);
             return data != null ? data.getVersion() : null;
         } catch (IOException e) {
-            log.warn("⚠️ 버전 정보 로드 실패: {}", storagePath, e);
+            log.warn("Version info load failed: {}", storagePath, e);
             return null;
         }
     }
@@ -319,10 +319,10 @@ public class PolicyMappingStorage {
                 result.put(entry.getKey(), attrs);
             }
 
-            log.debug("📂 정책 속성 로드 완료: {}개", result.size());
+            log.debug("Policy attributes loaded: {} entries", result.size());
             return result;
         } catch (IOException e) {
-            log.warn("⚠️ 정책 속성 로드 실패: {} (빈 맵 반환)", storagePath, e);
+            log.warn("Policy attributes load failed: {} (returning empty map)", storagePath, e);
             return new HashMap<>();
         }
     }
@@ -353,9 +353,9 @@ public class PolicyMappingStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 정책 매핑 저장 파일 삭제 완료: {}", storagePath);
+                log.debug("Policy mapping storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 정책 매핑 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Policy mapping storage file deletion failed: {}", storagePath);
             }
             return deleted;
         }

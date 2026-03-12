@@ -43,7 +43,7 @@ public class EntityDetectorFactory {
             case "annotation":
                 return createAnnotation(basePackage);
             default:
-                log.warn("⚠️ 알 수 없는 감지기 타입: {} (auto로 폴백)", type);
+                log.warn("Unknown detector type: {} (falling back to auto)", type);
                 return createAuto(entityManagerFactory, basePackage);
         }
     }
@@ -54,7 +54,7 @@ public class EntityDetectorFactory {
     private static EntityDetector createJpa(@Nullable EntityManagerFactory entityManagerFactory) {
         JpaEntityDetector detector = new JpaEntityDetector(entityManagerFactory);
         if (!detector.canDetect()) {
-            log.warn("⚠️ JPA EntityDetector를 사용할 수 없습니다 (EntityManagerFactory 없음). Reflection으로 폴백합니다.");
+            log.warn("JPA EntityDetector not available (EntityManagerFactory is null). Falling back to Reflection.");
             return createReflection(null);
         }
         return detector;
@@ -87,13 +87,13 @@ public class EntityDetectorFactory {
         if (entityManagerFactory != null) {
             JpaEntityDetector jpaDetector = new JpaEntityDetector(entityManagerFactory);
             if (jpaDetector.canDetect()) {
-                log.info("✅ Auto-detection: JPA EntityDetector 선택");
+                log.info("Auto-detection: JPA EntityDetector selected");
                 return jpaDetector;
             }
         }
-        
+
         // JPA가 없으면 Reflection 사용
-        log.info("✅ Auto-detection: Reflection EntityDetector 선택 (JPA 없음)");
+        log.info("Auto-detection: Reflection EntityDetector selected (no JPA)");
         return createReflection(basePackage);
     }
 }

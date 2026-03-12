@@ -10,7 +10,9 @@ import java.net.URL;
 import java.sql.*;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
 
@@ -32,6 +34,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private final DadpProxyConnection proxyConnection;
     private final SqlParser.SqlParseResult sqlParseResult;
     private final Map<Integer, String> parameterToColumnMap; // parameterIndex -> columnName
+    private final Set<Integer> whereClauseParamIndices; // UPDATE WHERE clause parameter indices (for search encryption routing)
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
@@ -44,6 +47,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         this.sqlParseResult = sqlParser.parse(sql);
         
         // 파라미터 인덱스와 컬럼명 매핑 생성
+        this.whereClauseParamIndices = new HashSet<>();
         this.parameterToColumnMap = buildParameterMapping(sqlParseResult);
         
         // 원본 데이터 저장용 맵 초기화 (Data truncation 시 평문으로 재시도)
@@ -51,14 +55,14 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         
         // INSERT/UPDATE 쿼리인 경우 상세 로그 출력 (디버깅용)
         if (sqlParseResult != null && ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType()))) {
-            log.info("🔍 INSERT/UPDATE PreparedStatement 생성: sql={}, table={}, columns={}, parameterMapping={}", 
+            log.trace("INSERT/UPDATE PreparedStatement created: sql={}, table={}, columns={}, parameterMapping={}",
                     sql, sqlParseResult.getTableName(), 
                     sqlParseResult.getColumns() != null ? String.join(", ", sqlParseResult.getColumns()) : "null",
                     parameterToColumnMap);
         } else if (sqlParseResult != null && !parameterToColumnMap.isEmpty()) {
-            log.trace("🔍 DADP Proxy PreparedStatement 생성: {} ({}개 파라미터 매핑)", sql, parameterToColumnMap.size());
+            log.trace("DADP Proxy PreparedStatement created: {} ({} parameter mappings)", sql, parameterToColumnMap.size());
         } else {
-            log.trace("🔍 DADP Proxy PreparedStatement 생성: {}", sql);
+            log.trace("DADP Proxy PreparedStatement created: {}", sql);
         }
     }
     
@@ -83,6 +87,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     if (columns[i] != null && !columns[i].trim().isEmpty()) {
                         // 파라미터 인덱스는 1부터 시작
                         mapping.put(i + 1, columns[i].trim());
+                    }
+                }
+            }
+            // UPDATE: WHERE 절 파라미터도 매핑 (ECB 검색용 암호화 지원)
+            if ("UPDATE".equals(parseResult.getSqlType())) {
+                Set<Integer> beforeKeys = new HashSet<>(mapping.keySet());
+                parseWhereClauseParameters(sql, parseResult.getTableName(), mapping);
+                for (Integer key : mapping.keySet()) {
+                    if (!beforeKeys.contains(key)) {
+                        whereClauseParamIndices.add(key);
                     }
                 }
             }
@@ -137,7 +151,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             
             if (!mapping.containsKey(globalParamIndex)) {
                 mapping.put(globalParamIndex, columnName);
-                log.trace("🔍 WHERE 절 파라미터 매핑: parameterIndex={} -> column={}", globalParamIndex, columnName);
+                log.trace("WHERE clause parameter mapping: parameterIndex={} -> column={}", globalParamIndex, columnName);
             }
         }
     }
@@ -188,7 +202,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // 원본 데이터가 저장된 파라미터가 있는지 확인
                 if (originalDataMap.isEmpty()) {
                     // 원본 데이터가 없으면 원래 예외 발생
-                    log.warn("⚠️ Data truncation 에러 발생했으나 원본 데이터가 없어 재시도 불가: {}", e.getMessage());
+                    log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
                     throw e;
                 }
                 
@@ -221,25 +235,25 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                         String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
                         String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
-                        String errorMsg = "암호화된 데이터가 컬럼 크기를 초과합니다 (원본: " + 
-                                         (originalData != null ? originalData.length() : 0) + "자)";
-                        log.warn("⚠️ 암호화 데이터 크기 초과: {}.{} (정책: {}), 평문으로 재시도 - {}", 
+                        String errorMsg = "Encrypted data exceeds column size (original: " +
+                                         (originalData != null ? originalData.length() : 0) + " chars)";
+                        log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
                                  tableName, paramColumnName, policyName, errorMsg);
                         
                         // 암복호화 실패 알림은 엔진에서 전송하므로 Wrapper에서는 제거
                     } else {
-                        log.warn("⚠️ 암호화 데이터 크기 초과: parameterIndex={}, 평문으로 재시도", paramIndex);
+                        log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
                     }
                 }
                 
-                log.info("🔄 Data truncation 발생: {}개 파라미터를 평문으로 되돌려 재시도", restoredCount);
-                
+                log.warn("Data truncation occurred: {} parameters reverted to plaintext for retry", restoredCount);
+
                 // 평문으로 재시도
                 try {
                     return actualPreparedStatement.executeUpdate();
                 } catch (SQLException retryException) {
                     // 재시도에서도 실패하면 원래 예외 발생
-                    log.error("❌ 평문으로 재시도했으나 여전히 실패: {}", retryException.getMessage());
+                    log.error("Retry with plaintext still failed: {}", retryException.getMessage());
                     throw e; // 원래 예외 발생
                 }
             } else {
@@ -321,7 +335,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         // null 체크 및 SQL 파싱 결과 확인
         if (value == null || sqlParseResult == null) {
             if (value != null && sqlParseResult == null) {
-                log.warn("⚠️ {}: SQL 파싱 결과 없음: 암호화 대상 확인 불가, parameterIndex={}", methodName, parameterIndex);
+                log.debug("{}: No SQL parse result: cannot determine encryption target, parameterIndex={}", methodName, parameterIndex);
             }
             return new EncryptionResult(value, false);
         }
@@ -331,21 +345,23 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         
         // INSERT/UPDATE 쿼리인 경우 상세 로그 출력 (디버깅용)
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.info("🔍 {} 호출: parameterIndex={}, columnName={}, tableName={}, valueLength={}, sqlType={}", 
+            log.trace("{} called: parameterIndex={}, columnName={}, tableName={}, valueLength={}, sqlType={}",
                     methodName, parameterIndex, columnName, tableName, value != null ? value.length() : 0, sqlParseResult.getSqlType());
         }
         
         if (columnName == null || tableName == null) {
-            log.warn("⚠️ {}: 테이블명 또는 컬럼명 없음: 암호화 대상 확인 불가, tableName={}, columnName={}, parameterIndex={}", 
+            log.debug("{}: Missing table or column name: cannot determine encryption target, tableName={}, columnName={}, parameterIndex={}",
                     methodName, tableName, columnName, parameterIndex);
             return new EncryptionResult(value, false);
         }
         
-        // SELECT 문의 WHERE 절: 로컬 캐시로 검색용 암호화 필요 여부 판단
+        // SELECT WHERE / UPDATE WHERE 절: 로컬 캐시로 검색용 암호화 필요 여부 판단
         // PolicyResolver가 useIv/usePlain을 캐싱하므로 Engine 호출 없이 판단 가능.
         // - useIv=false AND usePlain=false → Engine 호출하여 고정 IV 전체 암호화
         // - 그 외 → 평문 반환 (Engine 호출 불필요)
-        if ("SELECT".equals(sqlParseResult.getSqlType())) {
+        boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
+                ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
+        if (isSearchContext) {
             String datasourceId = proxyConnection.getDatasourceId();
             String schemaName = sqlParseResult.getSchemaName();
             if (schemaName == null || schemaName.trim().isEmpty()) {
@@ -361,21 +377,28 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
             String policyName = policyResolver.resolvePolicy(datasourceId, nSchema, nTable, nColumn);
             if (policyName == null) {
-                log.trace("🔓 {}: SELECT WHERE 절: 암호화 대상 아님, {}.{}", methodName, tableName, columnName);
+                log.trace("{}: SELECT WHERE clause: not an encryption target, {}.{}", methodName, tableName, columnName);
                 return new EncryptionResult(value, true);
             }
 
             // 로컬 캐시로 검색 암호화 필요 여부 판단 (Engine 호출 없이)
             if (!policyResolver.isSearchEncryptionNeeded(policyName)) {
-                log.trace("🔓 {}: SELECT WHERE 절: 검색 암호화 불필요 (useIv=true 또는 usePlain=true), {}.{} (정책: {})",
+                log.trace("{}: SELECT WHERE clause: search encryption not needed (useIv=true or usePlain=true), {}.{} (policy: {})",
                         methodName, tableName, columnName, policyName);
                 return new EncryptionResult(value, true);
             }
 
-            // 고정 IV 전체 암호화 필요 → Engine 호출
+            // 와일드카드(%, _) 포함 시 평문 검색 (부분암호화 컬럼의 평문 부분으로 검색 가능)
+            if (value.contains("%") || value.contains("_")) {
+                log.trace("{}: SELECT WHERE clause: wildcard detected, plaintext search, {}.{} (policy: {})",
+                        methodName, tableName, columnName, policyName);
+                return new EncryptionResult(value, true);
+            }
+
+            // 와일드카드 없음 → 전체 암호화 후 검색 (Engine 호출)
             DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
             if (adapter == null || !adapter.isEndpointAvailable()) {
-                log.trace("🔓 {}: SELECT WHERE 절: 어댑터 미사용, 평문 검색, {}.{}", methodName, tableName, columnName);
+                log.trace("{}: SELECT WHERE clause: adapter not available, plaintext search, {}.{}", methodName, tableName, columnName);
                 return new EncryptionResult(value, true);
             }
 
@@ -383,13 +406,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 String searchValue = adapter.encryptForSearch(value, policyName);
                 boolean encrypted = !value.equals(searchValue);
                 if (encrypted) {
-                    log.info("🔍 {} 검색용 암호화: {}.{} (정책: {})", methodName, tableName, columnName, policyName);
+                    log.trace("{} search encryption: {}.{} (policy: {})", methodName, tableName, columnName, policyName);
                 } else {
-                    log.trace("🔓 {} 검색용 평문: {}.{} (정책: {})", methodName, tableName, columnName, policyName);
+                    log.trace("{} search plaintext: {}.{} (policy: {})", methodName, tableName, columnName, policyName);
                 }
                 return new EncryptionResult(searchValue, false);
             } catch (Exception e) {
-                log.warn("⚠️ {} 검색용 암호화 실패, 평문 검색: {}.{} - {}", methodName, tableName, columnName, e.getMessage());
+                log.warn("{} search encryption failed, using plaintext: {}.{} - {}", methodName, tableName, columnName, e.getMessage());
                 return new EncryptionResult(value, true);
             }
         }
@@ -413,7 +436,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         
         // INSERT/UPDATE 쿼리인 경우 datasourceId와 schemaName 로그 출력 (디버깅용)
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.info("🔍 {}: 정책 조회 파라미터: datasourceId={}, schemaName={}→{}, tableName={}→{}, columnName={}→{}", 
+            log.trace("{}: Policy lookup params: datasourceId={}, schemaName={}->{}, tableName={}->{}, columnName={}->{}",
                     methodName, datasourceId, schemaName, normalizedSchemaName, 
                     tableName, normalizedTableName, columnName, normalizedColumnName);
         }
@@ -424,24 +447,24 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         
         // INSERT/UPDATE 쿼리인 경우 정책 확인 결과 로그 출력 (디버깅용)
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.info("🔍 {}: 정책 확인: {}.{} → policyName={}", methodName, tableName, columnName, policyName);
+            log.trace("{}: Policy check: {}.{} -> policyName={}", methodName, tableName, columnName, policyName);
         }
         
         if (policyName == null) {
-            log.trace("🔓 {}: 암호화 대상 아님: {}.{}", methodName, tableName, columnName);
+            log.trace("{}: Not an encryption target: {}.{}", methodName, tableName, columnName);
             return new EncryptionResult(value, false);
         }
         
         // 암호화 대상: 직접 암복호화 어댑터 사용 (Engine/Gateway 직접 연결)
         DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
         if (adapter == null) {
-            log.warn("⚠️ {}: 직접 암복호화 어댑터가 초기화되지 않았습니다: {}.{} (정책: {})", 
+            log.warn("{}: Direct crypto adapter not initialized: {}.{} (policy: {})",
                     methodName, tableName, columnName, policyName);
             if (proxyConnection.getConfig().isFailOpen()) {
                 return new EncryptionResult(value, false);
             } else {
                 // SQLException을 RuntimeException으로 감싸서 throw (호출자가 처리)
-                throw new RuntimeException(new SQLException("암복호화 어댑터가 초기화되지 않았습니다"));
+                throw new RuntimeException(new SQLException("Crypto adapter is not initialized"));
             }
         }
         
@@ -451,14 +474,14 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             // 원본 데이터 저장 (Data truncation 시 평문으로 재시도하기 위해)
             originalDataMap.put(parameterIndex, value);
             
-            log.info("🔐 {} 암호화 완료: {}.{} → {} (정책: {})", methodName, tableName, columnName,
+            log.trace("{} encryption completed: {}.{} -> {} (policy: {})", methodName, tableName, columnName,
                      encrypted != null && encrypted.length() > 50 ? encrypted.substring(0, 50) + "..." : encrypted,
                      policyName);
             return new EncryptionResult(encrypted, false);
         } catch (Exception e) {
             // 암호화 실패 시 경고 레벨로 간략하게 출력하고 평문으로 저장
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("⚠️ {} 암호화 실패: {}.{} (정책: {}), 평문으로 저장 - {}", 
+            log.warn("{} encryption failed: {}.{} (policy: {}), saving as plaintext - {}",
                      methodName, tableName, columnName, policyName, errorMsg);
             
             // 암복호화 실패 알림은 엔진에서 전송하므로 Wrapper에서는 제거
@@ -467,7 +490,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 return new EncryptionResult(value, false);
             } else {
                 // SQLException을 RuntimeException으로 감싸서 throw (호출자가 처리)
-                throw new RuntimeException(new SQLException("암호화 실패: " + errorMsg, e));
+                throw new RuntimeException(new SQLException("Encryption failed: " + errorMsg, e));
             }
         }
     }
@@ -535,7 +558,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
-        log.info("🔍 setObject(type) 호출: parameterIndex={}, valueType={}, targetSqlType={}, value={}", parameterIndex, 
+        log.trace("setObject(type) called: parameterIndex={}, valueType={}, targetSqlType={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null", targetSqlType,
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
         
@@ -545,11 +568,11 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             try {
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(type)");
                 
-                log.info("🔍 setObject(type) 암호화 결과: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
+                log.trace("setObject(type) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
-                    log.info("🔍 setObject(type) skip: parameterIndex={}, 원본값 사용", parameterIndex);
+                    log.trace("setObject(type) skip: parameterIndex={}, using original value", parameterIndex);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
                     return;
                 }
@@ -557,12 +580,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // VARCHAR 계열 타입이면 setString 사용 (타입 안전성)
                 if (targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
                     targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) {
-                    log.info("🔐 setObject(type) → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                    log.trace("setObject(type) -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setString(parameterIndex, result.value);
                 } else {
                     // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                    log.info("🔐 setObject(type) 설정: parameterIndex={}, targetSqlType={}, 암호화된값={}", parameterIndex, targetSqlType,
+                    log.trace("setObject(type) set: parameterIndex={}, targetSqlType={}, encryptedValue={}", parameterIndex, targetSqlType,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
                 }
@@ -576,13 +599,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         
         // String이 아닌 경우 원본 그대로 전달
-        log.info("🔍 setObject(type) String 아님: parameterIndex={}, 원본값 사용", parameterIndex);
+        log.trace("setObject(type) not a String: parameterIndex={}, using original value", parameterIndex);
         actualPreparedStatement.setObject(parameterIndex, x, targetSqlType);
     }
     
     @Override
     public void setObject(int parameterIndex, Object x) throws SQLException {
-        log.info("🔍 setObject 호출: parameterIndex={}, valueType={}, value={}", parameterIndex, 
+        log.trace("setObject called: parameterIndex={}, valueType={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null",
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
         
@@ -592,18 +615,18 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             try {
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject");
                 
-                log.info("🔍 setObject 암호화 결과: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
+                log.trace("setObject encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
-                    log.info("🔍 setObject skip: parameterIndex={}, 원본값 사용", parameterIndex);
+                    log.trace("setObject skip: parameterIndex={}, using original value", parameterIndex);
                     actualPreparedStatement.setObject(parameterIndex, result.value);
                     return;
                 }
                 
                 // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
                 // String이면 setString 사용 (타입 안전성)
-                log.info("🔐 setObject → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                log.trace("setObject -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 actualPreparedStatement.setString(parameterIndex, result.value);
                 return;
@@ -616,7 +639,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         
         // String이 아닌 경우 원본 그대로 전달
-        log.info("🔍 setObject String 아님: parameterIndex={}, 원본값 사용", parameterIndex);
+        log.trace("setObject not a String: parameterIndex={}, using original value", parameterIndex);
         actualPreparedStatement.setObject(parameterIndex, x);
     }
     
@@ -640,7 +663,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         
                         // 원본 데이터가 저장된 파라미터가 있는지 확인
                         if (originalDataMap.isEmpty()) {
-                            log.warn("⚠️ Data truncation 에러 발생했으나 원본 데이터가 없어 재시도 불가: {}", e.getMessage());
+                            log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
                             throw e;
                         }
                         
@@ -673,23 +696,23 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                         String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
                         String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
-                                String errorMsg = "암호화된 데이터가 컬럼 크기를 초과합니다 (원본: " + 
-                                                 (originalData != null ? originalData.length() : 0) + "자)";
-                                log.warn("⚠️ 암호화 데이터 크기 초과: {}.{} (정책: {}), 평문으로 재시도 - {}", 
+                                String errorMsg = "Encrypted data exceeds column size (original: " +
+                                                 (originalData != null ? originalData.length() : 0) + " chars)";
+                                log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
                                          tableName, paramColumnName, policyName, errorMsg);
                             } else {
-                                log.warn("⚠️ 암호화 데이터 크기 초과: parameterIndex={}, 평문으로 재시도", paramIndex);
+                                log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
                             }
                         }
                         
-                        log.info("🔄 Data truncation 발생: {}개 파라미터를 평문으로 되돌려 재시도", restoredCount);
-                        
+                        log.warn("Data truncation occurred: {} parameters reverted to plaintext for retry", restoredCount);
+
                         // 평문으로 재시도
                         try {
                             return actualPreparedStatement.execute();
                         } catch (SQLException retryException) {
                             // 재시도에서도 실패하면 원래 예외 발생
-                            log.error("❌ 평문으로 재시도했으나 여전히 실패: {}", retryException.getMessage());
+                            log.error("Retry with plaintext still failed: {}", retryException.getMessage());
                             throw e; // 원래 예외 발생
                         }
                     } else {
@@ -827,7 +850,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
-        log.info("🔍 setObject(scale) 호출: parameterIndex={}, valueType={}, targetSqlType={}, scaleOrLength={}, value={}", parameterIndex, 
+        log.trace("setObject(scale) called: parameterIndex={}, valueType={}, targetSqlType={}, scaleOrLength={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null", targetSqlType, scaleOrLength,
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
         
@@ -837,11 +860,11 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             try {
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(scale)");
                 
-                log.info("🔍 setObject(scale) 암호화 결과: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
+                log.trace("setObject(scale) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
-                    log.info("🔍 setObject(scale) skip: parameterIndex={}, 원본값 사용", parameterIndex);
+                    log.trace("setObject(scale) skip: parameterIndex={}, using original value", parameterIndex);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType, scaleOrLength);
                     return;
                 }
@@ -850,12 +873,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // 단, scaleOrLength가 지정된 경우는 setObject 사용 (길이 제한이 있을 수 있음)
                 if ((targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
                      targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) && scaleOrLength <= 0) {
-                    log.info("🔐 setObject(scale) → setString으로 delegate: parameterIndex={}, 암호화된값={}", parameterIndex, 
+                    log.trace("setObject(scale) -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setString(parameterIndex, result.value);
                 } else {
                     // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                    log.info("🔐 setObject(scale) 설정: parameterIndex={}, targetSqlType={}, scaleOrLength={}, 암호화된값={}", 
+                    log.trace("setObject(scale) set: parameterIndex={}, targetSqlType={}, scaleOrLength={}, encryptedValue={}",
                              parameterIndex, targetSqlType, scaleOrLength,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType, scaleOrLength);
@@ -870,7 +893,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         
         // String이 아닌 경우 원본 그대로 전달
-        log.info("🔍 setObject(scale) String 아님: parameterIndex={}, 원본값 사용", parameterIndex);
+        log.trace("setObject(scale) not a String: parameterIndex={}, using original value", parameterIndex);
         actualPreparedStatement.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
     }
     

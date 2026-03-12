@@ -84,7 +84,7 @@ public class PolicyMappingSyncOrchestrator {
      */
     public void updateMappingSyncService(MappingSyncService newMappingSyncService) {
         this.mappingSyncService = newMappingSyncService;
-        log.info("🔄 PolicyMappingSyncOrchestrator의 MappingSyncService 업데이트 완료");
+        log.debug("PolicyMappingSyncOrchestrator MappingSyncService updated");
     }
     
     /**
@@ -100,7 +100,7 @@ public class PolicyMappingSyncOrchestrator {
     public void checkMappingChange() {
         // hubId가 없으면 등록 수행
         if (!hubIdManager.hasHubId()) {
-            log.info("🔄 hubId가 없어 등록 수행");
+            log.info("No hubId found, performing registration");
             if (callbacks != null) {
                 callbacks.onRegistrationNeeded();
             }
@@ -110,7 +110,7 @@ public class PolicyMappingSyncOrchestrator {
         try {
             // 현재 버전 확인 (PolicyResolver에서 캐싱된 버전 사용)
             Long currentVersion = policyResolver.getCurrentVersion();
-            log.trace("📋 Hub 버전 확인 요청: 현재 버전={}", currentVersion);
+            log.trace("Hub version check request: currentVersion={}", currentVersion);
             
             // 재등록 감지용 배열
             String[] reregisteredHubId = new String[1];
@@ -120,7 +120,7 @@ public class PolicyMappingSyncOrchestrator {
             
             // 404 응답 처리: NEED_REGISTRATION이면 재등록 필요
             if (reregisteredHubId[0] != null && "NEED_REGISTRATION".equals(reregisteredHubId[0])) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
+                log.info("Hub returned 404 for hubId, performing registration");
                 if (callbacks != null) {
                     callbacks.onRegistrationNeeded();
                 }
@@ -131,7 +131,7 @@ public class PolicyMappingSyncOrchestrator {
             boolean isReregistered = reregisteredHubId[0] != null;
             if (isReregistered) {
                 String reregisteredHubIdValue = reregisteredHubId[0];
-                log.info("🔄 재등록 발생: hubId={}, 스키마 재전송", reregisteredHubIdValue);
+                log.info("Re-registration occurred: hubId={}, resending schema", reregisteredHubIdValue);
                 
                 // hubId 업데이트 (HubIdManager를 통해 저장 및 콜백 자동 호출)
                 hubIdManager.setHubId(reregisteredHubIdValue, true);
@@ -149,7 +149,7 @@ public class PolicyMappingSyncOrchestrator {
             // 버전 체크 결과에 따라 처리
             if (hasChange) {
                 // 200 OK: 버전 변경 -> 갱신 (정책 매핑, url, 버전 등)
-                log.info("🔄 정책 매핑 변경 감지, Hub에서 최신 정보 로드 시작");
+                log.debug("Policy mapping change detected, loading latest info from Hub");
                 
                 // 1. 정책 매핑 동기화 및 버전 업데이트 (영구저장소에 자동 저장됨, 캐시도 업데이트됨)
                 int loadedCount = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
@@ -167,36 +167,36 @@ public class PolicyMappingSyncOrchestrator {
                             MappingSyncService.EndpointInfo endpointInfo = lastSnapshot.getEndpoint();
                             // EndpointInfo를 콜백으로 전달 (콜백에서 EndpointStorage에 저장)
                             callbacks.onEndpointSynced(endpointInfo);
-                            log.debug("✅ 엔드포인트 정보 콜백 전달: cryptoUrl={}, apiBasePath={}", 
+                            log.debug("Endpoint info passed to callback: cryptoUrl={}, apiBasePath={}",
                                     endpointInfo.getCryptoUrl(), endpointInfo.getApiBasePath());
                         } else {
                             // 엔드포인트 정보가 없으면 null 전달 (콜백에서 직접 로드)
                             callbacks.onEndpointSynced(null);
                         }
                     } catch (Exception e) {
-                        log.warn("⚠️ 엔드포인트 동기화 콜백 호출 실패: {}", e.getMessage());
+                        log.warn("Endpoint sync callback invocation failed: {}", e.getMessage());
                     }
                 }
                 
-                log.info("✅ 정책 매핑 동기화 완료: {}개 매핑", loadedCount);
+                log.info("Policy mapping sync completed: {} mappings", loadedCount);
             } else {
                 // 304 Not Modified: 버전 동일 -> 아무것도 하지 않음
-                log.trace("⏭️ 정책 매핑 변경 없음 (version={}, 304 Not Modified)", currentVersion);
+                log.trace("No policy mapping changes (version={}, 304 Not Modified)", currentVersion);
             }
             
         } catch (IllegalStateException e) {
             // 404로 인한 재등록 필요 예외 처리
             String errorMessage = e.getMessage();
             if (errorMessage != null && errorMessage.contains("404")) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 등록 수행");
+                log.info("Hub returned 404 for hubId, performing registration");
                 if (callbacks != null) {
                     callbacks.onRegistrationNeeded();
                 }
                 return;
             }
-            log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
+            log.warn("Version check failed: {}", e.getMessage());
         } catch (Exception e) {
-            log.warn("⚠️ 버전 체크 실패: {}", e.getMessage());
+            log.warn("Version check failed: {}", e.getMessage());
         }
     }
     
@@ -215,10 +215,10 @@ public class PolicyMappingSyncOrchestrator {
             // SchemaStorage에서 정책명 업데이트
             int updatedCount = schemaStorage.updatePolicyNames(policyMappings);
             if (updatedCount > 0) {
-                log.debug("📋 스키마 정책명 업데이트 완료: {}개", updatedCount);
+                log.debug("Schema policy names updated: {} entries", updatedCount);
             }
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 정책명 업데이트 실패: {}", e.getMessage());
+            log.warn("Schema policy name update failed: {}", e.getMessage());
         }
     }
 }

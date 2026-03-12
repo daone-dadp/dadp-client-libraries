@@ -78,7 +78,7 @@ public class SchemaRecognizer {
                     allowedSchemas.add(trimmed);
                 }
             }
-            log.info("📋 스키마 Allowlist 적용: {}", allowedSchemas);
+            log.debug("Schema Allowlist applied: {}", allowedSchemas);
         }
         
         // 시작 시간 기록 (타임아웃 체크용)
@@ -97,15 +97,15 @@ public class SchemaRecognizer {
                 if (schemaPattern == null || schemaPattern.isEmpty()) {
                     schemaPattern = metaData.getUserName();
                 }
-                log.info("🔍 Oracle 자기 스키마만 조회: schema={}", schemaPattern);
+                log.debug("Oracle self-schema only query: schema={}", schemaPattern);
             }
 
-            log.info("🔍 스키마 메타데이터 수집 시작: datasourceId={}, dbVendor={}, database={}, schemaPattern={}, " +
+            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, database={}, schemaPattern={}, " +
                     "allowlist={}, maxSchemas={}, timeout={}ms",
                 datasourceId, dbVendor, databaseName, schemaPattern,
-                allowedSchemas != null ? allowedSchemas : "모두 허용",
-                maxSchemas > 0 ? maxSchemas : "제한 없음",
-                timeoutMs != null && timeoutMs > 0 ? timeoutMs : "제한 없음");
+                allowedSchemas != null ? allowedSchemas : "all allowed",
+                maxSchemas > 0 ? maxSchemas : "unlimited",
+                timeoutMs != null && timeoutMs > 0 ? timeoutMs : "unlimited");
 
             // 테이블 조회 (Oracle은 자기 스키마만, 다른 DB는 전체 후 필터링)
             try (ResultSet tables = metaData.getTables(databaseName, schemaPattern, "%", new String[]{"TABLE"})) {
@@ -114,15 +114,15 @@ public class SchemaRecognizer {
                     if (timeoutMs != null && timeoutMs > 0) {
                         long elapsed = System.currentTimeMillis() - startTime;
                         if (elapsed > timeoutMs) {
-                            log.warn("⏱️ 스키마 수집 타임아웃: {}ms 경과 (제한: {}ms), 현재까지 {}개 스키마 수집", 
+                            log.warn("Schema collection timeout: {}ms elapsed (limit: {}ms), {} schemas collected so far",
                                 elapsed, timeoutMs, schemas.size());
-                            throw new SQLException("스키마 수집 타임아웃: " + elapsed + "ms 경과 (제한: " + timeoutMs + "ms)");
+                            throw new SQLException("Schema collection timeout: " + elapsed + "ms elapsed (limit: " + timeoutMs + "ms)");
                         }
                     }
                     
                     // 최대 개수 체크
                     if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
-                        log.warn("📊 최대 스키마 개수 초과: {}개 (제한: {}개), 수집 중단", schemas.size(), maxSchemas);
+                        log.warn("Max schema count exceeded: {} (limit: {}), collection stopped", schemas.size(), maxSchemas);
                         break;
                     }
                     
@@ -138,7 +138,7 @@ public class SchemaRecognizer {
                         for (String excluded : EXCLUDED_SCHEMAS) {
                             if (lowerSchema.equals(excluded)) {
                                 isExcluded = true;
-                                log.trace("⏭️ 시스템 스키마 제외: {}.{}", tableSchema, tableName);
+                                log.trace("System schema excluded: {}.{}", tableSchema, tableName);
                                 break;
                             }
                         }
@@ -148,14 +148,14 @@ public class SchemaRecognizer {
                             for (String excluded : ORACLE_EXCLUDED_SCHEMAS) {
                                 if (lowerSchema.equals(excluded)) {
                                     isExcluded = true;
-                                    log.trace("⏭️ Oracle 시스템 스키마 제외: {}.{}", tableSchema, tableName);
+                                    log.trace("Oracle system schema excluded: {}.{}", tableSchema, tableName);
                                     break;
                                 }
                             }
                             // Oracle: APEX_*, FLOWS_* 패턴으로 시작하는 스키마도 제외
                             if (!isExcluded && (lowerSchema.startsWith("apex_") || lowerSchema.startsWith("flows_"))) {
                                 isExcluded = true;
-                                log.trace("⏭️ Oracle 시스템 스키마 제외 (패턴): {}.{}", tableSchema, tableName);
+                                log.trace("Oracle system schema excluded (pattern): {}.{}", tableSchema, tableName);
                             }
                         }
                         
@@ -165,12 +165,12 @@ public class SchemaRecognizer {
                         
                         // Allowlist 필터링
                         if (allowedSchemas != null && !allowedSchemas.contains(lowerSchema)) {
-                            log.trace("⏭️ Allowlist에 없는 스키마 제외: {}.{}", tableSchema, tableName);
+                            log.trace("Schema not in Allowlist, excluded: {}.{}", tableSchema, tableName);
                             continue;
                         }
                     }
                     
-                    log.trace("📋 테이블 발견: {}.{}", tableSchema, tableName);
+                    log.trace("Table found: {}.{}", tableSchema, tableName);
                     
                     // DB 벤더별로 스키마 이름 결정
                     // PostgreSQL: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용 (예: "public")
@@ -187,7 +187,7 @@ public class SchemaRecognizer {
                             
                             // 암복호화 대상에서 제외할 컬럼 필터링
                             if (shouldExcludeColumn(columnName, columnType, columnDefault, isAutoIncrement)) {
-                                log.trace("   ⏭️ 제외: {} ({}) - 암복호화 대상 아님", columnName, columnType);
+                                log.trace("   Excluded: {} ({}) - not a crypto target", columnName, columnType);
                                 continue;
                             }
                             
@@ -211,23 +211,23 @@ public class SchemaRecognizer {
                             
                             schemas.add(schema);
                             
-                            log.trace("   └─ 컬럼: {} ({})", schema.getColumnName(), schema.getColumnType());
+                            log.trace("   Column: {} ({})", schema.getColumnName(), schema.getColumnType());
                         }
                     }
                 }
             }
             
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("✅ 스키마 메타데이터 수집 완료: {}개 컬럼 (소요 시간: {}ms)", schemas.size(), elapsed);
+            log.info("Schema metadata collection completed: {} columns (elapsed: {}ms)", schemas.size(), elapsed);
             
             // 최대 개수 초과 경고
             if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
-                log.warn("⚠️ 최대 스키마 개수에 도달: {}개 (제한: {}개)", schemas.size(), maxSchemas);
+                log.warn("Max schema count reached: {} (limit: {})", schemas.size(), maxSchemas);
             }
             
         } catch (SQLException e) {
             long elapsed = System.currentTimeMillis() - startTime;
-            log.error("❌ 스키마 메타데이터 수집 실패: {} (소요 시간: {}ms, 수집된 스키마: {}개)", 
+            log.error("Schema metadata collection failed: {} (elapsed: {}ms, collected: {})",
                 e.getMessage(), elapsed, schemas.size(), e);
             throw e;
         }
@@ -280,7 +280,7 @@ public class SchemaRecognizer {
                 try {
                     schema = connection.getMetaData().getUserName();
                 } catch (SQLException e) {
-                    log.debug("Oracle userName 조회 실패: {}", e.getMessage());
+                    log.debug("Failed to retrieve Oracle userName: {}", e.getMessage());
                 }
             }
             return schema;
@@ -328,7 +328,7 @@ public class SchemaRecognizer {
                 try {
                     schema = connection.getMetaData().getUserName();
                 } catch (SQLException e) {
-                    log.debug("Oracle userName 조회 실패: {}", e.getMessage());
+                    log.debug("Failed to retrieve Oracle userName: {}", e.getMessage());
                 }
             }
             return schema;

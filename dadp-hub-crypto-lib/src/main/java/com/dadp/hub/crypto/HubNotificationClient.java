@@ -66,7 +66,7 @@ public class HubNotificationClient {
         instance.initialized = true;
         
         if (logging) {
-            log.debug("✅ HubNotificationClient 자동 초기화 완료: hubBaseUrl={}, timeout={}ms", 
+            log.info("HubNotificationClient initialized: hubBaseUrl={}, timeout={}ms",
                     baseUrl, timeout);
         }
         
@@ -114,7 +114,7 @@ public class HubNotificationClient {
             }
         } catch (Exception e) {
             // URI 파싱 실패 시 원본 반환
-            log.debug("URL 파싱 실패, 원본 사용: {}", url);
+            log.debug("URL parsing failed, using original: {}", url);
         }
         
         return url.trim();
@@ -143,7 +143,7 @@ public class HubNotificationClient {
                                    String entityType, String entityId, String metadata) {
         // 초기화 확인
         if (!isInitialized()) {
-            log.warn("⚠️ HubNotificationClient가 초기화되지 않았습니다. 알림 전송을 건너뜁니다.");
+            log.warn("HubNotificationClient not initialized, skipping notification send");
             return false;
         }
         
@@ -167,12 +167,12 @@ public class HubNotificationClient {
             try {
                 requestBodyJson = objectMapper.writeValueAsString(requestBody);
             } catch (Exception e) {
-                log.error("알림 요청 데이터 직렬화 실패: {}", e.getMessage());
+                log.warn("Notification request serialization failed: {}", e.getMessage());
                 return false;
             }
             
             if (enableLogging) {
-                log.debug("📢 Hub 알림 전송: type={}, level={}, title={}, entityType={}, entityId={}", 
+                log.debug("Sending Hub notification: type={}, level={}, title={}, entityType={}, entityId={}",
                         type, level, title, entityType, entityId);
             }
             
@@ -185,26 +185,26 @@ public class HubNotificationClient {
                 response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             } catch (org.springframework.web.client.HttpClientErrorException | 
                      org.springframework.web.client.HttpServerErrorException e) {
-                log.warn("⚠️ Hub 알림 전송 실패 (HTTP 오류): status={}, message={}", 
+                log.warn("Hub notification send failed (HTTP error): status={}, message={}",
                         e.getStatusCode(), e.getMessage());
                 return false;
             } catch (Exception e) {
-                log.warn("⚠️ Hub 알림 전송 실패 (연결 오류): {}", e.getMessage());
+                log.warn("Hub notification send failed (connection error): {}", e.getMessage());
                 return false;
             }
             
             if (response.getStatusCode().is2xxSuccessful()) {
                 if (enableLogging) {
-                    log.debug("✅ Hub 알림 전송 성공: {}", title);
+                    log.debug("Hub notification sent successfully: {}", title);
                 }
                 return true;
             } else {
-                log.warn("⚠️ Hub 알림 전송 실패: status={}", response.getStatusCode());
+                log.warn("Hub notification send failed: status={}", response.getStatusCode());
                 return false;
             }
             
         } catch (Exception e) {
-            log.warn("⚠️ Hub 알림 전송 중 오류 발생: {}", e.getMessage());
+            log.warn("Error during Hub notification send: {}", e.getMessage());
             return false;
         }
     }

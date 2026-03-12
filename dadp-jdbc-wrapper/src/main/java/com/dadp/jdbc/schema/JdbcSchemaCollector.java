@@ -75,7 +75,7 @@ public class JdbcSchemaCollector implements SchemaCollector {
             } else {
                 // fail-open 모드: 빈 리스트 반환
                 com.dadp.jdbc.logging.DadpLogger log = com.dadp.jdbc.logging.DadpLoggerFactory.getLogger(JdbcSchemaCollector.class);
-                log.warn("⚠️ 스키마 수집 실패 (fail-open 모드): {} - 빈 리스트 반환", e.getMessage());
+                log.warn("Schema collection failed (fail-open mode): {} - returning empty list", e.getMessage());
                 return new java.util.ArrayList<>();
             }
         }

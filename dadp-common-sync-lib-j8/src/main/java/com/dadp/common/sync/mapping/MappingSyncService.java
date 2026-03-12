@@ -119,7 +119,7 @@ public class MappingSyncService {
                 checkUrl += "&datasourceId=" + java.net.URLEncoder.encode(datasourceId, "UTF-8");
             }
             
-            log.trace("🔗 Hub 매핑 변경 확인 URL: {}", checkUrl);
+            log.trace("Hub mapping change check URL: {}", checkUrl);
             
             // 헤더에 hubId와 버전 포함 (Hub는 헤더에서 hubId와 버전을 읽음)
             java.util.Map<String, String> headers = new java.util.HashMap<>();
@@ -144,7 +144,7 @@ public class MappingSyncService {
             
             // 404 Not Found: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
             if (statusCode == 404) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록 필요", hubId);
+                log.warn("Hub returned 404 for hubId={}, re-registration required", hubId);
                 // 404는 특별한 값으로 표시하기 위해 reregisteredHubId 배열에 특별한 값 설정
                 if (reregisteredHubId != null) {
                     reregisteredHubId[0] = "NEED_REGISTRATION"; // 재등록 필요 표시
@@ -168,9 +168,9 @@ public class MappingSyncService {
                             String newHubId = (String) dataMap.get("hubId");
                             if (newHubId != null) {
                                 reregisteredHubId[0] = newHubId;
-                                log.info("🔄 Hub에서 재등록 발생: hubId={}", newHubId);
+                                log.info("Re-registration occurred on Hub: hubId={}", newHubId);
                             } else {
-                                log.info("🔄 Hub에서 재등록 발생 (hubId 정보 없음)");
+                                log.info("Re-registration occurred on Hub (no hubId info)");
                             }
                         }
                     }
@@ -180,7 +180,7 @@ public class MappingSyncService {
             }
             
             // 기타 상태 코드는 false 반환
-            log.warn("⚠️ 매핑 변경 확인 실패: HTTP {}, URL={}, hubId={}", statusCode, checkUrl, hubId);
+            log.warn("Mapping change check failed: HTTP {}, URL={}, hubId={}", statusCode, checkUrl, hubId);
             return false;
         } catch (IllegalStateException e) {
             // 400 응답으로 인한 초기화 필요 예외는 다시 던짐
@@ -189,19 +189,19 @@ public class MappingSyncService {
             // 연결 실패 (Hub에 도달하지 못함)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
-            log.warn("⚠️ 매핑 변경 확인 실패 (Hub 연결 불가): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            log.warn("Mapping change check failed (Hub unreachable): URL={}, hubId={}, error={}", url, hubId, errorMsg);
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         } catch (java.net.SocketTimeoutException e) {
             // 타임아웃
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
-            log.warn("⚠️ 매핑 변경 확인 실패 (타임아웃): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            log.warn("Mapping change check failed (timeout): URL={}, hubId={}, error={}", url, hubId, errorMsg);
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         } catch (java.net.UnknownHostException e) {
             // 호스트를 찾을 수 없음
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
-            log.warn("⚠️ 매핑 변경 확인 실패 (호스트를 찾을 수 없음): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+            log.warn("Mapping change check failed (unknown host): URL={}, hubId={}, error={}", url, hubId, errorMsg);
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         } catch (IOException e) {
             // 기타 IO 예외
@@ -209,11 +209,11 @@ public class MappingSyncService {
             String errorType = e.getClass().getSimpleName();
             String url = checkUrl != null ? checkUrl : (hubUrl + apiBasePath + "/mappings/check");
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ 매핑 변경 확인 실패 (Hub 연결 불가): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+                log.warn("Mapping change check failed (Hub unreachable): URL={}, hubId={}, error={}", url, hubId, errorMsg);
             } else if (errorMsg.contains("timeout") || errorMsg.contains("Timeout")) {
-                log.warn("⚠️ 매핑 변경 확인 실패 (타임아웃): URL={}, hubId={}, error={}", url, hubId, errorMsg);
+                log.warn("Mapping change check failed (timeout): URL={}, hubId={}, error={}", url, hubId, errorMsg);
             } else {
-                log.warn("⚠️ 매핑 변경 확인 실패: URL={}, hubId={}, errorType={}, error={}", url, hubId, errorType, errorMsg);
+                log.warn("Mapping change check failed: URL={}, hubId={}, errorType={}, error={}", url, hubId, errorType, errorMsg);
             }
             return false; // 실패 시 false 반환 (다음 확인 시 재시도)
         }
@@ -227,7 +227,7 @@ public class MappingSyncService {
      */
     public int loadPolicySnapshotFromHub(Long currentVersion) {
         try {
-            log.trace("🔄 Hub에서 정책 스냅샷 로드 시작: hubId={}, alias={}, currentVersion={}", 
+            log.trace("Loading policy snapshot from Hub: hubId={}, alias={}, currentVersion={}",
                 hubId, alias, currentVersion);
             
             // instanceId 파라미터는 alias를 사용 (정책 매핑은 alias 기준으로 동기화)
@@ -269,7 +269,7 @@ public class MappingSyncService {
             
             // 404 Not Found: hubId를 찾을 수 없음 (등록되지 않은 hubId) -> 재등록 필요 (예외가 아닌 정상 응답 코드)
             if (statusCode == 404) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404): hubId={}, 재등록 필요", hubId);
+                log.warn("Hub returned 404 for hubId={}, re-registration required", hubId);
                 return -1; // -1을 반환하여 재등록 필요를 표시
             }
             
@@ -301,24 +301,36 @@ public class MappingSyncService {
                                       mapping.getColumnName();
                             }
                             policyMap.put(key, mapping.getPolicyName());
-                            log.info("📋 정책 매핑 로드: {} → {}", key, mapping.getPolicyName());
+                            log.trace("Policy mapping loaded: {} -> {}", key, mapping.getPolicyName());
                         } else {
-                            log.debug("⏭️ 정책 매핑 건너뜀: enabled={}, policyName={}, datasourceId={}, schema={}, table={}, column={}", 
+                            log.trace("Policy mapping skipped: enabled={}, policyName={}, datasourceId={}, schema={}, table={}, column={}",
                                     mapping.isEnabled(), mapping.getPolicyName(), 
                                     mapping.getDatasourceId(), mapping.getSchemaName(), 
                                     mapping.getTableName(), mapping.getColumnName());
                         }
                     }
                     
-                    // 정책 속성(useIv/usePlain) 추출
+                    // 정책 속성(useIv/usePlain) 추출 - policyAttributes 맵에서 우선, 없으면 매핑에서 fallback
                     Map<String, PolicyAttributes> attributeMap = new HashMap<>();
-                    for (PolicyMapping mapping : snapshot.getMappings()) {
-                        if (mapping.isEnabled() && mapping.getPolicyName() != null
-                                && !mapping.getPolicyName().trim().isEmpty()) {
-                            String pn = mapping.getPolicyName();
-                            if (!attributeMap.containsKey(pn)) {
-                                attributeMap.put(pn, new PolicyAttributes(
-                                        mapping.getUseIv(), mapping.getUsePlain()));
+                    Map<String, Map<String, Object>> snapshotAttrs = snapshot.getPolicyAttributes();
+                    if (snapshotAttrs != null && !snapshotAttrs.isEmpty()) {
+                        for (Map.Entry<String, Map<String, Object>> entry : snapshotAttrs.entrySet()) {
+                            String pn = entry.getKey();
+                            Map<String, Object> attrs = entry.getValue();
+                            Boolean useIv = attrs.get("useIv") instanceof Boolean ? (Boolean) attrs.get("useIv") : null;
+                            Boolean usePlain = attrs.get("usePlain") instanceof Boolean ? (Boolean) attrs.get("usePlain") : null;
+                            attributeMap.put(pn, new PolicyAttributes(useIv, usePlain));
+                        }
+                    } else {
+                        // fallback: 개별 매핑에서 추출 (하위 호환성)
+                        for (PolicyMapping mapping : snapshot.getMappings()) {
+                            if (mapping.isEnabled() && mapping.getPolicyName() != null
+                                    && !mapping.getPolicyName().trim().isEmpty()) {
+                                String pn = mapping.getPolicyName();
+                                if (!attributeMap.containsKey(pn)) {
+                                    attributeMap.put(pn, new PolicyAttributes(
+                                            mapping.getUseIv(), mapping.getUsePlain()));
+                                }
                             }
                         }
                     }
@@ -326,7 +338,7 @@ public class MappingSyncService {
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨, 버전 정보 포함)
                     Long snapshotVersion = snapshot.getVersion();
                     if (snapshotVersion == null) {
-                        log.warn("⚠️ Hub에서 받은 정책 스냅샷에 버전 정보가 없음 (version=null), 매핑={}개", policyMap.size());
+                        log.warn("Policy snapshot from Hub has no version info (version=null), mappings={}", policyMap.size());
                     }
                     if (!attributeMap.isEmpty()) {
                         policyResolver.refreshMappings(policyMap, attributeMap, snapshotVersion);
@@ -337,14 +349,14 @@ public class MappingSyncService {
                     // 마지막 스냅샷 저장 (엔드포인트 정보 포함)
                     this.lastSnapshot = snapshot;
 
-                    log.info("✅ Hub에서 정책 스냅샷 로드 완료: version={}, {}개 매핑, {}개 정책 속성 (영구 저장소에 저장됨)",
+                    log.info("Policy snapshot loaded from Hub: version={}, {} mappings, {} policy attributes (saved to persistent storage)",
                         snapshotVersion, policyMap.size(), attributeMap.size());
                     return policyMap.size();
                 }
             }
             
             // 기타 상태 코드
-            log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: HTTP {}", statusCode);
+            log.warn("Failed to load policy snapshot from Hub: HTTP {}", statusCode);
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             return 0;
             
@@ -355,19 +367,19 @@ public class MappingSyncService {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 정책 스냅샷 로드 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Failed to load policy snapshot from Hub: {} (Hub unreachable)", errorMsg);
             } else {
-                // 예측 불가능한 문제만 ERROR로 처리
-                log.error("❌ Hub에서 정책 스냅샷 로드 실패: {}", errorMsg, e);
+                // 기타 IO 예외도 Hub 통신 장애이므로 WARN 레벨로 처리
+                log.warn("Failed to load policy snapshot from Hub: {}", errorMsg, e);
             }
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             // Hub 연결 실패 시 영구 저장소에서 로드 시도
-            log.info("📂 Hub 연결 실패, 영구 저장소에서 정책 매핑 정보 로드 시도");
+            log.debug("Hub connection failed, attempting to load policy mappings from persistent storage");
             policyResolver.reloadFromStorage();
             return 0;
         }
     }
-    
+
     /**
      * 마지막으로 받은 정책 스냅샷 조회 (엔드포인트 정보 포함)
      * 
@@ -395,18 +407,18 @@ public class MappingSyncService {
             
             // 404 응답 처리: -1이 반환되면 재등록 필요
             if (loadedCount == -1) {
-                log.info("🔄 Hub에서 hubId를 찾을 수 없음 (404), 재등록 필요");
+                log.warn("Hub returned 404 for hubId, re-registration required");
                 // 예외를 던져서 PolicyMappingSyncOrchestrator에서 재등록 처리
-                throw new IllegalStateException("Hub에서 hubId를 찾을 수 없음 (404 Not Found): 재등록이 필요합니다.");
+                throw new IllegalStateException("hubId not found on Hub (404 Not Found): re-registration is required.");
             }
             
             Long newVersion = policyResolver.getCurrentVersion();
             
             if (loadedCount > 0) {
-                log.info("✅ 정책 매핑 동기화 완료: {}개 매핑 로드, version={}", loadedCount, newVersion);
+                log.info("Policy mapping sync completed: {} mappings loaded, version={}", loadedCount, newVersion);
             } else {
                 // 304 응답 시에는 아무것도 하지 않음 (현재 버전 유지)
-                log.debug("📋 정책 매핑 변경 없음 또는 로드 실패");
+                log.debug("No policy mapping changes or load failed");
             }
             
             // 2. 동기화 완료 후 Hub에 버전 업데이트
@@ -416,16 +428,16 @@ public class MappingSyncService {
                 // checkMappingChange를 호출하여 Hub에 currentVersion 업데이트
                 // 버전이 이미 동기화되어 있으면 false 반환 (304 Not Modified)
                 // 버전이 변경되어 있으면 true 반환 (200 OK, hasChange=true)
-                log.info("🔄 Hub에 버전 업데이트 요청: currentVersion={}", newVersion);
+                log.debug("Requesting version update to Hub: currentVersion={}", newVersion);
                 boolean hasChange = checkMappingChange(newVersion, null);
                 if (hasChange) {
-                    log.info("📋 Hub에서 버전 변경 감지 (다음 동기화 주기에서 처리)");
+                    log.debug("Version change detected on Hub (will process in next sync cycle)");
                 } else {
                     // false 반환은 "이미 동기화 완료"를 의미 (304 Not Modified 또는 hasChange=false)
-                    log.info("✅ Hub 버전 업데이트 완료: version={} (동기화 완료)", newVersion);
+                    log.debug("Hub version update completed: version={} (sync done)", newVersion);
                 }
             } else {
-                log.warn("⏭️ Hub에 버전 업데이트 건너뜀: newVersion=null");
+                log.debug("Skipping Hub version update: newVersion=null");
             }
             
             return loadedCount;
@@ -434,7 +446,7 @@ public class MappingSyncService {
             if (e.getMessage() != null && e.getMessage().contains("404")) {
                 throw e;
             }
-            log.warn("⚠️ 정책 매핑 동기화 실패: {}", e.getMessage());
+            log.warn("Policy mapping sync failed: {}", e.getMessage());
             return 0;
         }
     }
@@ -448,14 +460,14 @@ public class MappingSyncService {
     @Deprecated
     public int loadMappingsFromHub() {
         try {
-            log.trace("🔄 Hub에서 정책 매핑 정보 로드 시작: hubId={}", hubId);
+            log.trace("Loading policy mappings from Hub: hubId={}", hubId);
             
             // 공통 라이브러리로 통합하면서 파라미터 이름을 instanceId로 통일
             // hubId가 null이면 alias 사용 (AOP 초기 등록 시나리오)
             String instanceId = (hubId != null && !hubId.trim().isEmpty()) ? hubId : alias;
             String mappingsPath = apiBasePath + "/mappings";
             String mappingsUrl = hubUrl + mappingsPath + "?instanceId=" + instanceId;
-            log.trace("🔗 Hub 매핑 조회 URL: {}", mappingsUrl);
+            log.trace("Hub mapping query URL: {}", mappingsUrl);
             
             // Java 버전에 따라 적절한 HTTP 클라이언트 사용
             URI uri = URI.create(mappingsUrl);
@@ -484,21 +496,21 @@ public class MappingSyncService {
                                 key = mapping.getTableName() + "." + mapping.getColumnName();
                             }
                             policyMap.put(key, mapping.getPolicyName());
-                            log.trace("📋 매핑 로드: {} → {}", key, mapping.getPolicyName());
+                            log.trace("Mapping loaded: {} -> {}", key, mapping.getPolicyName());
                         }
                     }
                     
                     // PolicyResolver에 반영 (영구 저장소에도 자동 저장됨)
                     policyResolver.refreshMappings(policyMap);
                     
-                    log.info("✅ Hub에서 정책 매핑 정보 로드 완료: {}개 매핑 (영구 저장소에 저장됨)", policyMap.size());
+                    log.info("Policy mappings loaded from Hub: {} mappings (saved to persistent storage)", policyMap.size());
                     return policyMap.size();
                 } else {
-                    log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: 응답 없음 또는 실패");
+                    log.warn("Failed to load policy mappings from Hub: no response or failure");
                     return 0;
                 }
             } else {
-                log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: HTTP {}", statusCode);
+                log.warn("Failed to load policy mappings from Hub: HTTP {}", statusCode);
                 return 0;
             }
             
@@ -506,13 +518,13 @@ public class MappingSyncService {
             // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 정책 매핑 정보 로드 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Failed to load policy mappings from Hub: {} (Hub unreachable)", errorMsg);
             } else {
-                // 예측 불가능한 문제만 ERROR로 처리
-                log.error("❌ Hub에서 정책 매핑 정보 로드 실패: {}", errorMsg, e);
+                // 기타 IO 예외도 Hub 통신 장애이므로 WARN 레벨로 처리
+                log.warn("Failed to load policy mappings from Hub: {}", errorMsg, e);
             }
             // Hub 연결 실패 시 영구 저장소에서 로드 시도
-            log.info("📂 Hub 연결 실패, 영구 저장소에서 정책 매핑 정보 로드 시도");
+            log.debug("Hub connection failed, attempting to load policy mappings from persistent storage");
             policyResolver.reloadFromStorage();
             // 로드 실패해도 계속 진행 (Fail-open)
             return 0;
@@ -593,37 +605,80 @@ public class MappingSyncService {
         private String updatedAt;
         private List<PolicyMapping> mappings;
         private EndpointInfo endpoint;  // 엔드포인트 정보 (정책 매핑과 함께 받아옴)
-        
+        private LogConfig logConfig;    // 로그 설정 (Hub에서 동적으로 수신)
+
         public Long getVersion() {
             return version;
         }
-        
+
         public void setVersion(Long version) {
             this.version = version;
         }
-        
+
         public String getUpdatedAt() {
             return updatedAt;
         }
-        
+
         public void setUpdatedAt(String updatedAt) {
             this.updatedAt = updatedAt;
         }
-        
+
         public List<PolicyMapping> getMappings() {
             return mappings;
         }
-        
+
         public void setMappings(List<PolicyMapping> mappings) {
             this.mappings = mappings;
         }
-        
+
         public EndpointInfo getEndpoint() {
             return endpoint;
         }
-        
+
         public void setEndpoint(EndpointInfo endpoint) {
             this.endpoint = endpoint;
+        }
+
+        public LogConfig getLogConfig() {
+            return logConfig;
+        }
+
+        public void setLogConfig(LogConfig logConfig) {
+            this.logConfig = logConfig;
+        }
+
+        private Map<String, Map<String, Object>> policyAttributes;
+
+        public Map<String, Map<String, Object>> getPolicyAttributes() {
+            return policyAttributes;
+        }
+
+        public void setPolicyAttributes(Map<String, Map<String, Object>> policyAttributes) {
+            this.policyAttributes = policyAttributes;
+        }
+    }
+
+    /**
+     * 로그 설정 DTO (Hub PolicySnapshot logConfig)
+     */
+    public static class LogConfig {
+        private Boolean enabled;
+        private String level;
+
+        public Boolean getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getLevel() {
+            return level;
+        }
+
+        public void setLevel(String level) {
+            this.level = level;
         }
     }
     

@@ -100,7 +100,7 @@ public class TelemetryStatsSender {
         try {
             // hubId(appId)가 없으면 통계 전송 불가 (X-DADP-TENANT 헤더 필수)
             if (appId == null || appId.trim().isEmpty()) {
-                log.warn("⚠️ hubId가 없어 통계 이벤트를 건너뜁니다 (X-DADP-TENANT 헤더 필수)");
+                log.debug("Skipping stats event: hubId not available (X-DADP-TENANT header required)");
                 return;
             }
             
@@ -131,7 +131,7 @@ public class TelemetryStatsSender {
             }
 
         } catch (Exception e) {
-            log.warn("⚠️ 통계 전송 중 예외(DROP): {}", e.getMessage());
+            log.warn("Exception during stats send (DROP): {}", e.getMessage());
         }
     }
 
@@ -276,7 +276,7 @@ public class TelemetryStatsSender {
             try {
                 uri = URI.create(ingestUrl);
             } catch (IllegalArgumentException e) {
-                log.error("❌ URI 생성 실패: ingestUrl={}, error={}", ingestUrl, e.getMessage());
+                log.error("URI creation failed: ingestUrl={}, error={}", ingestUrl, e.getMessage());
                 buffer.clear();
                 return;
             }
@@ -287,7 +287,7 @@ public class TelemetryStatsSender {
             // URI 스키마 검증 (htttp:// 같은 오타 방지)
             String scheme = uri.getScheme();
             if (scheme == null || (!scheme.equals("http") && !scheme.equals("https"))) {
-                log.error("❌ 잘못된 URI 스키마: scheme={}, uri={}", scheme, uriString);
+                log.error("Invalid URI scheme: scheme={}, uri={}", scheme, uriString);
                 buffer.clear();
                 return;
             }
@@ -298,20 +298,20 @@ public class TelemetryStatsSender {
                 int status = response.getStatusCode();
                 
                 if (status >= 200 && status < 300) {
-                    log.info("📡 통계 전송 성공: status={}, url={}", status, uriString);
+                    log.trace("Stats sent successfully: status={}, url={}", status, uriString);
                     success = true;
                 } else {
                     // WARN 로그: uri.toString()을 직접 사용하여 실제 요청 URL과 동일하게
                     // uriString 변수 대신 uri.toString()을 직접 사용하여 로그 포맷팅 오류 방지
                     String actualRequestUrl = uri.toString();
-                    log.warn("⚠️ 통계 전송 실패: status={}, url={}, body={}", 
+                    log.warn("Stats send failed: status={}, url={}, body={}",
                             status, actualRequestUrl, response.getBody());
                 }
             } catch (Exception e) {
                 // WARN 로그: uri.toString()을 직접 사용하여 실제 요청 URL과 동일하게
                 // uriString 변수 대신 uri.toString()을 직접 사용하여 로그 포맷팅 오류 방지
                 String actualRequestUrl = uri.toString();
-                log.warn("⚠️ 통계 전송 IO 실패(DROP): url={}, error={}", 
+                log.warn("Stats send IO failed (DROP): url={}, error={}",
                         actualRequestUrl, e.getMessage());
             }
             
@@ -319,7 +319,7 @@ public class TelemetryStatsSender {
 
         } catch (Exception e) {
             // DROP on failure
-            log.warn("⚠️ 통계 플러시 실패(DROP): {}", e.getMessage());
+            log.warn("Stats flush failed (DROP): {}", e.getMessage());
         }
     }
 

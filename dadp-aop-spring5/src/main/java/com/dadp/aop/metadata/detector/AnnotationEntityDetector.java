@@ -110,20 +110,20 @@ public class AnnotationEntityDetector implements EntityDetector {
                     
                     if (!fields.isEmpty()) {
                         entities.add(new EntityMetadata(clazz, tableName, schemaName, fields));
-                        log.debug("📋 어노테이션 엔티티 감지: {} (테이블: {}, 필드: {}개)", 
+                        log.debug("Annotation entity detected: {} (table: {}, fields: {})",
                             clazz.getSimpleName(), tableName, fields.size());
                     }
                 } catch (ClassNotFoundException e) {
-                    log.warn("⚠️ 클래스 로드 실패: {}", candidate.getBeanClassName(), e);
+                    log.warn("Class load failed: {}", candidate.getBeanClassName(), e);
                 }
             }
-            
-            log.info("✅ 어노테이션 엔티티 감지 완료: {}개 엔티티, {}개 암호화 필드", 
-                entities.size(), 
+
+            log.info("Annotation entity detection completed: {} entities, {} encrypted fields",
+                entities.size(),
                 entities.stream().mapToInt(e -> e.getFields().size()).sum());
-            
+
         } catch (Exception e) {
-            log.error("❌ 어노테이션 엔티티 감지 실패", e);
+            log.error("Annotation entity detection failed", e);
         }
         
         return entities;

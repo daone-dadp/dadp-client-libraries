@@ -137,15 +137,15 @@ public class SchemaCollectionConfigResolver {
             } else {
                 // 버전이 없으면 0으로 초기화 (첫 실행 시)
                 this.currentVersion = 0L;
-                log.debug("📋 영구 저장소에 버전 정보 없음, 0으로 초기화");
+                log.debug("No version info in persistent storage, initializing to 0");
             }
-            log.info("📂 영구 저장소에서 스키마 수집 설정 로드 완료: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}", 
-                    storedConfig.getTimeoutMs(), storedConfig.getMaxSchemas(), storedConfig.getAllowlist(), 
+            log.debug("Schema collection config loaded from persistent storage: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}",
+                    storedConfig.getTimeoutMs(), storedConfig.getMaxSchemas(), storedConfig.getAllowlist(),
                     storedConfig.getFailMode(), this.currentVersion);
         } else {
             // 설정이 없어도 버전은 0으로 초기화 (첫 실행 시)
             this.currentVersion = 0L;
-            log.debug("📋 영구 저장소에 스키마 수집 설정 정보 없음 (Hub에서 로드 예정), version=0으로 초기화");
+            log.debug("No schema collection config in persistent storage (will load from Hub), initializing version=0");
         }
     }
     
@@ -166,7 +166,7 @@ public class SchemaCollectionConfigResolver {
      * @param version 설정 버전 (null 가능)
      */
     public void refreshConfig(SchemaCollectionConfigStorage.SchemaCollectionConfig config, Long version) {
-        log.trace("🔄 스키마 수집 설정 캐시 갱신 시작: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}", 
+        log.trace("Schema collection config cache refresh started: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}",
                 config != null ? config.getTimeoutMs() : null,
                 config != null ? config.getMaxSchemas() : null,
                 config != null ? config.getAllowlist() : null,
@@ -178,27 +178,27 @@ public class SchemaCollectionConfigResolver {
         // 버전 정보 저장 (version이 null이면 0으로 초기화)
         if (version != null) {
             this.currentVersion = version;
-            log.debug("📋 스키마 수집 설정 버전 업데이트: version={}", version);
+            log.debug("Schema collection config version updated: version={}", version);
         } else {
             // Hub에서 버전을 받지 못한 경우 0으로 초기화 (첫 실행 시나 재등록 시)
             this.currentVersion = 0L;
-            log.warn("⚠️ Hub에서 버전 정보를 받지 못함 (version=null), 0으로 초기화");
+            log.debug("No version info received from Hub (version=null), initializing to 0");
         }
         
         // 영구 저장소에 저장 (Hub 다운 시에도 사용 가능하도록)
         boolean saved = storage.saveConfig(config, version);
         if (saved) {
-            log.info("💾 스키마 수집 설정 정보 영구 저장 완료: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}", 
+            log.debug("Schema collection config persisted: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}",
                     config != null ? config.getTimeoutMs() : null,
                     config != null ? config.getMaxSchemas() : null,
                     config != null ? config.getAllowlist() : null,
                     config != null ? config.getFailMode() : null,
                     version);
         } else {
-            log.warn("⚠️ 스키마 수집 설정 정보 영구 저장 실패 (메모리 캐시만 사용)");
+            log.warn("Schema collection config persistence failed (using memory cache only)");
         }
         
-        log.trace("✅ 스키마 수집 설정 캐시 갱신 완료");
+        log.trace("Schema collection config cache refresh completed");
     }
     
     /**
@@ -231,11 +231,11 @@ public class SchemaCollectionConfigResolver {
             if (storedVersion != null) {
                 this.currentVersion = storedVersion;
             }
-            log.info("📂 영구 저장소에서 스키마 수집 설정 재로드 완료: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}", 
-                    storedConfig.getTimeoutMs(), storedConfig.getMaxSchemas(), storedConfig.getAllowlist(), 
+            log.debug("Schema collection config reloaded from persistent storage: timeout={}ms, maxSchemas={}, allowlist={}, failMode={}, version={}",
+                    storedConfig.getTimeoutMs(), storedConfig.getMaxSchemas(), storedConfig.getAllowlist(),
                     storedConfig.getFailMode(), storedVersion);
         } else {
-            log.warn("⚠️ 영구 저장소에 스키마 수집 설정 정보 없음");
+            log.warn("No schema collection config in persistent storage");
         }
     }
     

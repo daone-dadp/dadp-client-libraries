@@ -121,22 +121,22 @@ public class EndpointStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 String fallbackDir = getDefaultStorageDir();
                 Files.createDirectories(Paths.get(fallbackDir));
                 finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
+                log.warn("Failed to create default storage directory: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
-        
+
         this.storagePath = finalStoragePath;
-        
+
         this.objectMapper = new ObjectMapper();
-        log.debug("✅ 암복호화 엔드포인트 저장소 초기화: {}", this.storagePath);
+        log.debug("Crypto endpoint storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -155,7 +155,7 @@ public class EndpointStorage {
                                   Boolean statsAggregatorEnabled, String statsAggregatorUrl, String statsAggregatorMode,
                                   Integer slowThresholdMs) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 엔드포인트 정보 저장 불가");
+            log.warn("Storage path not set, cannot save endpoint info");
             return false;
         }
 
@@ -175,12 +175,12 @@ public class EndpointStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 엔드포인트 및 통계 설정 정보 저장 완료: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={} → {}", 
+            log.debug("Endpoint and stats config saved: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={} -> {}",
                     cryptoUrl, hubId, version, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
             return true;
-            
+
         } catch (IOException e) {
-            log.error("❌ 엔드포인트 정보 저장 실패: {}", storagePath, e);
+            log.warn("Endpoint info save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -192,13 +192,13 @@ public class EndpointStorage {
      */
     public EndpointData loadEndpoints() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 엔드포인트 정보 로드 불가");
+            log.warn("Storage path not set, cannot load endpoint info");
             return null;
         }
-        
+
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 암복호화 엔드포인트 저장 파일이 없음: {} (Hub에서 조회 예정)", storagePath);
+            log.debug("Crypto endpoint file not found: {} (will query Hub)", storagePath);
             return null;
         }
         
@@ -206,7 +206,7 @@ public class EndpointStorage {
             EndpointData data = objectMapper.readValue(storageFile, EndpointData.class);
             
             if (data == null) {
-                log.warn("⚠️ 암복호화 엔드포인트 데이터가 비어있음: {}", storagePath);
+                log.warn("Crypto endpoint data is empty: {}", storagePath);
                 return null;
             }
             
@@ -214,23 +214,23 @@ public class EndpointStorage {
             int storageVersion = data.getStorageSchemaVersion();
             if (storageVersion == 0) {
                 // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
-                log.info("📋 구버전 엔드포인트 포맷 감지 (버전 필드 없음) -> 버전 1로 처리");
+                log.debug("Legacy endpoint format detected (no version field) -> treating as version 1");
                 storageVersion = 1;
             }
             
             // 향후 버전 호환성 체크
             if (storageVersion > EndpointData.CURRENT_STORAGE_SCHEMA_VERSION) {
-                log.warn("⚠️ 알 수 없는 엔드포인트 포맷 버전: {} (현재 지원 버전: {}), " +
-                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                log.warn("Unknown endpoint format version: {} (current supported version: {}), " +
+                        "proceeding for backward compatibility",
                     storageVersion, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
             }
             
-            log.debug("📂 암복호화 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={}", 
+            log.debug("Crypto endpoint info loaded: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={}",
                     data.getCryptoUrl(), data.getHubId(), data.getVersion(), storageVersion);
             return data;
             
         } catch (IOException e) {
-            log.warn("⚠️ 암복호화 엔드포인트 정보 로드 실패: {} (빈 데이터 반환)", storagePath, e);
+            log.warn("Crypto endpoint info load failed: {} (returning null)", storagePath, e);
             return null;
         }
     }
@@ -261,9 +261,9 @@ public class EndpointStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 암복호화 엔드포인트 저장 파일 삭제 완료: {}", storagePath);
+                log.debug("Crypto endpoint storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 암복호화 엔드포인트 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Crypto endpoint storage file deletion failed: {}", storagePath);
             }
             return deleted;
         }

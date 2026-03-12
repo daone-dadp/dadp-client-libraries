@@ -139,7 +139,7 @@ public class AopPolicyMappingSyncService {
                     // 재등록 시에는 스키마 재전송 불필요
                     // Hub에서 인스턴스 삭제해도 스키마는 alias 기반으로 유지되므로 재전송할 필요 없음
                     // 첫 구동시에만 스키마 전송 (AopBootstrapOrchestrator에서 처리)
-                    log.info("✅ 재등록 완료: hubId={} (스키마 재전송 생략, Hub에서 alias 기반으로 유지됨)", newHubId);
+                    log.info("Re-registration completed: hubId={} (schema resend skipped, maintained by Hub alias)", newHubId);
                 }
                 
                 @Override
@@ -159,7 +159,7 @@ public class AopPolicyMappingSyncService {
     public void init() {
         // 허브 관련 초기화는 AopBootstrapOrchestrator가 ApplicationReadyEvent 이후에 수행
         // 여기서는 필드 초기화만 수행
-        log.debug("📋 AopPolicyMappingSyncService 빈 생성 완료 (초기화는 오케스트레이터가 수행)");
+        log.debug("AopPolicyMappingSyncService bean created (initialization delegated to orchestrator)");
     }
     
     /**
@@ -176,7 +176,7 @@ public class AopPolicyMappingSyncService {
             hubIdManager.setHubId(hubId, false); // 이미 저장되어 있으므로 저장 불필요
         }
         
-        log.info("✅ AopPolicyMappingSyncService 초기화 완료 알림: initialized={}, hubId={}", initialized, hubId);
+        log.info("AopPolicyMappingSyncService initialization notified: initialized={}, hubId={}", initialized, hubId);
     }
     
     /**
@@ -188,7 +188,7 @@ public class AopPolicyMappingSyncService {
             return;
         }
         
-        log.trace("🔄 AOP 정책 매핑 버전 체크 시작");
+        log.trace("AOP policy mapping version check started");
         checkMappingChange();
     }
     
@@ -200,9 +200,9 @@ public class AopPolicyMappingSyncService {
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             properties.getHubBaseUrl(), hubId, instanceId, storageDir, fileName);
-        log.info("🔄 EndpointSyncService 재생성 완료: hubId={}", hubId);
+        log.info("EndpointSyncService recreated: hubId={}", hubId);
     }
-    
+
     /**
      * MappingSyncService 재생성 (hubId 업데이트)
      */
@@ -212,7 +212,7 @@ public class AopPolicyMappingSyncService {
         String apiBasePath = "/hub/api/v1/aop";  // V1 API 경로
         this.mappingSyncService = new MappingSyncService(
             hubUrl, hubId, instanceId, datasourceId, apiBasePath, policyResolver);
-        log.info("🔄 MappingSyncService 재생성 완료: hubId={}", hubId);
+        log.info("MappingSyncService recreated: hubId={}", hubId);
     }
     
     /**
@@ -247,16 +247,16 @@ public class AopPolicyMappingSyncService {
                         if (directCryptoAdapter != null) {
                             directCryptoAdapter.setEndpointData(endpointData);
                         }
-                        log.info("✅ 엔드포인트 동기화 완료: cryptoUrl={}, hubId={}, version={}",
+                        log.info("Endpoint sync completed: cryptoUrl={}, hubId={}, version={}",
                                 endpointData.getCryptoUrl(),
                                 endpointData.getHubId(),
                                 endpointData.getVersion());
                     }
                 } else {
-                    log.warn("⚠️ 엔드포인트 동기화 실패 (다음 주기에서 재시도)");
+                    log.warn("Endpoint sync failed (will retry next cycle)");
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
+                log.warn("Endpoint sync failed: {}", e.getMessage());
             }
         }
     }
@@ -269,21 +269,21 @@ public class AopPolicyMappingSyncService {
         String hubUrl = properties.getHubBaseUrl();
         
         // 1단계: 인스턴스 등록 (hubId 발급)
-        log.info("📝 1단계: Hub 인스턴스 등록 시작: instanceId={}", instanceId);
+        log.info("Step 1: Hub instance registration started: instanceId={}", instanceId);
         String hubId = aopSchemaSyncService.registerInstance();
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ Hub 인스턴스 등록 실패");
+            log.warn("Hub instance registration failed");
             return;
         }
-        
+
         // hubId 저장 (HubIdManager를 통해 저장 및 콜백 자동 호출)
         hubIdManager.setHubId(hubId, true);
-        log.info("✅ Hub 인스턴스 등록 완료: hubId={}", hubId);
-        
+        log.info("Hub instance registration completed: hubId={}", hubId);
+
         // 재등록 시에는 스키마 재전송 불필요 (Hub에서 인스턴스 삭제해도 스키마는 유지됨)
         // 첫 구동시에만 스키마 전송 (AopBootstrapOrchestrator에서 처리)
-        log.info("✅ Hub 등록 완료: hubId={} (재등록이므로 스키마 재전송 생략)", hubId);
-        
+        log.info("Hub registration completed: hubId={} (re-registration, schema resend skipped)", hubId);
+
         // 엔드포인트 동기화
         if (endpointSyncService != null) {
             try {
@@ -293,7 +293,7 @@ public class AopPolicyMappingSyncService {
                     directCryptoAdapter.setEndpointData(endpointData);
                 }
             } catch (Exception e) {
-                log.warn("⚠️ 엔드포인트 동기화 실패: {}", e.getMessage());
+                log.warn("Endpoint sync failed: {}", e.getMessage());
             }
         }
     }
@@ -304,9 +304,9 @@ public class AopPolicyMappingSyncService {
     public void setEnabled(boolean enabled) {
         this.enabled.set(enabled);
         if (enabled) {
-            log.info("✅ AOP 정책 매핑 동기화 활성화");
+            log.info("AOP policy mapping sync enabled");
         } else {
-            log.info("⏸️ AOP 정책 매핑 동기화 비활성화");
+            log.info("AOP policy mapping sync disabled");
         }
     }
     

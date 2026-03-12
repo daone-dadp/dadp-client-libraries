@@ -69,10 +69,10 @@ public class HubIdManager {
         if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
             String loadedHubId = config.getHubId();
             setHubId(loadedHubId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
-            log.debug("📋 영구저장소에서 hubId 로드: hubId={}", loadedHubId);
+            log.debug("HubId loaded from persistent storage: hubId={}", loadedHubId);
             return loadedHubId;
         }
-        log.debug("📋 영구저장소에 hubId 없음");
+        log.debug("No hubId in persistent storage");
         return null;
     }
     
@@ -98,7 +98,7 @@ public class HubIdManager {
         if (saveToStorage && hubId != null && !hubId.trim().isEmpty()) {
             String instanceId = instanceIdProvider.getInstanceId();
             configStorage.saveConfig(hubId, hubUrl, instanceId, null);
-            log.info("💾 hubId 저장 완료: hubId={}", hubId);
+            log.debug("HubId saved: hubId={}", hubId);
         }
         
         // 변경 콜백 호출: 저장소에서 로드한 초기값(null→hubId)이 아닐 때만 호출 (풀 커넥션별 중복 콜백 방지)
@@ -106,9 +106,9 @@ public class HubIdManager {
         if (changeCallback != null && isRealChange) {
             try {
                 changeCallback.onHubIdChanged(oldHubId, hubId);
-                log.debug("🔄 hubId 변경 콜백 호출 완료: oldHubId={}, newHubId={}", oldHubId, hubId);
+                log.debug("HubId change callback invoked: oldHubId={}, newHubId={}", oldHubId, hubId);
             } catch (Exception e) {
-                log.warn("⚠️ hubId 변경 콜백 호출 실패: {}", e.getMessage());
+                log.warn("HubId change callback failed: {}", e.getMessage());
             }
         }
     }
@@ -141,7 +141,7 @@ public class HubIdManager {
             try {
                 changeCallback.onHubIdChanged(oldHubId, null);
             } catch (Exception e) {
-                log.warn("⚠️ hubId 초기화 콜백 호출 실패: {}", e.getMessage());
+                log.warn("HubId clear callback failed: {}", e.getMessage());
             }
         }
     }

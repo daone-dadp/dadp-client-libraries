@@ -44,18 +44,18 @@ public class HubEndpointSyncService {
      */
     public String getCryptoUrlFromHub() {
         try {
-            log.info("🔄 Hub에서 암복호화 엔드포인트 정보 조회 시작: hubUrl={}, instanceId={}", hubUrl, instanceId);
+            log.debug("Fetching crypto endpoint from Hub: hubUrl={}, instanceId={}", hubUrl, instanceId);
             
             // V1 API 사용: /hub/api/v1/engines/endpoint
             String endpointPath = "/hub/api/v1/engines/endpoint";
             String endpointUrl = hubUrl + endpointPath;
-            log.debug("🔗 Hub 엔드포인트 조회 URL: {}", endpointUrl);
+            log.debug("Hub endpoint query URL: {}", endpointUrl);
             
             // X-DADP-TENANT 헤더 설정 (선택적)
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             if (instanceId != null && !instanceId.trim().isEmpty()) {
                 headers.set("X-DADP-TENANT", instanceId);
-                log.debug("✅ X-DADP-TENANT 헤더 전송: instanceId={}", instanceId);
+                log.debug("Sending X-DADP-TENANT header: instanceId={}", instanceId);
             }
             
             org.springframework.http.HttpEntity<?> entity = new org.springframework.http.HttpEntity<>(headers);
@@ -76,37 +76,37 @@ public class HubEndpointSyncService {
                 boolean success = rootNode.path("success").asBoolean(false);
                 
                 if (!success) {
-                    log.warn("⚠️ Hub 엔드포인트 조회 실패: 응답 success=false");
+                    log.warn("Hub endpoint query failed: response success=false");
                     return null;
                 }
                 
                 JsonNode dataNode = rootNode.path("data");
                 if (dataNode.isMissingNode()) {
-                    log.warn("⚠️ Hub 엔드포인트 조회 실패: data 필드 없음");
+                    log.warn("Hub endpoint query failed: data field missing");
                     return null;
                 }
                 
                 // cryptoUrl 필드 조회
                 String cryptoUrl = dataNode.path("cryptoUrl").asText(null);
                 if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                    log.warn("⚠️ Hub 응답에 cryptoUrl이 없음");
+                    log.warn("Hub response missing cryptoUrl field");
                     return null;
                 }
                 
-                log.info("✅ Hub에서 암복호화 엔드포인트 정보 조회 완료: cryptoUrl={}", cryptoUrl);
+                log.debug("Crypto endpoint fetched from Hub: cryptoUrl={}", cryptoUrl);
                 return cryptoUrl.trim();
                 
             } else {
-                log.warn("⚠️ Hub 엔드포인트 조회 실패: HTTP {}", statusCode);
+                log.warn("Hub endpoint query failed: HTTP {}", statusCode);
                 return null;
             }
             
         } catch (Exception e) {
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("⚠️ Hub에서 엔드포인트 정보 조회 실패: {} (Hub 연결 불가)", errorMsg);
+                log.warn("Hub endpoint query failed: {} (Hub unreachable)", errorMsg);
             } else {
-                log.error("❌ Hub에서 엔드포인트 정보 조회 실패: {}", errorMsg, e);
+                log.warn("Hub endpoint query failed: {}", errorMsg, e);
             }
             return null;
         }
@@ -131,7 +131,7 @@ public class HubEndpointSyncService {
                 Method getStatusCodeValueMethod = response.getClass().getMethod("getStatusCodeValue");
                 return (Integer) getStatusCodeValueMethod.invoke(response);
             } catch (Exception e2) {
-                log.error("상태 코드 조회 실패", e2);
+                log.error("Failed to retrieve status code", e2);
                 return 500; // 기본값
             }
         }

@@ -65,6 +65,105 @@
 
 ---
 
+## v5.5.8 — #배포 전 (2026-03-10)
+
+### ✨ New
+
+#### 검색 암호화 (WHERE clause) 지원
+
+- **기능**: 암호화 대상 컬럼의 WHERE 조건에서 알고리즘 특성(useIv)에 따라 암호화 검색/평문 검색 자동 분기
+- **분기 로직**:
+  - `useIv=false` (A256ECB, FPE_FF1): 결정적 암호화 → 검색값 암호화 후 DB 검색
+  - `useIv=true` (A256GCM, ARIA256, SEED128): 비결정적 암호화 → 평문 검색 (매칭 불가)
+  - `usePlain=true`: 평문 저장 컬럼 → 평문 검색
+- **LIKE 와일드카드 감지**: `%`, `_` 포함 시 평문 검색, 미포함 시 정책 기반 분기
+
+#### Exported Config 버전 비교 업데이트
+
+- **기능**: `ExportedConfigLoader`가 `policyVersion` 비교를 통해 초기 부트스트랩뿐 아니라 중간 정책 업데이트도 지원
+- **동작**: 파일 버전 > 현재 버전 → 적용, 동일/이전 버전 → 스킵
+- **파일명**: `wrapper-config*.json` 패턴 자동 인식 (Hub 다운로드 파일명 그대로 사용 가능)
+
+#### PolicyAttributes (useIv, usePlain) 동기화
+
+- **기능**: Hub `/proxy/policies` API의 `policyAttributes` 맵을 파싱하여 PolicyResolver에 전달
+- **검색 분기**: `PolicyResolver.isSearchEncryptionNeeded()` 메서드로 판단
+
+---
+
+## v5.5.9 — #배포 전 (2026-03-11)
+
+### ⚡ Performance
+
+#### Oracle/Tibero 스키마 이름 조회 캐싱 (sysauth$ 반복 쿼리 제거)
+
+- **문제**: `getCurrentSchemaName()`이 매 SQL 파라미터 바인딩마다 `connection.getSchema()` / `getMetaData().getUserName()` 호출 → Oracle JDBC 드라이버가 내부적으로 `sysauth$` 계층 쿼리를 반복 실행하여 성능 저하 유발
+- **수정**: Connection 생성 시 스키마 이름을 1회만 조회하여 `cachedSchemaName` 필드에 캐싱, `getCurrentSchemaName()`은 캐싱된 값을 즉시 반환 (DB 쿼리 없음)
+- **스키마 해석 로직**: `resolveSchemaName()` static 메서드로 분리 (PostgreSQL/Oracle/Tibero/MSSQL/MySQL 벤더별 처리)
+
+---
+
+## v5.5.10 — #배포 전 (2026-03-11~12)
+
+### 🐛 Fixed
+
+#### setSchema() 호출 시 캐싱된 스키마 이름 갱신
+
+- **문제**: `connection.setSchema()` 또는 `ALTER SESSION SET CURRENT_SCHEMA` 실행 시 캐시된 값과 실제 스키마가 불일치
+- **수정**: `setSchema()` 오버라이드하여 `cachedSchemaName`도 함께 갱신, `final` → `volatile`로 변경 (스레드 안전 가시성 보장)
+
+#### AOP CryptoService.java decrypt() 호출 시그니처 수정
+
+- **문제**: `directCryptoAdapter.decrypt(encryptedData, maskPolicyName, maskPolicyUid, includeStats)` — 4개 파라미터로 호출하나 실제 메서드는 5개 파라미터 `(String, String, String, String, boolean)`
+- **수정**: `decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, includeStats)` — policyName에 null 추가 (spring5, spring6 모두)
+
+### Changed
+
+#### 전체 라이브러리 로그 영문화
+
+- 대상: dadp-jdbc-wrapper, dadp-common-sync-lib (core/j17/j8), dadp-hub-crypto-lib, dadp-aop-spring5/6, dadp-common-logging-lib
+- 모든 log 메시지 및 exception 메시지에서 한국어 텍스트와 이모지 제거, 영문으로 통일
+
+#### 로그 레벨 재정의 (27건)
+
+- **기준 정립**:
+  - TRACE: 매 SQL/파라미터 바인딩 상세
+  - DEBUG: 내부 흐름/상태 (정책 조회, 엔드포인트 로드, HTTP 연결, 동기화)
+  - INFO: 초기화 완료, 부트스트랩, 설정 변경 (1회성 이벤트만)
+  - WARN: 복구 가능한 오류, 폴백 동작
+  - ERROR: 실제 실패 (복구 불가)
+- **주요 변경**:
+  - INFO → DEBUG (14건): 스토리지 로드, 엔드포인트 설정, Oracle 스키마 상세 등 반복 로그
+  - INFO → WARN (2건): Data truncation 발생 (실제 경고 사항)
+  - WARN → DEBUG (7건): Hub 연결 실패 후 폴백 동작 (이미 상위에서 WARN 출력됨)
+  - DEBUG → TRACE (2건): 어댑터 생성, 엔드포인트 스냅샷 수신
+  - ERROR → WARN (2건): SSL 초기화 실패, 크립토 서비스 초기화 실패 (복구 가능)
+
+---
+
+## v5.5.11 — #배포 전 (2026-03-12)
+
+### ✨ New
+
+#### UPDATE WHERE절 파라미터 매핑 추가 (ECB 검색 암호화 지원)
+
+- **문제**: UPDATE 문의 WHERE절 파라미터가 컬럼명 매핑 없이 암호화 정책이 적용되지 않아, ECB/FPE 기반의 검색 암호화가 동작하지 않는 문제.
+- **수정**: `DadpProxyPreparedStatement`에 `whereClauseParamIndices` 추적 Set 추가. UPDATE 파싱 시 SET절과 WHERE절 파라미터 인덱스를 구분하여 추적.
+  - SET절 파라미터: 기존대로 전체 암호화(`encrypt`) 경로
+  - WHERE절 파라미터: 검색용 암호화(`encryptForSearch`) 경로 — 결정론적 알고리즘(A256ECB, FPE_FF1)에서 동등 검색 정상 동작
+- **파일**: `DadpProxyPreparedStatement.java`
+
+#### Hub 연동 로그 설정 (logConfig) 동적 제어
+
+- **기능**: Hub에서 Wrapper 로그 활성화 여부 및 레벨을 런타임에 동적으로 제어.
+- **Wrapper 변경**:
+  - `DadpLoggerFactory`: `setLogLevel(String level)`, `isLevelEnabled(String level)` 메서드 추가 — 런타임 로그 레벨 동적 변경
+  - `Slf4jAdapter`: 각 로그 메서드(`debug`, `info`, `warn`, `error`, `trace`) 진입 시 `isLevelEnabled()` 가드 추가
+  - `MappingSyncService` (j17, j8): PolicySnapshot 파싱 시 `logConfig` 섹션 추출 (enabled, level)
+  - `JdbcPolicyMappingSyncService`: Hub에서 수신한 `logConfig`를 `DadpLoggerFactory`에 즉시 반영
+
+---
+
 ### 📋 설계·계획 (구현 대기)
 
 #### Root CA TrustStore 자동 설치 (hubId 발급 시점)

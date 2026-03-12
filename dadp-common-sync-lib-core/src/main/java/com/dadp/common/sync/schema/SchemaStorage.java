@@ -103,25 +103,25 @@ public class SchemaStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 String fallbackDir = getDefaultStorageDir();
                 Files.createDirectories(Paths.get(fallbackDir));
                 finalStoragePath = Paths.get(fallbackDir, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", getDefaultStorageDir(), e2);
+                log.warn("Failed to create default storage directory: {}", getDefaultStorageDir(), e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
-        
+
         this.storagePath = finalStoragePath;
-        
+
         this.objectMapper = new ObjectMapper();
         if (finalStoragePath != null) {
-            log.debug("✅ 스키마 저장소 초기화: {}", this.storagePath);
+            log.info("Schema storage initialized: {}", this.storagePath);
         } else {
-            log.warn("⚠️ 스키마 저장소 초기화 실패: 저장 불가");
+            log.warn("Schema storage initialization failed: storage unavailable");
         }
     }
     
@@ -133,26 +133,26 @@ public class SchemaStorage {
      */
     public boolean saveSchemas(List<SchemaMetadata> schemas) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 스키마 저장 불가");
+            log.warn("Storage path not set, cannot save schemas");
             return false;
         }
-        
+
         try {
             // 저장 데이터 구조
             SchemaData data = new SchemaData();
             data.setTimestamp(System.currentTimeMillis());
             data.setSchemas(schemas);
-            
+
             // 파일에 저장
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            
-            log.info("💾 스키마 메타데이터 저장 완료: {}개 스키마 → {}", 
+
+            log.debug("Schema metadata saved: {} schemas -> {}",
                     schemas != null ? schemas.size() : 0, storagePath);
             return true;
-            
+
         } catch (IOException e) {
-            log.error("❌ 스키마 메타데이터 저장 실패: {}", storagePath, e);
+            log.warn("Schema metadata save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -164,13 +164,13 @@ public class SchemaStorage {
      */
     public List<SchemaMetadata> loadSchemas() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 스키마 로드 불가");
+            log.warn("Storage path not set, cannot load schemas");
             return new ArrayList<>();
         }
-        
+
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 스키마 저장 파일이 없음: {} (새로 생성될 예정)", storagePath);
+            log.debug("Schema storage file not found: {} (will be created)", storagePath);
             return new ArrayList<>();
         }
         
@@ -178,7 +178,7 @@ public class SchemaStorage {
             SchemaData data = objectMapper.readValue(storageFile, SchemaData.class);
             
             if (data == null || data.getSchemas() == null) {
-                log.warn("⚠️ 스키마 데이터가 비어있음: {}", storagePath);
+                log.warn("Schema data is empty: {}", storagePath);
                 return new ArrayList<>();
             }
             
@@ -186,26 +186,26 @@ public class SchemaStorage {
             int version = data.getStorageSchemaVersion();
             if (version == 0) {
                 // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
-                log.info("📋 구버전 스키마 포맷 감지 (버전 필드 없음) -> 버전 1로 처리");
+                log.debug("Legacy schema format detected (no version field) -> treating as version 1");
                 version = 1;
             }
             
             // 향후 버전 호환성 체크
             if (version > SchemaData.CURRENT_STORAGE_SCHEMA_VERSION) {
-                log.warn("⚠️ 알 수 없는 스키마 포맷 버전: {} (현재 지원 버전: {}), " +
-                        "하위 호환성 보장을 위해 계속 진행합니다", 
+                log.warn("Unknown schema format version: {} (current supported version: {}), " +
+                        "proceeding for backward compatibility",
                     version, SchemaData.CURRENT_STORAGE_SCHEMA_VERSION);
             }
             
             List<SchemaMetadata> schemas = data.getSchemas();
             long timestamp = data.getTimestamp();
             
-            log.info("📂 스키마 메타데이터 로드 완료: {}개 스키마 (저장 시각: {}, 포맷 버전: {})", 
+            log.debug("Schema metadata loaded: {} schemas (saved at: {}, format version: {})",
                     schemas.size(), new java.util.Date(timestamp), version);
             return schemas;
             
         } catch (IOException e) {
-            log.warn("⚠️ 스키마 메타데이터 로드 실패: {} (빈 리스트 반환)", storagePath, e);
+            log.warn("Schema metadata load failed: {} (returning empty list)", storagePath, e);
             return new ArrayList<>();
         }
     }
@@ -236,9 +236,9 @@ public class SchemaStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 스키마 저장 파일 삭제 완료: {}", storagePath);
+                log.debug("Schema storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 스키마 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Schema storage file deletion failed: {}", storagePath);
             }
             return deleted;
         }
@@ -253,13 +253,13 @@ public class SchemaStorage {
      */
     public int updatePolicyNames(Map<String, String> policyMappings) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 정책명 업데이트 불가");
+            log.warn("Storage path not set, cannot update policy names");
             return 0;
         }
-        
+
         List<SchemaMetadata> schemas = loadSchemas();
         if (schemas.isEmpty()) {
-            log.debug("📋 업데이트할 스키마가 없음");
+            log.debug("No schemas to update");
             return 0;
         }
         
@@ -288,7 +288,7 @@ public class SchemaStorage {
         // 업데이트된 스키마 저장
         if (updatedCount > 0 || !policyMappings.isEmpty()) {
             saveSchemas(schemas);
-            log.info("💾 스키마 정책명 업데이트 완료: {}개 스키마 업데이트", updatedCount);
+            log.debug("Schema policy names updated: {} schemas updated", updatedCount);
         }
         
         return updatedCount;
@@ -333,7 +333,7 @@ public class SchemaStorage {
      */
     public boolean updateSchemaStatus(String schemaKey, String newStatus) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 스키마 상태 업데이트 불가");
+            log.warn("Storage path not set, cannot update schema status");
             return false;
         }
         
@@ -350,7 +350,7 @@ public class SchemaStorage {
         
         if (updated) {
             saveSchemas(schemas);
-            log.debug("💾 스키마 상태 업데이트: key={}, status={}", schemaKey, newStatus);
+            log.debug("Schema status updated: key={}, status={}", schemaKey, newStatus);
         }
         
         return updated;
@@ -380,7 +380,7 @@ public class SchemaStorage {
         
         if (updatedCount > 0) {
             saveSchemas(schemas);
-            log.info("💾 스키마 상태 일괄 업데이트: {}개 스키마, status={}", updatedCount, newStatus);
+            log.debug("Schema status batch updated: {} schemas, status={}", updatedCount, newStatus);
         }
         
         return updatedCount;
@@ -471,7 +471,7 @@ public class SchemaStorage {
         
         if (updatedCount > 0 || !updatedSchemas.isEmpty()) {
             saveSchemas(updatedSchemas);
-            log.info("💾 스키마 비교 및 상태 업데이트 완료: {}개 스키마 업데이트", updatedCount);
+            log.debug("Schema comparison and status update completed: {} schemas updated", updatedCount);
         }
         
         return updatedCount;

@@ -50,7 +50,7 @@ public class AopSchemaSyncServiceV2 {
         
         // SchemaSyncExecutor 생성 (V1 API 사용: /hub/api/v1/aop)
         RestTemplate restTemplate = new RestTemplate();
-        log.info("🔗 AopSchemaSyncServiceV2 초기화: hubUrl={}, apiBasePath=/hub/api/v1/aop", hubUrl);
+        log.info("AopSchemaSyncServiceV2 initialized: hubUrl={}, apiBasePath=/hub/api/v1/aop", hubUrl);
         this.schemaSyncExecutor = new com.dadp.common.sync.schema.RestTemplateSchemaSyncExecutor(
             hubUrl, "/hub/api/v1/aop", restTemplate);
     }
@@ -66,7 +66,7 @@ public class AopSchemaSyncServiceV2 {
         
         // hubId는 오케스트레이터에서 이미 등록되어 있어야 함
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다. 오케스트레이터에서 인스턴스 등록을 먼저 수행해야 합니다.");
+            log.warn("hubId not available, cannot perform schema sync. Instance must be registered via orchestrator first.");
             return false;
         }
         
@@ -78,12 +78,12 @@ public class AopSchemaSyncServiceV2 {
         try {
             schemas = schemaCollector.collectSchemas();
         } catch (Exception e) {
-            log.warn("⚠️ 스키마 수집 실패: {}", e.getMessage());
+            log.warn("Schema collection failed: {}", e.getMessage());
             return false;
         }
         
         if (schemas == null || schemas.isEmpty()) {
-            log.debug("📋 전송할 스키마가 없습니다.");
+            log.debug("No schemas to send.");
             return true;
         }
         
@@ -91,11 +91,11 @@ public class AopSchemaSyncServiceV2 {
         try {
             boolean synced = schemaSyncExecutor.syncToHub(schemas, hubId, instanceId, currentVersion);
             if (synced) {
-                log.info("✅ Hub에 AOP 스키마 정보 전송 완료: {}개 필드, hubId={}", schemas.size(), hubId);
+                log.info("AOP schema info sent to Hub successfully: {} fields, hubId={}", schemas.size(), hubId);
             }
             return synced;
         } catch (Exception e) {
-            log.warn("⚠️ Hub 스키마 동기화 실패: {}", e.getMessage());
+            log.warn("Hub schema sync failed: {}", e.getMessage());
             return false;
         }
     }
@@ -108,7 +108,7 @@ public class AopSchemaSyncServiceV2 {
      */
     public boolean syncSpecificSchemasToHub(List<SchemaMetadata> schemas) {
         if (schemas == null || schemas.isEmpty()) {
-            log.debug("📋 전송할 스키마가 없습니다.");
+            log.debug("No schemas to send.");
             return true;
         }
         
@@ -116,7 +116,7 @@ public class AopSchemaSyncServiceV2 {
         String hubId = loadHubIdFromStorage();
         
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("hubId not available, cannot perform schema sync.");
             return false;
         }
         
@@ -125,19 +125,19 @@ public class AopSchemaSyncServiceV2 {
         
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송
-            log.info("🔗 syncSpecificSchemasToHub 호출: hubUrl={}, hubId={}, 스키마 개수={}", hubUrl, hubId, schemas.size());
+            log.info("syncSpecificSchemasToHub called: hubUrl={}, hubId={}, schema count={}", hubUrl, hubId, schemas.size());
             boolean synced = schemaSyncExecutor.syncToHub(schemas, hubId, instanceId, currentVersion);
             
             if (synced) {
-                log.info("✅ 특정 스키마 전송 완료: hubId={}, 스키마 개수={}", hubId, schemas.size());
+                log.info("Specific schemas sent successfully: hubId={}, schema count={}", hubId, schemas.size());
             }
             
             return synced;
         } catch (org.springframework.web.client.HttpClientErrorException e) {
-            log.warn("⚠️ 특정 스키마 전송 실패: {} : \"{}\"", e.getStatusCode(), e.getResponseBodyAsString());
+            log.warn("Specific schemas send failed: {} : \"{}\"", e.getStatusCode(), e.getResponseBodyAsString());
             return false;
         } catch (Exception e) {
-            log.warn("⚠️ 특정 스키마 전송 실패: {}", e.getMessage());
+            log.warn("Specific schemas send failed: {}", e.getMessage());
             return false;
         }
     }

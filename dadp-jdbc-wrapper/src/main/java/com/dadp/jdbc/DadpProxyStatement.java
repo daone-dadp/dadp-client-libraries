@@ -23,12 +23,12 @@ public class DadpProxyStatement implements Statement {
     public DadpProxyStatement(Statement actualStatement, DadpProxyConnection proxyConnection) {
         this.actualStatement = actualStatement;
         this.proxyConnection = proxyConnection;
-        log.trace("🔍 DADP Proxy Statement 생성");
+        log.trace("DADP Proxy Statement created");
     }
     
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
-        log.debug("🔍 Statement.executeQuery 실행: {}", sql);
+        log.debug("Statement.executeQuery executed: {}", sql);
         ResultSet actualRs = actualStatement.executeQuery(sql);
         return new DadpProxyResultSet(actualRs, sql, proxyConnection);
     }

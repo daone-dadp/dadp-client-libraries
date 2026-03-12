@@ -55,13 +55,13 @@ public class EndpointStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (기본 경로 사용)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
             // 기본 경로로 폴백
             try {
                 Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
                 finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
             } catch (IOException e2) {
-                log.error("❌ 기본 저장 디렉토리 생성 실패: {}", DEFAULT_STORAGE_DIR, e2);
+                log.error("Failed to create default storage directory: {}", DEFAULT_STORAGE_DIR, e2);
                 finalStoragePath = null; // 저장 불가
             }
         }
@@ -69,7 +69,7 @@ public class EndpointStorage {
         this.storagePath = finalStoragePath;
         
         this.objectMapper = new ObjectMapper();
-        log.debug("✅ 암복호화 엔드포인트 저장소 초기화: {}", this.storagePath);
+        log.debug("Crypto endpoint storage initialized: {}", this.storagePath);
     }
     
     /**
@@ -87,7 +87,7 @@ public class EndpointStorage {
                                   Boolean statsAggregatorEnabled, String statsAggregatorUrl, String statsAggregatorMode,
                                   Integer slowThresholdMs) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 엔드포인트 정보 저장 불가");
+            log.warn("Storage path not set, cannot save endpoint info");
             return false;
         }
 
@@ -106,12 +106,12 @@ public class EndpointStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 엔드포인트 및 통계 설정 정보 저장 완료: cryptoUrl={}, hubId={}, version={} → {}", 
+            log.info("Endpoint and stats config saved: cryptoUrl={}, hubId={}, version={} -> {}",
                     cryptoUrl, hubId, version, storagePath);
             return true;
             
         } catch (IOException e) {
-            log.error("❌ 엔드포인트 정보 저장 실패: {}", storagePath, e);
+            log.error("Failed to save endpoint info: {}", storagePath, e);
             return false;
         }
     }
@@ -123,13 +123,13 @@ public class EndpointStorage {
      */
     public EndpointData loadEndpoints() {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 엔드포인트 정보 로드 불가");
+            log.warn("Storage path not set, cannot load endpoint info");
             return null;
         }
         
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 암복호화 엔드포인트 저장 파일이 없음: {} (Hub에서 조회 예정)", storagePath);
+            log.debug("Crypto endpoint storage file not found: {} (will fetch from Hub)", storagePath);
             return null;
         }
         
@@ -137,16 +137,16 @@ public class EndpointStorage {
             EndpointData data = objectMapper.readValue(storageFile, EndpointData.class);
             
             if (data == null) {
-                log.warn("⚠️ 암복호화 엔드포인트 데이터가 비어있음: {}", storagePath);
+                log.warn("Crypto endpoint data is empty: {}", storagePath);
                 return null;
             }
             
-            log.debug("📂 암복호화 엔드포인트 정보 로드 완료: cryptoUrl={}, hubId={}, version={}", 
+            log.debug("Crypto endpoint info loaded: cryptoUrl={}, hubId={}, version={}",
                     data.getCryptoUrl(), data.getHubId(), data.getVersion());
             return data;
             
         } catch (IOException e) {
-            log.warn("⚠️ 암복호화 엔드포인트 정보 로드 실패: {} (빈 데이터 반환)", storagePath, e);
+            log.warn("Failed to load crypto endpoint info: {} (returning empty data)", storagePath, e);
             return null;
         }
     }
@@ -177,9 +177,9 @@ public class EndpointStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 암복호화 엔드포인트 저장 파일 삭제 완료: {}", storagePath);
+                log.info("Crypto endpoint storage file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 암복호화 엔드포인트 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Failed to delete crypto endpoint storage file: {}", storagePath);
             }
             return deleted;
         }

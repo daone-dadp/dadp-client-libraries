@@ -182,13 +182,13 @@
                 <version>0.7.0</version>
                 <extensions>true</extensions>
                 <configuration>
-                    <skip>false</skip>
+                    <skip>true</skip>
                     <publishingServerId>central</publishingServerId>
-                    <autoPublish>false</autoPublish>
+                    <autoPublish>true</autoPublish>
                     <waitUntil>validated</waitUntil>
                 </configuration>
             </plugin>
-            
+
         </plugins>
         
         <pluginManagement>

@@ -62,7 +62,7 @@ public class DadpAopAutoConfiguration {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DadpAopAutoConfiguration.class);
     
     public DadpAopAutoConfiguration() {
-        log.info("🔔 DadpAopAutoConfiguration 생성자 호출됨");
+        log.info("DadpAopAutoConfiguration constructor called");
     }
     
     /**
@@ -113,12 +113,12 @@ public class DadpAopAutoConfiguration {
             EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
             if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                 adapter.setEndpointData(endpointData);
-                log.info("✅ DirectCryptoAdapter 초기화 완료: cryptoUrl={}", endpointData.getCryptoUrl());
+                log.info("DirectCryptoAdapter initialized: cryptoUrl={}", endpointData.getCryptoUrl());
             } else {
-                log.warn("⚠️ EndpointStorage에 Engine URL이 없습니다. EndpointSyncService가 URL을 동기화하면 자동으로 업데이트됩니다.");
+                log.warn("EndpointStorage has no Engine URL. Will be updated automatically when EndpointSyncService synchronizes.");
             }
         } else {
-            log.warn("⚠️ EndpointStorage가 없습니다. EndpointSyncService가 URL을 동기화하면 자동으로 업데이트됩니다.");
+            log.warn("EndpointStorage not available. Will be updated automatically when EndpointSyncService synchronizes.");
         }
         
         return adapter;
@@ -134,16 +134,16 @@ public class DadpAopAutoConfiguration {
     public HubNotificationClient hubNotificationClient(DadpAopProperties properties) {
         String hubBaseUrl = properties.getHubBaseUrl();
         if (hubBaseUrl == null || hubBaseUrl.trim().isEmpty()) {
-            log.debug("Hub Base URL이 설정되지 않아 알림 클라이언트를 생성하지 않습니다.");
+            log.debug("Hub Base URL not configured, skipping notification client creation.");
             return null;
         }
         
         try {
             HubNotificationClient client = HubNotificationClient.createInstance(hubBaseUrl, 5000, true);
-            log.info("✅ Hub 알림 클라이언트 초기화 완료: hubBaseUrl={}", hubBaseUrl);
+            log.info("Hub notification client initialized: hubBaseUrl={}", hubBaseUrl);
             return client;
         } catch (Exception e) {
-            log.warn("⚠️ Hub 알림 클라이언트 초기화 실패: {}", e.getMessage());
+            log.warn("Hub notification client initialization failed: {}", e.getMessage());
             return null;
         }
     }
@@ -172,24 +172,24 @@ public class DadpAopAutoConfiguration {
             @Nullable EntityManagerFactory entityManagerFactory,
             DadpAopProperties properties) {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DadpAopAutoConfiguration.class);
-        log.info("🔔 DadpAopAutoConfiguration.encryptionMetadataInitializer() 빈 생성 중...");
-        log.info("🔔 EntityManagerFactory: {}", entityManagerFactory != null ? "존재함" : "null");
-        
+        log.info("DadpAopAutoConfiguration.encryptionMetadataInitializer() bean creation in progress...");
+        log.info("EntityManagerFactory: {}", entityManagerFactory != null ? "present" : "null");
+
         // 설정에서 EntityDetector 타입 및 기본 패키지 읽기
         String entityDetectorType = properties.getAop().getEntityDetectorType();
         String entityScanBasePackage = properties.getAop().getEntityScanBasePackage();
-        
-        log.info("🔔 EntityDetector 타입: {}", entityDetectorType);
+
+        log.info("EntityDetector type: {}", entityDetectorType);
         if (entityScanBasePackage != null) {
-            log.info("🔔 Entity 스캔 기본 패키지: {}", entityScanBasePackage);
+            log.info("Entity scan base package: {}", entityScanBasePackage);
         }
-        
+
         EncryptionMetadataInitializer initializer = new EncryptionMetadataInitializer(
             entityManagerFactory,
             entityDetectorType,
             entityScanBasePackage
         );
-        log.info("🔔 EncryptionMetadataInitializer 빈 생성 완료");
+        log.info("EncryptionMetadataInitializer bean created");
         return initializer;
     }
     
@@ -202,7 +202,7 @@ public class DadpAopAutoConfiguration {
     public PolicyResolver policyResolver() {
         String storageDir = System.getProperty("user.home") + "/.dadp-aop";
         String fileName = "policy-mappings.json";
-        log.info("✅ PolicyResolver 초기화: storageDir={}, fileName={}", storageDir, fileName);
+        log.info("PolicyResolver initialized: storageDir={}, fileName={}", storageDir, fileName);
         return new PolicyResolver(storageDir, fileName);
     }
     
@@ -215,7 +215,7 @@ public class DadpAopAutoConfiguration {
     public EndpointStorage endpointStorage() {
         String storageDir = System.getProperty("user.home") + "/.dadp-aop";
         String fileName = "crypto-endpoints.json";
-        log.info("✅ EndpointStorage 초기화: storageDir={}, fileName={}", storageDir, fileName);
+        log.info("EndpointStorage initialized: storageDir={}, fileName={}", storageDir, fileName);
         return new EndpointStorage(storageDir, fileName);
     }
     
@@ -235,10 +235,10 @@ public class DadpAopAutoConfiguration {
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(hubUrl, instanceId);
         if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
             String hubId = config.getHubId();
-            log.info("📂 영구저장소에서 hubId 로드 완료: hubId={}", hubId);
+            log.info("hubId loaded from persistent storage: hubId={}", hubId);
             return hubId;
         } else {
-            log.info("📋 hubId가 없습니다. Hub에서 등록 예정: hubUrl={}, instanceId={}", hubUrl, instanceId);
+            log.info("hubId not found. Will register with Hub: hubUrl={}, instanceId={}", hubUrl, instanceId);
             return null;
         }
     }
@@ -255,7 +255,7 @@ public class DadpAopAutoConfiguration {
                                                   Environment environment) {
         String hubUrl = properties.getHubBaseUrl();
         if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            log.warn("⚠️ Hub URL이 설정되지 않아 MappingSyncService를 생성하지 않습니다.");
+            log.warn("Hub URL not configured, skipping MappingSyncService creation.");
             return null;
         }
         
@@ -279,8 +279,8 @@ public class DadpAopAutoConfiguration {
         // V1 API 경로: /hub/api/v1/aop
         String apiBasePath = "/hub/api/v1/aop";
         
-        log.info("✅ MappingSyncService 초기화: hubUrl={}, instanceId={}, hubId={}, apiBasePath={}", 
-                hubUrl, instanceId, hubId != null ? hubId : "(없음)", apiBasePath);
+        log.info("MappingSyncService initialized: hubUrl={}, instanceId={}, hubId={}, apiBasePath={}",
+                hubUrl, instanceId, hubId != null ? hubId : "(none)", apiBasePath);
         return new MappingSyncService(hubUrl, hubId, instanceId, datasourceId, apiBasePath, policyResolver);
     }
     
@@ -296,7 +296,7 @@ public class DadpAopAutoConfiguration {
                                                    EndpointStorage endpointStorage) {
         String hubUrl = properties.getHubBaseUrl();
         if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            log.warn("⚠️ Hub URL이 설정되지 않아 EndpointSyncService를 생성하지 않습니다.");
+            log.warn("Hub URL not configured, skipping EndpointSyncService creation.");
             return null;
         }
         
@@ -317,8 +317,8 @@ public class DadpAopAutoConfiguration {
         String storageDir = System.getProperty("user.home") + "/.dadp-aop";
         String fileName = "crypto-endpoints.json";
         
-        log.info("✅ EndpointSyncService 초기화: hubUrl={}, instanceId={}, hubId={}, storageDir={}", 
-                hubUrl, instanceId, hubId != null ? hubId : "(없음)", storageDir);
+        log.info("EndpointSyncService initialized: hubUrl={}, instanceId={}, hubId={}, storageDir={}",
+                hubUrl, instanceId, hubId != null ? hubId : "(none)", storageDir);
         return new EndpointSyncService(hubUrl, hubId, instanceId, storageDir, fileName);
     }
     
@@ -335,7 +335,7 @@ public class DadpAopAutoConfiguration {
                                                      Environment environment) {
         String hubUrl = properties.getHubBaseUrl();
         if (hubUrl == null || hubUrl.trim().isEmpty()) {
-            log.warn("⚠️ Hub URL이 설정되지 않아 AopSchemaSyncServiceV2를 생성하지 않습니다. hubUrl={}, 환경변수 DADP_HUB_BASE_URL={}", 
+            log.warn("Hub URL not configured, skipping AopSchemaSyncServiceV2 creation. hubUrl={}, env DADP_HUB_BASE_URL={}",
                     hubUrl, System.getenv("DADP_HUB_BASE_URL"));
             return null;
         }
@@ -353,8 +353,8 @@ public class DadpAopAutoConfiguration {
         // 영구저장소에서 hubId 로드 (Wrapper의 ProxyConfig와 동일한 로직)
         String hubId = loadHubIdFromStorage(hubUrl, instanceId);
         
-        log.info("✅ AopSchemaSyncServiceV2 초기화: hubUrl={}, instanceId={}, hubId={}", 
-                hubUrl, instanceId, hubId != null ? hubId : "(없음)");
+        log.info("AopSchemaSyncServiceV2 initialized: hubUrl={}, instanceId={}, hubId={}",
+                hubUrl, instanceId, hubId != null ? hubId : "(none)");
         return new AopSchemaSyncServiceV2(hubUrl, instanceId, hubId, metadataInitializer, policyResolver);
     }
     
@@ -376,7 +376,7 @@ public class DadpAopAutoConfiguration {
             Environment environment,
             EncryptionMetadataInitializer metadataInitializer) {
         if (mappingSyncService == null) {
-            log.warn("⚠️ MappingSyncService가 없어 AopPolicyMappingSyncService를 생성하지 않습니다.");
+            log.warn("MappingSyncService not available, skipping AopPolicyMappingSyncService creation.");
             return null;
         }
         
@@ -386,7 +386,7 @@ public class DadpAopAutoConfiguration {
                                            properties, environment, metadataInitializer);
         // Hub URL이 설정되어 있으면 활성화
         syncService.setEnabled(true);
-        log.info("✅ AopPolicyMappingSyncService 초기화 완료 (30초 주기 동기화 활성화)");
+        log.info("AopPolicyMappingSyncService initialized (30-second periodic sync enabled)");
         return syncService;
     }
     
@@ -408,7 +408,7 @@ public class DadpAopAutoConfiguration {
             DadpAopProperties properties,
             Environment environment,
             AopPolicyMappingSyncService policyMappingSyncService) {
-        log.info("✅ AopBootstrapOrchestrator 빈 등록");
+        log.info("AopBootstrapOrchestrator bean registered");
         return new AopBootstrapOrchestrator(
             metadataInitializer,
             mappingSyncService,

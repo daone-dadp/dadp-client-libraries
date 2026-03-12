@@ -153,11 +153,11 @@ public static class SqlParseResult {
         }
         
         if (result != null && result.getTableName() != null) {
-            log.trace("🔍 SQL 파싱 완료: type={}, table={}, columns={}", 
+            log.trace("SQL parsed: type={}, table={}, columns={}",
                      result.getSqlType(), result.getTableName(), 
                      result.getColumns() != null ? String.join(", ", result.getColumns()) : "null");
         } else {
-            log.debug("⚠️ SQL 파싱 실패: sql={}", sql);
+            log.debug("SQL parsing failed: sql={}", sql);
         }
         
         return result;
@@ -312,7 +312,7 @@ private SqlParseResult parseSelect(String sql) {
                 // alias 매핑 추가 (Hibernate 지원)
                 if (aliasName != null && originalColumnName != null) {
                     result.addAliasMapping(aliasName, originalColumnName);
-                    log.trace("🔍 alias 매핑 추가: {} → {}", aliasName, originalColumnName);
+                    log.trace("Alias mapping added: {} -> {}", aliasName, originalColumnName);
                 }
                 
                 // 원본 컬럼명 저장
@@ -323,7 +323,7 @@ private SqlParseResult parseSelect(String sql) {
         result.setColumns(columnList.toArray(new String[0]));
         
         if (result.hasAliasMapping()) {
-            log.debug("🔍 SELECT 파싱 완료: table={}, aliasMapping=true ({}개)", 
+            log.trace("SELECT parsed: table={}, aliasMapping=true ({} entries)",
                      tableName, columnList.size());
         }
         

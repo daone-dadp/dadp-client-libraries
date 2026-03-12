@@ -188,7 +188,7 @@ public class ProxyConfig {
                 ? Integer.parseInt(maxSchemasProp.trim()) 
                 : DEFAULT_MAX_SCHEMAS;
         } catch (NumberFormatException e) {
-            log.warn("⚠️ 최대 스키마 개수 파싱 실패: {} (기본값 사용: {})", maxSchemasProp, DEFAULT_MAX_SCHEMAS);
+            log.warn("Failed to parse max schemas: {} (using default: {})", maxSchemasProp, DEFAULT_MAX_SCHEMAS);
             parsedMaxSchemas = DEFAULT_MAX_SCHEMAS;
         }
         this.maxSchemas = parsedMaxSchemas;
@@ -245,16 +245,16 @@ public class ProxyConfig {
         this.hubId = null;
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-        log.trace("✅ Proxy 설정 로드 완료:");
-        log.trace("   - Hub URL (스키마 동기화 + 암복호화 라우팅): {}", this.hubUrl);
+        log.trace("Proxy config loaded:");
+        log.trace("   - Hub URL (schema sync + crypto routing): {}", this.hubUrl);
         log.trace("   - Instance ID: {}", this.instanceId);
         log.trace("   - Fail-open: {}", this.failOpen);
-        log.trace("   - DADP 로그 활성화: {}", this.enableLogging);
-        log.trace("   - 스키마 수집 타임아웃: {}ms", this.schemaCollectionTimeoutMs);
-        log.trace("   - 최대 스키마 개수: {}", this.maxSchemas);
-        log.trace("   - 스키마 Allowlist: {}", this.schemaAllowlist != null ? this.schemaAllowlist : "(없음)");
-        log.trace("   - 스키마 수집 실패 모드: {}", this.schemaCollectionFailMode);
-        log.trace("   - Hub ID: (지연 로드)");
+        log.trace("   - DADP logging enabled: {}", this.enableLogging);
+        log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
+        log.trace("   - Max schemas: {}", this.maxSchemas);
+        log.trace("   - Schema Allowlist: {}", this.schemaAllowlist != null ? this.schemaAllowlist : "(none)");
+        log.trace("   - Schema collection fail mode: {}", this.schemaCollectionFailMode);
+        log.trace("   - Hub ID: (lazy loaded)");
     }
     
     /**
@@ -399,7 +399,7 @@ public class ProxyConfig {
                 return Long.parseLong(trimmed);
             }
         } catch (NumberFormatException e) {
-            log.warn("⚠️ 타임아웃 파싱 실패: {} (기본값 사용: {}ms)", timeoutStr, defaultValue);
+            log.warn("Failed to parse timeout: {} (using default: {}ms)", timeoutStr, defaultValue);
             return defaultValue;
         }
     }

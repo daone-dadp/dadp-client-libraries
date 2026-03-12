@@ -51,7 +51,7 @@ public class JpaEntityDetector implements EntityDetector {
         List<EntityMetadata> entities = new ArrayList<>();
         
         if (entityManagerFactory == null) {
-            log.debug("⚠️ EntityManagerFactory가 없어 JPA 엔티티 감지를 건너뜁니다.");
+            log.debug("EntityManagerFactory not available, skipping JPA entity detection.");
             return entities;
         }
         
@@ -93,17 +93,17 @@ public class JpaEntityDetector implements EntityDetector {
                 
                 if (!fields.isEmpty()) {
                     entities.add(new EntityMetadata(clazz, tableName, schemaName, fields));
-                    log.debug("📋 JPA 엔티티 감지: {} (테이블: {}, 필드: {}개)", 
+                    log.debug("JPA entity detected: {} (table: {}, fields: {})",
                         clazz.getSimpleName(), tableName, fields.size());
                 }
             }
-            
-            log.info("✅ JPA 엔티티 감지 완료: {}개 엔티티, {}개 암호화 필드", 
-                entities.size(), 
+
+            log.info("JPA entity detection completed: {} entities, {} encrypted fields",
+                entities.size(),
                 entities.stream().mapToInt(e -> e.getFields().size()).sum());
-            
+
         } catch (Exception e) {
-            log.error("❌ JPA 엔티티 감지 실패", e);
+            log.error("JPA entity detection failed", e);
         }
         
         return entities;

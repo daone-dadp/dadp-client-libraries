@@ -149,7 +149,7 @@ public class EncryptionAspect {
         // 서비스 메서드인지 리포지토리 메서드인지 구분
         boolean isRepositoryMethod = isRepositoryMethod(declaringClass);
         
-        infoIfEnabled(encryptAnnotation.enableLogging(), "✅ [트리거 확인] handleEncrypt 트리거됨: {}.{} (isRepository={})",
+        infoIfEnabled(encryptAnnotation.enableLogging(), "[Trigger] handleEncrypt triggered: {}.{} (isRepository={})",
                  declaringClass.getSimpleName(), methodName, isRepositoryMethod);
         
         try {
@@ -175,7 +175,7 @@ public class EncryptionAspect {
                         // Collection을 배치 암호화 처리
                         @SuppressWarnings("unchecked")
                         Collection<Object> collection = (Collection<Object>) args[i];
-                        infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 saveAll 배치 암호화 시작: size={}", collection.size());
+                        infoIfEnabled(encryptAnnotation.enableLogging(), "saveAll batch encryption started: size={}", collection.size());
                         processCollectionEncryption(collection, encryptAnnotation, isRepositoryMethod);
                     } else if (args[i] != null && args[i] instanceof Iterable && !(args[i] instanceof String)) {
                         // Iterable을 List로 변환하여 배치 암호화 처리
@@ -184,7 +184,7 @@ public class EncryptionAspect {
                         for (Object item : iterable) {
                             list.add(item);
                         }
-                        infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 saveAll 배치 암호화 시작: size={}", list.size());
+                        infoIfEnabled(encryptAnnotation.enableLogging(), "saveAll batch encryption started: size={}", list.size());
                         processCollectionEncryption(list, encryptAnnotation, isRepositoryMethod);
                         // 원본 타입 유지
                         if (args[i] instanceof List) {
@@ -216,11 +216,11 @@ public class EncryptionAspect {
             return result;
             
         } catch (Exception e) {
-            log.error("❌ 암호화 AOP 실패: {}.{} - {}", 
+            log.error("Encryption AOP failed: {}.{} - {}",
                      method.getDeclaringClass().getSimpleName(), method.getName(), e.getMessage());
-            
+
             if (encryptAnnotation.fallbackToOriginal()) {
-                log.warn("원본 데이터로 폴백: {}.{}", 
+                log.warn("Falling back to original data: {}.{}",
                         method.getDeclaringClass().getSimpleName(), method.getName());
                 return joinPoint.proceed();
             } else {
@@ -245,7 +245,7 @@ public class EncryptionAspect {
         Method method = signature.getMethod();
         Decrypt decryptAnnotation = method.getAnnotation(Decrypt.class);
         
-        infoIfEnabled(decryptAnnotation.enableLogging(), "✅ [트리거 확인] handleDecrypt 트리거됨: {}.{}", 
+        infoIfEnabled(decryptAnnotation.enableLogging(), "[Trigger] handleDecrypt triggered: {}.{}",
                  method.getDeclaringClass().getSimpleName(), method.getName());
         
         try {
@@ -273,7 +273,7 @@ public class EncryptionAspect {
             boolean isNativeQuery = detectNativeQuery(method);
             if (isNativeQuery) {
                 debugIfEnabled(decryptAnnotation.enableLogging(), 
-                    "📝 네이티브 쿼리 감지: {}.{}", 
+                    "Native query detected: {}.{}",
                     method.getDeclaringClass().getSimpleName(), method.getName());
             }
             
@@ -293,9 +293,9 @@ public class EncryptionAspect {
                     }
                     Method setFlushModeMethod = em.getClass().getMethod("setFlushMode", flushModeTypeClass);
                     setFlushModeMethod.invoke(em, commitFlushMode);
-                    debugIfEnabled(decryptAnnotation.enableLogging(), "✅ FlushMode COMMIT 설정 완료");
+                    debugIfEnabled(decryptAnnotation.enableLogging(), "FlushMode COMMIT set successfully");
                 } catch (Exception e) {
-                    debugIfEnabled(decryptAnnotation.enableLogging(), "⚠️ FlushMode 설정 실패 (무시): {}", e.getMessage());
+                    debugIfEnabled(decryptAnnotation.enableLogging(), "FlushMode setting failed (ignored): {}", e.getMessage());
                 }
             }
             
@@ -335,11 +335,11 @@ public class EncryptionAspect {
             return decryptedResult;
             
         } catch (Exception e) {
-            log.error("❌ 복호화 AOP 실패: {}.{} - {}", 
+            log.error("Decryption AOP failed: {}.{} - {}",
                      method.getDeclaringClass().getSimpleName(), method.getName(), e.getMessage());
-            
+
             if (decryptAnnotation.fallbackToOriginal()) {
-                log.warn("원본 데이터로 폴백: {}.{}", 
+                log.warn("Falling back to original data: {}.{}",
                         method.getDeclaringClass().getSimpleName(), method.getName());
                 return joinPoint.proceed();
             } else {
@@ -405,8 +405,8 @@ public class EncryptionAspect {
         if (obj instanceof String) {
             // 리포지토리가 아닌 메서드에서는 암호화하지 않음
             if (!isRepositoryMethod) {
-                debugIfEnabled(encryptAnnotation.enableLogging(), 
-                    "⚠️ @Encrypt는 리포지토리 메서드에서만 사용할 수 있습니다.");
+                debugIfEnabled(encryptAnnotation.enableLogging(),
+                    "@Encrypt can only be used on repository methods.");
                 return obj;
             }
             
@@ -414,7 +414,7 @@ public class EncryptionAspect {
             // (일반적으로 리포지토리에서는 엔티티 객체를 받지만, 일부 특수한 경우를 위해 유지)
             String data = (String) obj;
             if (cryptoService.isEncryptedData(data)) {
-                debugIfEnabled(encryptAnnotation.enableLogging(), "이미 암호화된 데이터입니다: {}", data.substring(0, Math.min(20, data.length())) + "...");
+                debugIfEnabled(encryptAnnotation.enableLogging(), "Data is already encrypted: {}", data.substring(0, Math.min(20, data.length())) + "...");
                 return data;
             }
             
@@ -428,14 +428,14 @@ public class EncryptionAspect {
             String encryptedData = cryptoService.encrypt(data, policy);
             
             // enableLogging: 기본 로그 출력
-            infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 데이터 암호화 완료: {} → {}", 
+            infoIfEnabled(encryptAnnotation.enableLogging(), "Data encryption completed: {} -> {}",
                         data.substring(0, Math.min(10, data.length())) + "...", 
                         encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
             
             // includeStats: 상세 로그 출력 (AOP 레벨에서만, 엔진에 요구하지 않음)
             // enableLogging이 true일 때만 출력
             if (encryptAnnotation.includeStats() && encryptAnnotation.enableLogging()) {
-                log.info("📊 [통계] 암호화 수행: policy={}, inputLength={}, outputLength={}, inputPreview={}, outputPreview={}", 
+                log.info("[Stats] Encryption performed: policy={}, inputLength={}, outputLength={}, inputPreview={}, outputPreview={}",
                         encryptAnnotation.policy(),
                         data.length(),
                         encryptedData.length(),
@@ -505,31 +505,31 @@ public class EncryptionAspect {
                         String columnName = fieldInfo.getFieldName();
                         
                         // 정책 조회 시도 전 로그
-                        log.debug("🔍 정책 매핑 조회 시도: schema={}, table={}, column={}", 
+                        log.debug("Policy mapping lookup attempt: schema={}, table={}, column={}",
                                 schemaName, tableName, columnName);
                         
                         policy = policyResolver.resolvePolicy(datasourceId, schemaName, tableName, columnName);
                         
                         if (policy != null && !policy.trim().isEmpty()) {
-                            log.debug("✅ 정책 매핑 조회 성공: {}.{} → {} (조회 키: {}.{}.{})", 
-                                    obj.getClass().getSimpleName(), columnName, policy, 
+                            log.debug("Policy mapping lookup succeeded: {}.{} -> {} (lookup key: {}.{}.{})",
+                                    obj.getClass().getSimpleName(), columnName, policy,
                                     schemaName, tableName, columnName);
                         } else {
-                            log.debug("📋 정책 매핑 조회 실패: {}.{} (조회 키: {}.{}.{})", 
-                                    obj.getClass().getSimpleName(), columnName, 
+                            log.debug("Policy mapping lookup failed: {}.{} (lookup key: {}.{}.{})",
+                                    obj.getClass().getSimpleName(), columnName,
                                     schemaName, tableName, columnName);
                         }
                     } else {
-                        log.debug("⚠️ 테이블명을 찾을 수 없음: {}", obj.getClass().getSimpleName());
+                        log.debug("Table name not found: {}", obj.getClass().getSimpleName());
                     }
                 } else {
-                    log.debug("⚠️ PolicyResolver 또는 EncryptionMetadataInitializer가 없음");
+                    log.debug("PolicyResolver or EncryptionMetadataInitializer not available");
                 }
                 
                 // 2. PolicyResolver에서 정책을 찾지 못한 경우 null 전달 (Wrapper와 동일)
                 // Engine에서 정책명이 null이면 자동으로 "dadp"로 처리
                 if (policy == null || policy.trim().isEmpty()) {
-                    log.debug("📋 정책 매핑 없음, null 전달 (Engine에서 자동으로 dadp 처리): {}.{}", 
+                    log.debug("Policy mapping not found, passing null (Engine defaults to dadp): {}.{}",
                             obj.getClass().getSimpleName(), fieldInfo.getFieldName());
                     policy = null; // null로 명시적으로 설정
                 }
@@ -539,13 +539,13 @@ public class EncryptionAspect {
                     if (encryptedData != null) {
                         fieldInfo.setValue(obj, encryptedData);
                         
-                        infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 필드 암호화 완료: {}.{} = {} → {}", 
+                        infoIfEnabled(encryptAnnotation.enableLogging(), "Field encryption completed: {}.{} = {} -> {}",
                                     obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
-                                    data.substring(0, Math.min(10, data.length())) + "...", 
+                                    data.substring(0, Math.min(10, data.length())) + "...",
                                     encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
                     }
                 } catch (Exception e) {
-                    log.error("❌ 필드 암호화 실패: {}.{} - {}", 
+                    log.error("Field encryption failed: {}.{} - {}",
                             obj.getClass().getSimpleName(), fieldInfo.getFieldName(), e.getMessage());
                 }
             }
@@ -566,18 +566,18 @@ public class EncryptionAspect {
         boolean isCollection = (obj instanceof Collection) || 
                               (obj != null && Collection.class.isAssignableFrom(obj.getClass()));
         
-        infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: objType={}, isCollection={}, size={}", 
-                obj.getClass().getName(), isCollection, 
+        infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: objType={}, isCollection={}, size={}",
+                obj.getClass().getName(), isCollection,
                 isCollection ? ((Collection<?>) obj).size() : -1);
         
         if (isCollection) {
             Collection<?> collection = (Collection<?>) obj;
             if (collection.isEmpty()) {
-                infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: Collection이 비어있음");
+                infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: Collection is empty");
                 return obj;
             }
             
-            infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: 배치 복호화 시작 - Collection size={}", collection.size());
+            infoIfEnabled(decryptAnnotation.enableLogging(), "processDecryption: batch decryption started - Collection size={}", collection.size());
             // 배치 처리: 동일한 필드의 데이터를 수집하여 배치 복호화
             // (복호화는 데이터 안에 정책 정보가 포함되어 있어 모든 데이터를 한번에 보내면 됨)
             return processCollectionDecryption(collection, decryptAnnotation, null);
@@ -617,15 +617,15 @@ public class EncryptionAspect {
             String result = cryptoService.decrypt(data, maskPolicyName, maskPolicyUid);
             
             // enableLogging: 기본 로그 출력
-            infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 Hub 처리 완료: {} → {} (maskPolicyName={}, maskPolicyUid={})", 
-                        data.substring(0, Math.min(20, data.length())) + "...", 
+            infoIfEnabled(decryptAnnotation.enableLogging(), "Hub processing completed: {} -> {} (maskPolicyName={}, maskPolicyUid={})",
+                        data.substring(0, Math.min(20, data.length())) + "...",
                         result != null ? result.substring(0, Math.min(10, result.length())) + "..." : "null",
                         maskPolicyName, maskPolicyUid);
             
             // includeStats: 상세 로그 출력 (AOP 레벨에서만, 엔진에 요구하지 않음)
             // enableLogging이 true일 때만 출력
             if (decryptAnnotation.includeStats() && decryptAnnotation.enableLogging()) {
-                log.info("📊 [통계] 복호화 수행: inputLength={}, outputLength={}, maskPolicyName={}, maskPolicyUid={}, inputPreview={}, outputPreview={}", 
+                log.info("[Stats] Decryption performed: inputLength={}, outputLength={}, maskPolicyName={}, maskPolicyUid={}, inputPreview={}, outputPreview={}",
                         data.length(),
                         result != null ? result.length() : 0,
                         maskPolicyName,
@@ -699,9 +699,9 @@ public class EncryptionAspect {
                     // 복호화된 값을 임시로 설정 (사용자가 접근 가능)
                     fieldInfo.setValue(obj, result);
                     
-                    infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 필드 Hub 처리 완료: {}.{} = {} → {} (maskPolicyName={}, maskPolicyUid={})", 
+                    infoIfEnabled(decryptAnnotation.enableLogging(), "Field Hub processing completed: {}.{} = {} -> {} (maskPolicyName={}, maskPolicyUid={})",
                                 obj.getClass().getSimpleName(), fieldInfo.getFieldName(),
-                                data.substring(0, Math.min(20, data.length())) + "...", 
+                                data.substring(0, Math.min(20, data.length())) + "...",
                                 result.substring(0, Math.min(10, result.length())) + "...",
                                 fieldMaskPolicyName, fieldMaskPolicyUid);
                 }
@@ -766,19 +766,19 @@ public class EncryptionAspect {
                 try {
                     Method setReadOnlyMethod = session.getClass().getMethod("setReadOnly", Object.class, boolean.class);
                     setReadOnlyMethod.invoke(session, entity, true);
-                    log.debug("✅ 엔티티 readOnly 설정 성공: {}", entityClass.getSimpleName());
+                    log.debug("Entity readOnly set successfully: {}", entityClass.getSimpleName());
                 } catch (Exception e) {
-                    log.debug("⚠️ setReadOnly 실패 (무시): {}", e.getMessage());
+                    log.debug("setReadOnly failed (ignored): {}", e.getMessage());
                 }
             }
-            
+
             // ② 최후의 보루: detach 1회
             try {
                 Method detachMethod = em.getClass().getMethod("detach", Object.class);
                 detachMethod.invoke(em, entity);
-                log.debug("✅ 엔티티 detach 성공: {}", entityClass.getSimpleName());
+                log.debug("Entity detach succeeded: {}", entityClass.getSimpleName());
             } catch (Exception e) {
-                log.debug("⚠️ 엔티티 detach 실패 (무시): {}", e.getMessage());
+                log.debug("Entity detach failed (ignored): {}", e.getMessage());
             }
         });
     }
@@ -834,13 +834,13 @@ public class EncryptionAspect {
             Class<?> sessionClass = Class.forName("org.hibernate.Session");
             Object session = unwrapMethod.invoke(em, sessionClass);
             if (session != null) {
-                log.debug("✅ Hibernate Session 획득 성공 (경로 1: unwrap)");
+                log.debug("Hibernate Session acquired successfully (path 1: unwrap)");
                 return session;
             }
         } catch (Exception e) {
-            log.debug("⚠️ Session unwrap 실패 (경로 1): {}", e.getMessage());
+            log.debug("Session unwrap failed (path 1): {}", e.getMessage());
         }
-        
+
         // 경로 2: EntityManagerFactory에서 SessionFactory 획득 후 getCurrentSession
         try {
             if (applicationContext != null) {
@@ -853,16 +853,16 @@ public class EncryptionAspect {
                         Method getCurrentSessionMethod = sessionFactory.getClass().getMethod("getCurrentSession");
                         Object session = getCurrentSessionMethod.invoke(sessionFactory);
                         if (session != null) {
-                            log.debug("✅ Hibernate Session 획득 성공 (경로 2: SessionFactory.getCurrentSession)");
+                            log.debug("Hibernate Session acquired successfully (path 2: SessionFactory.getCurrentSession)");
                             return session;
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            log.debug("⚠️ SessionFactory.getCurrentSession 실패 (경로 2): {}", e.getMessage());
+            log.debug("SessionFactory.getCurrentSession failed (path 2): {}", e.getMessage());
         }
-        
+
         // 경로 3: JpaContext 사용 (Spring Data JPA가 있는 경우)
         try {
             if (applicationContext != null) {
@@ -876,14 +876,14 @@ public class EncryptionAspect {
                         Class<?> sessionClass = Class.forName("org.hibernate.Session");
                         Object session = unwrapMethod.invoke(managedEm, sessionClass);
                         if (session != null) {
-                            log.debug("✅ Hibernate Session 획득 성공 (경로 3: JpaContext)");
+                            log.debug("Hibernate Session acquired successfully (path 3: JpaContext)");
                             return session;
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            log.debug("⚠️ JpaContext 사용 실패 (경로 3): {}", e.getMessage());
+            log.debug("JpaContext usage failed (path 3): {}", e.getMessage());
         }
         
         return null;
@@ -953,43 +953,43 @@ public class EncryptionAspect {
                                 // session.setReadOnly(obj, true) - 이 인스턴스는 flush 대상 제외
                                 Method setReadOnlyMethod = session.getClass().getMethod("setReadOnly", Object.class, boolean.class);
                                 setReadOnlyMethod.invoke(session, obj, true);
-                                log.debug("✅ 엔티티 readOnly 설정 성공: {}", entityClass.getSimpleName());
-                                
+                                log.debug("Entity readOnly set successfully: {}", entityClass.getSimpleName());
+
                                 // FlushMode를 MANUAL로 설정하여 자동 flush 방지
                                 try {
                                     Class<?> flushModeClass = Class.forName("org.hibernate.FlushMode");
                                     Object manualFlushMode = flushModeClass.getField("MANUAL").get(null);
                                     Method setFlushModeMethod = session.getClass().getMethod("setHibernateFlushMode", flushModeClass);
                                     setFlushModeMethod.invoke(session, manualFlushMode);
-                                    log.debug("✅ FlushMode MANUAL 설정 완료");
+                                    log.debug("FlushMode MANUAL set successfully");
                                 } catch (Exception e) {
-                                    log.debug("⚠️ FlushMode 설정 실패 (무시): {}", e.getMessage());
+                                    log.debug("FlushMode setting failed (ignored): {}", e.getMessage());
                                 }
                             }
                         } catch (Exception e) {
-                            log.debug("⚠️ Hibernate Session unwrap 실패 (JPA만 사용): {}", e.getMessage());
+                            log.debug("Hibernate Session unwrap failed (JPA only): {}", e.getMessage());
                         }
-                        
+
                         // entityManager.detach(obj) 호출 (추가 안전장치)
                         try {
                             Method detachMethod = em.getClass().getMethod("detach", Object.class);
                             detachMethod.invoke(em, obj);
-                            log.debug("✅ 엔티티 세션 분리 성공: {}", entityClass.getSimpleName());
+                            log.debug("Entity session detach succeeded: {}", entityClass.getSimpleName());
                         } catch (Exception e) {
-                            log.debug("⚠️ 엔티티 detach 실패 (무시): {}", e.getMessage());
+                            log.debug("Entity detach failed (ignored): {}", e.getMessage());
                         }
                     } catch (Exception e) {
-                        log.warn("⚠️ 엔티티 readOnly 설정 실패: {} - {}", entityClass.getSimpleName(), e.getMessage());
+                        log.warn("Entity readOnly setting failed: {} - {}", entityClass.getSimpleName(), e.getMessage());
                     }
                 } else {
-                    log.debug("⚠️ EntityManager를 찾을 수 없어 엔티티 세션 분리 실패: {}", entityClass.getSimpleName());
+                    log.debug("EntityManager not found, entity session detach failed: {}", entityClass.getSimpleName());
                 }
             } else {
-                log.debug("JPA 엔티티가 아님: {}", entityClass.getSimpleName());
+                log.debug("Not a JPA entity: {}", entityClass.getSimpleName());
             }
         } catch (Exception e) {
             // JPA가 없는 환경에서는 무시
-            log.trace("엔티티 세션 분리 실패: {}", e.getMessage());
+            log.trace("Entity session detach failed: {}", e.getMessage());
         }
         
         // Collection 타입인 경우 각 요소에 대해 재귀적으로 처리
@@ -1010,7 +1010,7 @@ public class EncryptionAspect {
      */
     private Object getTransactionalEntityManager() {
         if (applicationContext == null) {
-            log.debug("ApplicationContext가 없어 EntityManager를 가져올 수 없습니다");
+            log.debug("ApplicationContext not available, cannot retrieve EntityManager");
             return null;
         }
         
@@ -1022,27 +1022,27 @@ public class EncryptionAspect {
             try {
                 Object em = applicationContext.getBean("entityManager");
                 if (em != null) {
-                    log.debug("✅ EntityManager 빈 찾기 성공");
+                    log.debug("EntityManager bean found successfully");
                     return em;
                 }
             } catch (Exception e) {
-                log.debug("entityManager 빈을 찾을 수 없습니다: {}", e.getMessage());
+                log.debug("entityManager bean not found: {}", e.getMessage());
             }
-            
+
             // 방법 2: javax.persistence (Java 8 환경)
             try {
                 Class<?> entityManagerType = Class.forName("javax.persistence.EntityManager");
                 Object em = applicationContext.getBean(entityManagerType);
                 if (em != null) {
-                    log.debug("✅ javax EntityManager 타입으로 찾기 성공");
+                    log.debug("javax EntityManager found by type");
                     return em;
                 }
             } catch (Exception e) {
-                log.debug("javax EntityManager 타입으로 찾기 실패: {}", e.getMessage());
+                log.debug("javax EntityManager lookup by type failed: {}", e.getMessage());
             }
-            
+
         } catch (Exception e) {
-            log.debug("EntityManager 가져오기 실패: {}", e.getMessage());
+            log.debug("EntityManager retrieval failed: {}", e.getMessage());
         }
         
         return null;
@@ -1072,7 +1072,7 @@ public class EncryptionAspect {
                 ("true".equalsIgnoreCase(disableBatch.trim()) || "1".equals(disableBatch.trim()));
         
         if (forceIndividual) {
-            infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 배치 처리 비활성화됨 - 개별 처리로 암호화: {}개 항목", collection.size());
+            infoIfEnabled(encryptAnnotation.enableLogging(), "Batch processing disabled - encrypting individually: {} items", collection.size());
             // 개별 처리로 폴백
             for (Object item : collection) {
                 if (item != null) {
@@ -1147,10 +1147,10 @@ public class EncryptionAspect {
             int batchMinSize = forceIndividual ? Integer.MAX_VALUE : getBatchMinSize();
             if (dataList.size() < batchMinSize) {
                 if (forceIndividual) {
-                    infoIfEnabled(encryptAnnotation.enableLogging(), "🔒 배치 처리 비활성화됨 - 개별 처리로 암호화: {}개 필드 데이터 ({}개 항목)", 
+                    infoIfEnabled(encryptAnnotation.enableLogging(), "Batch processing disabled - encrypting individually: {} field data ({} items)",
                             dataList.size(), itemList.size());
                 } else {
-                    debugIfEnabled(encryptAnnotation.enableLogging(), "🔒 소규모 데이터 암호화: {}개 필드 데이터 ({}개 항목) - 개별 처리로 폴백", 
+                    debugIfEnabled(encryptAnnotation.enableLogging(), "Small dataset encryption: {} field data ({} items) - falling back to individual processing",
                             dataList.size(), itemList.size());
                 }
                 // 개별 처리로 폴백
@@ -1189,13 +1189,13 @@ public class EncryptionAspect {
                 long matchTime = System.currentTimeMillis() - matchStartTime;
                 
                 long totalTime = collectTime + engineTime + matchTime;
-                infoIfEnabled(encryptAnnotation.enableLogging(), 
-                    "🔒 배치 필드 암호화 완료: {}.{} ({}개 항목, 정책: {}) - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
+                infoIfEnabled(encryptAnnotation.enableLogging(),
+                    "Batch field encryption completed: {}.{} ({} items, policy: {}) - collect: {}ms, engine: {}ms, match: {}ms, total: {}ms",
                     firstItem.getClass().getSimpleName(), fieldInfo.getFieldName(),
                     dataList.size(), policy, collectTime, engineTime, matchTime, totalTime);
                     
             } catch (Exception e) {
-                log.error("❌ 배치 필드 암호화 실패: {}.{} - {}", 
+                log.error("Batch field encryption failed: {}.{} - {}",
                     firstItem.getClass().getSimpleName(), fieldInfo.getFieldName(), e.getMessage());
                 // 실패 시 개별 처리로 폴백
                 for (int index : indexList) {
@@ -1218,7 +1218,7 @@ public class EncryptionAspect {
      * 정책/마스크 정보는 엔진에서 데이터 안에 포함된 정보로 처리
      */
     private Object processCollectionDecryption(Collection<?> collection, Decrypt decryptAnnotation, Object em) {
-        infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 processCollectionDecryption 시작: size={}", collection.size());
+        infoIfEnabled(decryptAnnotation.enableLogging(), "processCollectionDecryption started: size={}", collection.size());
         
         if (collection.isEmpty()) {
             return collection;
@@ -1237,13 +1237,13 @@ public class EncryptionAspect {
                         Method detachMethod = em.getClass().getMethod("detach", Object.class);
                         detachMethod.invoke(em, item);
                         detachCount++;
-                        log.debug("✅ Collection 엔티티 detach 성공: {}", item.getClass().getSimpleName());
+                        log.debug("Collection entity detach succeeded: {}", item.getClass().getSimpleName());
                     } catch (Exception e) {
-                        log.debug("⚠️ Collection 엔티티 detach 실패 (무시): {}", e.getMessage());
+                        log.debug("Collection entity detach failed (ignored): {}", e.getMessage());
                     }
                 }
             }
-            infoIfEnabled(decryptAnnotation.enableLogging(), "✅ Collection 엔티티 detach 완료: {}개 항목 중 {}개 detach (복호화 전)", itemList.size(), detachCount);
+            infoIfEnabled(decryptAnnotation.enableLogging(), "Collection entity detach completed: {} of {} items detached (before decryption)", itemList.size(), detachCount);
         }
         
         // 첫 번째 항목으로부터 필드 정보 얻기
@@ -1303,10 +1303,10 @@ public class EncryptionAspect {
         int batchMinSize = forceIndividual ? Integer.MAX_VALUE : getBatchMinSize();
         if (allDataList.size() < batchMinSize) {
             if (forceIndividual) {
-                infoIfEnabled(decryptAnnotation.enableLogging(), "🔓 배치 처리 비활성화됨 - 개별 처리로 복호화: {}개 필드 데이터 ({}개 항목)", 
+                infoIfEnabled(decryptAnnotation.enableLogging(), "Batch processing disabled - decrypting individually: {} field data ({} items)",
                         allDataList.size(), itemList.size());
             } else {
-                debugIfEnabled(decryptAnnotation.enableLogging(), "🔓 소규모 데이터 복호화: {}개 필드 데이터 ({}개 항목) - 개별 처리로 폴백", 
+                debugIfEnabled(decryptAnnotation.enableLogging(), "Small dataset decryption: {} field data ({} items) - falling back to individual processing",
                         allDataList.size(), itemList.size());
             }
             // 개별 처리로 폴백
@@ -1321,7 +1321,7 @@ public class EncryptionAspect {
         // 대량 데이터 처리 시 경고 로그
         int batchMaxSize = getBatchMaxSize();
         if (allDataList.size() > batchMaxSize) {
-            warnIfEnabled(decryptAnnotation.enableLogging(), "⚠️ 대량 데이터 복호화 감지: {}개 필드 데이터 ({}개 항목) - 청크 단위로 분할 처리합니다.", 
+            warnIfEnabled(decryptAnnotation.enableLogging(), "Large dataset decryption detected: {} field data ({} items) - processing in chunks.",
                     allDataList.size(), itemList.size());
         }
         
@@ -1339,7 +1339,7 @@ public class EncryptionAspect {
                 
                 chunkCount++;
                 if (chunkCount > 1) {
-                    debugIfEnabled(decryptAnnotation.enableLogging(), "🔓 청크 {} 처리 중: {} ~ {} / {}", 
+                    debugIfEnabled(decryptAnnotation.enableLogging(), "Processing chunk {}: {} ~ {} / {}",
                             chunkCount, chunkStart, chunkEnd - 1, allDataList.size());
                 }
                 
@@ -1374,15 +1374,15 @@ public class EncryptionAspect {
             long matchTime = totalMatchTime;
             long totalTime = collectTime + engineTime + matchTime;
             
-            infoIfEnabled(decryptAnnotation.enableLogging(), 
-                "🔓 배치 복호화 완료: {}개 항목, {}개 필드 데이터 ({}개 청크) - 수집: {}ms, 엔진: {}ms, 매칭: {}ms, 총: {}ms", 
+            infoIfEnabled(decryptAnnotation.enableLogging(),
+                "Batch decryption completed: {} items, {} field data ({} chunks) - collect: {}ms, engine: {}ms, match: {}ms, total: {}ms",
                 itemList.size(), allDataList.size(), chunkCount, collectTime, engineTime, matchTime, totalTime);
             
             // 복호화 완료: 복호화된 값이 필드에 설정되어 사용자가 접근 가능
             // read-only 조회이므로 저장되지 않음
                 
         } catch (Exception e) {
-            log.error("❌ 배치 복호화 실패: {}", e.getMessage(), e);
+            log.error("Batch decryption failed: {}", e.getMessage(), e);
             // 실패 시 개별 처리로 폴백
             for (Object item : itemList) {
                 if (item != null) {
@@ -1434,13 +1434,13 @@ public class EncryptionAspect {
             
             Object decryptedPage = constructor.newInstance(decryptedContent, pageable, totalElements);
             
-            infoIfEnabled(decryptAnnotation.enableLogging(), "✅ Page 복호화 완료: content size={}, total={}", 
+            infoIfEnabled(decryptAnnotation.enableLogging(), "Page decryption completed: content size={}, total={}",
                     decryptedContent.size(), totalElements);
-            
+
             return decryptedPage;
-            
+
         } catch (Exception e) {
-            log.error("❌ Page 복호화 실패: {}", e.getMessage(), e);
+            log.error("Page decryption failed: {}", e.getMessage(), e);
             // 실패 시 원본 반환
             return pageObj;
         }
@@ -1487,13 +1487,13 @@ public class EncryptionAspect {
             
             Object decryptedSlice = constructor.newInstance(decryptedContent, pageable, totalElements);
             
-            infoIfEnabled(decryptAnnotation.enableLogging(), "✅ Slice 복호화 완료: content size={}, hasNext={}", 
+            infoIfEnabled(decryptAnnotation.enableLogging(), "Slice decryption completed: content size={}, hasNext={}",
                     decryptedContent.size(), hasNext);
-            
+
             return decryptedSlice;
-            
+
         } catch (Exception e) {
-            log.error("❌ Slice 복호화 실패: {}", e.getMessage(), e);
+            log.error("Slice decryption failed: {}", e.getMessage(), e);
             // 실패 시 원본 반환
             return sliceObj;
         }
@@ -1567,16 +1567,16 @@ public class EncryptionAspect {
                         try {
                             Method detachMethod = em.getClass().getMethod("detach", Object.class);
                             detachMethod.invoke(em, entity);
-                            debugIfEnabled(decryptAnnotation.enableLogging(), 
-                                "✅ Stream 엔티티 detach 완료: {}", entity.getClass().getSimpleName());
+                            debugIfEnabled(decryptAnnotation.enableLogging(),
+                                "Stream entity detach completed: {}", entity.getClass().getSimpleName());
                         } catch (Exception e) {
-                            debugIfEnabled(decryptAnnotation.enableLogging(), 
-                                "⚠️ Stream 엔티티 detach 실패 (무시): {}", e.getMessage());
+                            debugIfEnabled(decryptAnnotation.enableLogging(),
+                                "Stream entity detach failed (ignored): {}", e.getMessage());
                         }
                     }
                 }
-                infoIfEnabled(decryptAnnotation.enableLogging(), 
-                    "✅ Stream 엔티티 detach 완료: {}개 항목 (복호화 전)", list.size());
+                infoIfEnabled(decryptAnnotation.enableLogging(),
+                    "Stream entity detach completed: {} items (before decryption)", list.size());
             }
             
             // 기존 Collection 배치 복호화 로직 재사용 (이미 detach된 엔티티는 dirty로 마킹되지 않음)
@@ -1584,14 +1584,14 @@ public class EncryptionAspect {
                     (Collection<Object>) processCollectionDecryption(list, decryptAnnotation, em);
             
             // 복호화된 List를 다시 Stream으로 반환 (in-memory Stream)
-            infoIfEnabled(decryptAnnotation.enableLogging(), 
-                "✅ Stream 복호화 완료: {}개 항목 (in-memory Stream으로 변환)", 
+            infoIfEnabled(decryptAnnotation.enableLogging(),
+                "Stream decryption completed: {} items (converted to in-memory Stream)",
                 decryptedList.size());
             
             return decryptedList.stream();
             
         } catch (Exception e) {
-            log.error("❌ Stream 복호화 실패: {}", e.getMessage(), e);
+            log.error("Stream decryption failed: {}", e.getMessage(), e);
             // 실패 시 원본 반환 (이미 소비된 Stream이므로 빈 Stream 반환)
             return java.util.stream.Stream.empty();
         }
@@ -1625,7 +1625,7 @@ public class EncryptionAspect {
             return false;
         } catch (NoSuchMethodException | java.lang.reflect.InvocationTargetException | IllegalAccessException e) {
             // @Query 어노테이션이 있지만 nativeQuery 속성을 확인할 수 없는 경우
-            debugIfEnabled(true, "⚠️ @Query 어노테이션 확인 실패: {}", e.getMessage());
+            debugIfEnabled(true, "@Query annotation check failed: {}", e.getMessage());
             return false;
         }
     }

@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.5.11] - 2026-03-12
+
+### Fixed
+
+- **UPDATE WHERE clause parameter mapping for ECB search encryption**
+  - UPDATE statements now parse WHERE clause parameters (previously only SELECT did)
+  - WHERE clause parameters in UPDATE are routed through search encryption path (`encryptForSearch`)
+  - SET clause parameters continue to use full encryption path (`encrypt`)
+  - Added `whereClauseParamIndices` tracking to distinguish SET vs WHERE parameters
+  - Fixes: `UPDATE ... SET col=? WHERE ecb_col=?` now correctly encrypts the WHERE value for ECB column search
+
+---
+
+## [5.5.10] - 2026-03-11
+
+### Changed
+
+- **All log messages and exception messages converted to English (removed Korean text and emoji)**
+  - All bundled libraries: dadp-jdbc-wrapper, dadp-common-sync-lib, dadp-hub-crypto-lib, dadp-aop-spring5/6
+  - Consistent English-only logging across all components
+
+### Fixed
+
+- **`setSchema()` now updates cached schema name**
+  - When `connection.setSchema()` is called (e.g. `ALTER SESSION SET CURRENT_SCHEMA`), the cached schema name is updated accordingly
+  - `cachedSchemaName` changed from `final` to `volatile` for thread-safe visibility
+
+---
+
+## [5.5.9] - 2026-03-11
+
+### ⚡ Performance
+
+- **Oracle/Tibero 스키마 이름 조회 캐싱 (sysauth$ 반복 쿼리 제거)**
+  - `getCurrentSchemaName()`이 매 SQL 파라미터 바인딩마다 `connection.getSchema()` / `getMetaData().getUserName()` 호출
+  - Oracle JDBC 드라이버가 이 호출 시 내부적으로 `sysauth$` 계층 쿼리를 반복 실행하여 성능 저하 유발
+  - **수정**: Connection 생성 시 스키마 이름을 1회만 조회하여 `cachedSchemaName` 필드에 캐싱
+  - `getCurrentSchemaName()`은 캐싱된 값을 즉시 반환 (DB 쿼리 없음)
+
+---
+
+## [5.5.8] - 2026-03-10
+
+### ✨ New
+
+- **검색 암호화 (WHERE clause) 지원**
+  - 암호화 대상 컬럼의 WHERE 조건에서 알고리즘 특성(useIv)에 따라 암호화 검색/평문 검색 자동 분기
+  - `useIv=false` (A256ECB, FPE_FF1): 결정적 암호화 → 암호화해서 검색
+  - `useIv=true` (A256GCM, ARIA256, SEED128): 비결정적 암호화 → 평문 검색
+  - `usePlain=true`: 평문 저장 컬럼 → 평문 검색
+  - LIKE 와일드카드(%, _) 감지: 와일드카드 있으면 평문 검색, 없으면 일반 검색 로직 적용
+
+- **Exported Config 버전 비교 업데이트 지원**
+  - `ExportedConfigLoader`가 초기 부트스트랩뿐 아니라 중간 정책 업데이트도 지원
+  - `policyVersion` 비교: 파일 버전 > 현재 버전일 때만 적용, 동일/이전 버전은 스킵
+  - `wrapper-config*.json` 파일명 자동 인식 (Hub 다운로드 파일명 그대로 사용 가능)
+
+- **PolicyAttributes (useIv, usePlain) 동기화**
+  - Hub `/proxy/policies` API에서 `policyAttributes` 맵 수신
+  - `MappingSyncService`가 policyAttributes 파싱 후 `PolicyResolver`에 전달
+  - `PolicyResolver.isSearchEncryptionNeeded()` 메서드로 검색 암호화 필요 여부 판단
+
+---
+
 ## [5.5.7] - 2026-02-27
 
 ### 🐛 Fixed

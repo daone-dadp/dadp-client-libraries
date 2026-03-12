@@ -85,14 +85,14 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
      */
     @Override
     public void onApplicationEvent(ContextRefreshedEvent event) {
-        log.info("🔔 EncryptionMetadataInitializer.onApplicationEvent() 호출됨");
+        log.info("EncryptionMetadataInitializer.onApplicationEvent() called");
         if (!initialized) {
-            log.info("🔔 EncryptionMetadataInitializer.init() 시작");
+            log.info("EncryptionMetadataInitializer.init() starting");
             init();
             initialized = true;
-            log.info("🔔 EncryptionMetadataInitializer.init() 완료");
+            log.info("EncryptionMetadataInitializer.init() completed");
         } else {
-            log.info("🔔 EncryptionMetadataInitializer는 이미 초기화됨");
+            log.info("EncryptionMetadataInitializer already initialized");
         }
     }
     
@@ -100,12 +100,12 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
      * 초기화 메서드
      */
     public void init() {
-        log.info("🔔 EncryptionMetadataInitializer.init() 실행 중...");
-        log.info("🔔 EntityDetector 타입: {}", entityDetector.getDetectorType());
-        log.info("🔔 EntityManagerFactory: {}", entityManagerFactory != null ? "존재함" : "null");
-        
+        log.info("EncryptionMetadataInitializer.init() running...");
+        log.info("EntityDetector type: {}", entityDetector.getDetectorType());
+        log.info("EntityManagerFactory: {}", entityManagerFactory != null ? "present" : "null");
+
         if (!entityDetector.canDetect()) {
-            log.warn("⚠️ EntityDetector를 사용할 수 없습니다. 메타데이터 스캔을 건너뜁니다.");
+            log.warn("EntityDetector not available. Skipping metadata scan.");
             schemaLoadedFuture.complete(null);
             return;
         }
@@ -131,7 +131,7 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
                     encryptedColumns.put(key, policy);
                     totalFields++;
                     
-                    log.debug("🔐 암호화 컬럼 매핑 등록: {} -> policy={} (엔티티: {}.{})", 
+                    log.debug("Encrypted column mapping registered: {} -> policy={} (entity: {}.{})",
                             key, policy, clazz.getSimpleName(), field.getFieldName());
                 }
             }
@@ -144,7 +144,7 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
             schemaLoadedFuture.complete(null);
             
         } catch (Exception e) {
-            log.error("❌ 암호화 메타데이터 초기화 실패", e);
+            log.error("Encryption metadata initialization failed", e);
             // 실패해도 완료 신호 발행 (스키마가 없는 상태로 진행)
             schemaLoadedFuture.complete(null);
         }
@@ -155,11 +155,11 @@ public class EncryptionMetadataInitializer implements ApplicationListener<Contex
      */
     private void logSummary(int entityCount, int fieldCount) {
         log.info("═══════════════════════════════════════════════════════════");
-        log.info("✅ 암호화 메타데이터 초기화 완료");
-        log.info("   📋 EntityDetector 타입: {}", entityDetector.getDetectorType());
-        log.info("   📦 감지된 엔티티 개수: {}개", entityCount);
-        log.info("   🔐 감지된 암호화 필드 개수: {}개", fieldCount);
-        log.info("   📊 스키마 개수: {}개", encryptedColumns.size());
+        log.info("Encryption metadata initialization completed");
+        log.info("   EntityDetector type: {}", entityDetector.getDetectorType());
+        log.info("   Detected entities: {}", entityCount);
+        log.info("   Detected encrypted fields: {}", fieldCount);
+        log.info("   Schema count: {}", encryptedColumns.size());
         log.info("═══════════════════════════════════════════════════════════");
     }
     

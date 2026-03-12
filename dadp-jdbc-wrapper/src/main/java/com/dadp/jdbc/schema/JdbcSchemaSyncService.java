@@ -82,10 +82,10 @@ public class JdbcSchemaSyncService {
             // HubIdManager가 있으면 HubIdManager 사용 (전역 관리)
             if (hubIdManager != null) {
                 hubIdManager.setHubId(receivedHubId, true); // HubIdManager에 저장 (전역 관리)
-                log.info("✅ Hub에서 받은 hubId 저장 완료: hubId={}, instanceId={}", receivedHubId, instanceId);
+                log.info("hubId received from Hub saved: hubId={}, instanceId={}", receivedHubId, instanceId);
             } else {
                 // HubIdManager가 없으면 에러 (이제는 항상 있어야 함)
-                log.error("❌ HubIdManager가 없어 hubId를 저장할 수 없습니다: hubId={}", receivedHubId);
+                log.error("HubIdManager not available, cannot save hubId: hubId={}", receivedHubId);
             }
         };
         
@@ -162,7 +162,7 @@ public class JdbcSchemaSyncService {
      */
     public boolean syncSpecificSchemasToHub(List<SchemaMetadata> schemas) {
         if (schemas == null || schemas.isEmpty()) {
-            log.debug("📋 전송할 스키마가 없습니다.");
+            log.debug("No schemas to send.");
             return true;
         }
         
@@ -170,7 +170,7 @@ public class JdbcSchemaSyncService {
         String hubId = loadHubIdFromStorage();
         
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("⚠️ hubId가 없어 스키마 동기화를 수행할 수 없습니다.");
+            log.warn("Cannot perform schema sync: hubId not available.");
             return false;
         }
         
@@ -183,12 +183,12 @@ public class JdbcSchemaSyncService {
             boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getInstanceId(), currentVersion);
             
             if (synced) {
-                log.info("✅ 특정 스키마 전송 완료: hubId={}, 스키마 개수={}", hubId, schemas.size());
+                log.info("Specific schemas sent: hubId={}, schemaCount={}", hubId, schemas.size());
             }
             
             return synced;
         } catch (Exception e) {
-            log.warn("⚠️ 특정 스키마 전송 실패: {}", e.getMessage());
+            log.warn("Failed to send specific schemas: {}", e.getMessage());
             return false;
         }
     }

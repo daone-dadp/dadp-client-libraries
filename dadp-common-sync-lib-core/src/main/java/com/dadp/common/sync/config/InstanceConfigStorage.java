@@ -45,7 +45,7 @@ public class InstanceConfigStorage {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("⚠️ 저장 디렉토리 생성 실패: {} (저장 불가)", storageDir, e);
+            log.warn("Failed to create storage directory: {} (storage unavailable)", storageDir, e);
             finalStoragePath = null; // 저장 불가
         }
         
@@ -53,9 +53,9 @@ public class InstanceConfigStorage {
         this.objectMapper = new ObjectMapper();
         if (finalStoragePath != null) {
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-            log.trace("✅ 인스턴스 설정 저장소 초기화: {}", this.storagePath);
+            log.trace("Instance config storage initialized: {}", this.storagePath);
         } else {
-            log.warn("⚠️ 인스턴스 설정 저장소 초기화 실패: 저장 불가");
+            log.warn("Instance config storage initialization failed: storage unavailable");
         }
     }
     
@@ -70,7 +70,7 @@ public class InstanceConfigStorage {
      */
     public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 인스턴스 설정 저장 불가");
+            log.warn("Storage path not set, cannot save instance config");
             return false;
         }
         
@@ -89,12 +89,12 @@ public class InstanceConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.info("💾 인스턴스 설정 저장 완료: hubId={}, hubUrl={}, instanceId={} → {}", 
+            log.debug("Instance config saved: hubId={}, hubUrl={}, instanceId={} -> {}",
                     hubId, hubUrl, instanceId, storagePath);
             return true;
-            
+
         } catch (IOException e) {
-            log.error("❌ 인스턴스 설정 저장 실패: {}", storagePath, e);
+            log.warn("Instance config save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -108,13 +108,13 @@ public class InstanceConfigStorage {
      */
     public ConfigData loadConfig(String hubUrl, String instanceId) {
         if (storagePath == null) {
-            log.warn("⚠️ 저장 경로가 설정되지 않아 인스턴스 설정 로드 불가");
+            log.warn("Storage path not set, cannot load instance config");
             return null;
         }
-        
+
         File storageFile = new File(storagePath);
         if (!storageFile.exists()) {
-            log.debug("📋 인스턴스 설정 저장 파일이 없음: {} (Hub에서 등록 예정)", storagePath);
+            log.debug("Instance config file not found: {} (will register with Hub)", storagePath);
             return null;
         }
         
@@ -122,31 +122,31 @@ public class InstanceConfigStorage {
             ConfigData data = objectMapper.readValue(storageFile, ConfigData.class);
             
             if (data == null) {
-                log.warn("⚠️ 인스턴스 설정 데이터가 비어있음: {}", storagePath);
+                log.warn("Instance config data is empty: {}", storagePath);
                 return null;
             }
             
             // hubUrl과 instanceId가 일치하는 경우만 로드
             if (hubUrl != null && !hubUrl.equals(data.getHubUrl())) {
-                log.debug("📋 Hub URL이 일치하지 않아 설정 로드 건너뜀: 저장된={}, 요청={}", 
+                log.debug("Hub URL mismatch, skipping config load: stored={}, requested={}",
                         data.getHubUrl(), hubUrl);
                 return null;
             }
             
             if (instanceId != null && !instanceId.equals(data.getInstanceId())) {
-                log.debug("📋 인스턴스 ID가 일치하지 않아 설정 로드 건너뜀: 저장된={}, 요청={}", 
+                log.debug("Instance ID mismatch, skipping config load: stored={}, requested={}",
                         data.getInstanceId(), instanceId);
                 return null;
             }
             
             long timestamp = data.getTimestamp();
-            log.debug("📂 인스턴스 설정 로드 완료: hubId={}, hubUrl={}, instanceId={} (저장 시각: {})", 
+            log.debug("Instance config loaded: hubId={}, hubUrl={}, instanceId={} (saved at: {})",
                     data.getHubId(), data.getHubUrl(), data.getInstanceId(),
                     new java.util.Date(timestamp));
             return data;
             
         } catch (IOException e) {
-            log.warn("⚠️ 인스턴스 설정 로드 실패: {} (빈 데이터 반환)", storagePath, e);
+            log.warn("Instance config load failed: {} (returning null)", storagePath, e);
             return null;
         }
     }
@@ -177,9 +177,9 @@ public class InstanceConfigStorage {
         if (storageFile.exists()) {
             boolean deleted = storageFile.delete();
             if (deleted) {
-                log.info("🗑️ 인스턴스 설정 저장 파일 삭제 완료: {}", storagePath);
+                log.debug("Instance config file deleted: {}", storagePath);
             } else {
-                log.warn("⚠️ 인스턴스 설정 저장 파일 삭제 실패: {}", storagePath);
+                log.warn("Instance config file deletion failed: {}", storagePath);
             }
             return deleted;
         }

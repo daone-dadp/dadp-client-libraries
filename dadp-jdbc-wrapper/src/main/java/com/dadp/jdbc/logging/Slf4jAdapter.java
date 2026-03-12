@@ -48,12 +48,13 @@ class Slf4jAdapter implements DadpLogger {
         } catch (Exception e) {
             // SLF4J 연동 자체가 깨진 경우 NoOp로 폴백
             // 생성자에서 실패할 경우 DadpLoggerFactory에서 NoOp로 대체하도록 설계
-            throw new RuntimeException("SLF4J Logger 생성 실패: " + e.getMessage(), e);
+            throw new RuntimeException("SLF4J Logger creation failed: " + e.getMessage(), e);
         }
     }
     
     @Override
     public void trace(String msg) {
+        if (!DadpLoggerFactory.isLevelEnabled("TRACE")) return;
         try {
             traceMethod.invoke(slf4jLogger, msg);
         } catch (Exception e) {
@@ -61,9 +62,10 @@ class Slf4jAdapter implements DadpLogger {
             // 단, "SLF4J 연동 자체가 깨진 경우"는 생성자 단계에서 이미 처리됨
         }
     }
-    
+
     @Override
     public void trace(String format, Object... args) {
+        if (!DadpLoggerFactory.isLevelEnabled("TRACE")) return;
         try {
             // 리플렉션으로 가변 인자 메서드 찾기
             Class<?> loggerClass = slf4jLogger.getClass();
@@ -73,18 +75,20 @@ class Slf4jAdapter implements DadpLogger {
             // 무시
         }
     }
-    
+
     @Override
     public void debug(String msg) {
+        if (!DadpLoggerFactory.isLevelEnabled("DEBUG")) return;
         try {
             debugMethod.invoke(slf4jLogger, msg);
         } catch (Exception e) {
             // 무시
         }
     }
-    
+
     @Override
     public void debug(String format, Object... args) {
+        if (!DadpLoggerFactory.isLevelEnabled("DEBUG")) return;
         try {
             Class<?> loggerClass = slf4jLogger.getClass();
             Method method = loggerClass.getMethod("debug", String.class, Object[].class);
@@ -93,18 +97,20 @@ class Slf4jAdapter implements DadpLogger {
             // 무시
         }
     }
-    
+
     @Override
     public void info(String msg) {
+        if (!DadpLoggerFactory.isLevelEnabled("INFO")) return;
         try {
             infoMethod.invoke(slf4jLogger, msg);
         } catch (Exception e) {
             // 무시
         }
     }
-    
+
     @Override
     public void info(String format, Object... args) {
+        if (!DadpLoggerFactory.isLevelEnabled("INFO")) return;
         try {
             Class<?> loggerClass = slf4jLogger.getClass();
             Method method = loggerClass.getMethod("info", String.class, Object[].class);
@@ -113,18 +119,20 @@ class Slf4jAdapter implements DadpLogger {
             // 무시
         }
     }
-    
+
     @Override
     public void warn(String msg) {
+        if (!DadpLoggerFactory.isLevelEnabled("WARN")) return;
         try {
             warnMethod.invoke(slf4jLogger, msg);
         } catch (Exception e) {
             // 무시
         }
     }
-    
+
     @Override
     public void warn(String format, Object... args) {
+        if (!DadpLoggerFactory.isLevelEnabled("WARN")) return;
         try {
             Class<?> loggerClass = slf4jLogger.getClass();
             Method method = loggerClass.getMethod("warn", String.class, Object[].class);
@@ -133,27 +141,30 @@ class Slf4jAdapter implements DadpLogger {
             // 무시
         }
     }
-    
+
     @Override
     public void warn(String msg, Throwable t) {
+        if (!DadpLoggerFactory.isLevelEnabled("WARN")) return;
         try {
             warnWithThrowableMethod.invoke(slf4jLogger, msg, t);
         } catch (Exception e) {
             // 무시
         }
     }
-    
+
     @Override
     public void error(String msg) {
+        if (!DadpLoggerFactory.isLevelEnabled("ERROR")) return;
         try {
             errorMethod.invoke(slf4jLogger, msg);
         } catch (Exception e) {
             // 무시
         }
     }
-    
+
     @Override
     public void error(String format, Object... args) {
+        if (!DadpLoggerFactory.isLevelEnabled("ERROR")) return;
         try {
             Class<?> loggerClass = slf4jLogger.getClass();
             Method method = loggerClass.getMethod("error", String.class, Object[].class);
@@ -162,9 +173,10 @@ class Slf4jAdapter implements DadpLogger {
             // 무시
         }
     }
-    
+
     @Override
     public void error(String msg, Throwable t) {
+        if (!DadpLoggerFactory.isLevelEnabled("ERROR")) return;
         try {
             errorWithThrowableMethod.invoke(slf4jLogger, msg, t);
         } catch (Exception e) {
@@ -174,42 +186,47 @@ class Slf4jAdapter implements DadpLogger {
     
     @Override
     public boolean isTraceEnabled() {
+        if (!DadpLoggerFactory.isLevelEnabled("TRACE")) return false;
         try {
             return (Boolean) isTraceEnabledMethod.invoke(slf4jLogger);
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     @Override
     public boolean isDebugEnabled() {
+        if (!DadpLoggerFactory.isLevelEnabled("DEBUG")) return false;
         try {
             return (Boolean) isDebugEnabledMethod.invoke(slf4jLogger);
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     @Override
     public boolean isInfoEnabled() {
+        if (!DadpLoggerFactory.isLevelEnabled("INFO")) return false;
         try {
             return (Boolean) isInfoEnabledMethod.invoke(slf4jLogger);
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     @Override
     public boolean isWarnEnabled() {
+        if (!DadpLoggerFactory.isLevelEnabled("WARN")) return false;
         try {
             return (Boolean) isWarnEnabledMethod.invoke(slf4jLogger);
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     @Override
     public boolean isErrorEnabled() {
+        if (!DadpLoggerFactory.isLevelEnabled("ERROR")) return false;
         try {
             return (Boolean) isErrorEnabledMethod.invoke(slf4jLogger);
         } catch (Exception e) {
