@@ -141,6 +141,19 @@
 
 ---
 
+## v5.5.12 — #배포 전 (2026-03-12)
+
+### ✨ New
+
+#### VIEW 스키마 수집 지원 (SchemaRecognizer)
+
+- **기능**: DB VIEW도 스키마 수집 대상에 포함하여 VIEW 컬럼에 암복호화 정책 매핑 가능
+- **변경**: `SchemaRecognizer.getTables()` 호출 시 `new String[]{"TABLE"}` → `new String[]{"TABLE", "VIEW"}` 로 변경
+- **효과**: Hub에서 VIEW를 대상으로 정책을 설정하면 VIEW 컬럼의 암복호화가 정상 동작
+- **검증**: `user_view` VIEW에서 SELECT 복호화 정상 동작 확인
+
+---
+
 ## v5.5.11 — #배포 전 (2026-03-12)
 
 ### ✨ New
