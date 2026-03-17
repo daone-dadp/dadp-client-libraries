@@ -101,8 +101,15 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
             Map<String, Object> responseBody = response.getBody();
-            Boolean success = (Boolean) responseBody.get("success");
-            if (Boolean.TRUE.equals(success)) {
+            // v2: code 기반 (primary), v1: success boolean fallback
+            boolean success;
+            Object codeVal = responseBody.get("code");
+            if (codeVal instanceof String) {
+                success = "SUCCESS".equals(codeVal);
+            } else {
+                success = Boolean.TRUE.equals(responseBody.get("success"));
+            }
+            if (success) {
                 log.info("AOP schema info sent to Hub: {} fields, hubId={}", schemas.size(), hubId);
                 return true;
             } else {
@@ -183,11 +190,17 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
      */
     public static class AopSchemaSyncResponse {
         private boolean success;
+        private String code;
         private AopSchemaSyncResponseData data;
         private String message;
-        
-        public boolean isSuccess() { return success; }
+
+        public boolean isSuccess() {
+            if (code != null) { return "SUCCESS".equals(code); }
+            return success;
+        }
         public void setSuccess(boolean success) { this.success = success; }
+        public String getCode() { return code; }
+        public void setCode(String code) { this.code = code; }
         public AopSchemaSyncResponseData getData() { return data; }
         public void setData(AopSchemaSyncResponseData data) { this.data = data; }
         public String getMessage() { return message; }

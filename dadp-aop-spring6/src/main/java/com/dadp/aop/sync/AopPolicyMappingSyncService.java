@@ -326,8 +326,15 @@ public class AopPolicyMappingSyncService {
             
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 java.util.Map<String, Object> responseBody = response.getBody();
-                Boolean success = (Boolean) responseBody.get("success");
-                if (Boolean.TRUE.equals(success)) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                boolean success;
+                Object codeVal = responseBody.get("code");
+                if (codeVal instanceof String) {
+                    success = "SUCCESS".equals(codeVal);
+                } else {
+                    success = Boolean.TRUE.equals(responseBody.get("success"));
+                }
+                if (success) {
                     Object dataObj = responseBody.get("data");
                     if (dataObj instanceof java.util.Map) {
                         @SuppressWarnings("unchecked")

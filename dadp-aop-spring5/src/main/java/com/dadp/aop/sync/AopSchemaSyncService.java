@@ -258,11 +258,23 @@ public class AopSchemaSyncService {
      */
     public static class AopSchemaSyncResponse {
         private boolean success;
+        private String code;
         private AopSchemaSyncResponseData data;
         private String message;
-        
+
         public boolean isSuccess() {
+            if (code != null) {
+                return "SUCCESS".equals(code);
+            }
             return success;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public void setCode(String code) {
+            this.code = code;
         }
         
         public void setSuccess(boolean success) {

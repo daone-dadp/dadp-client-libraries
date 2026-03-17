@@ -433,16 +433,24 @@ public class MappingSyncService {
      */
     public static class CheckMappingChangeResponse {
         private boolean success;
+        private String code;
         private Object data;  // Boolean 또는 Map<String, Object>
         private String message;
-        
+
         public boolean isSuccess() {
+            if (code != null) {
+                return "SUCCESS".equals(code);
+            }
             return success;
         }
-        
+
         public void setSuccess(boolean success) {
             this.success = success;
         }
+
+        public String getCode() { return code; }
+
+        public void setCode(String code) { this.code = code; }
         
         public Object getData() {
             return data;
@@ -466,16 +474,24 @@ public class MappingSyncService {
      */
     public static class PolicySnapshotResponse {
         private boolean success;
+        private String code;
         private PolicySnapshot data;
         private String message;
-        
+
         public boolean isSuccess() {
+            if (code != null) {
+                return "SUCCESS".equals(code);
+            }
             return success;
         }
-        
+
         public void setSuccess(boolean success) {
             this.success = success;
         }
+
+        public String getCode() { return code; }
+
+        public void setCode(String code) { this.code = code; }
         
         public PolicySnapshot getData() {
             return data;

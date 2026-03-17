@@ -494,9 +494,16 @@ public class HubCryptoService {
                     throw new HubCryptoException("Engine response parsing failed: " + e.getMessage());
                 }
                 
-                // ApiResponse의 success 확인
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     JsonNode messageNode = rootNode.get("message");
                     String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Encryption failed";
                     throw new HubCryptoException("Encryption failed: " + errorMessage);
@@ -624,8 +631,16 @@ public class HubCryptoService {
                     throw new HubCryptoException("Engine response parsing failed: " + e.getMessage());
                 }
 
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     // 실패 시 평문 반환 (검색은 best-effort)
                     if (enableLogging) {
                         log.debug("Encrypt-for-search failed, returning plaintext: {}", rootNode.get("message"));
@@ -775,9 +790,16 @@ public class HubCryptoService {
                     throw new HubCryptoException("Engine response parsing failed: " + e.getMessage());
                 }
                 
-                // ApiResponse의 success 확인
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     JsonNode messageNode = rootNode.get("message");
                     String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Decryption failed";
 
@@ -1014,8 +1036,16 @@ public class HubCryptoService {
                 JsonNode resultsNode = rootNode.get("results");
                 if (resultsNode == null || !resultsNode.isArray()) {
                     // ApiResponse 래퍼가 있는 경우 (Hub를 통한 경우) 처리
-                    JsonNode successNode = rootNode.get("success");
-                    if (successNode != null && successNode.asBoolean()) {
+                    // v2: code 기반 (primary), v1: success boolean fallback
+                    JsonNode codeNode = rootNode.get("code");
+                    boolean outerSuccess;
+                    if (codeNode != null && codeNode.isTextual()) {
+                        outerSuccess = "SUCCESS".equals(codeNode.asText());
+                    } else {
+                        JsonNode successNode = rootNode.get("success");
+                        outerSuccess = successNode != null && successNode.asBoolean();
+                    }
+                    if (outerSuccess) {
                         JsonNode dataNode = rootNode.get("data");
                         if (dataNode != null && !dataNode.isNull()) {
                             resultsNode = dataNode.get("results");
@@ -1152,9 +1182,16 @@ public class HubCryptoService {
                     throw new HubCryptoException("Engine response parsing failed: " + e.getMessage());
                 }
                 
-                // ApiResponse의 success 확인
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     JsonNode messageNode = rootNode.get("message");
                     String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Batch encryption failed";
                     throw new HubCryptoException("Batch encryption failed: " + errorMessage);

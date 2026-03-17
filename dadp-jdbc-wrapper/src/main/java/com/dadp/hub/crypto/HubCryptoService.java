@@ -317,8 +317,16 @@ public class HubCryptoService {
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
 
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     JsonNode messageNode = rootNode.get("message");
                     String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Encryption failed";
                     throw new HubCryptoException("Encryption failed: " + errorMessage);
@@ -394,8 +402,16 @@ public class HubCryptoService {
 
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     if (enableLogging) log.warn("Encrypt-for-search failed, returning plaintext: {}", rootNode.get("message"));
                     return data;
                 }
@@ -499,8 +515,16 @@ public class HubCryptoService {
     private String parseDecryptResponse(String responseBody, String encryptedData) {
         JsonNode rootNode = parseJson(responseBody);
 
-        JsonNode successNode = rootNode.get("success");
-        if (successNode == null || !successNode.asBoolean()) {
+        // v2: code 기반 (primary), v1: success boolean fallback
+        JsonNode codeNode = rootNode.get("code");
+        boolean responseSuccess;
+        if (codeNode != null && codeNode.isTextual()) {
+            responseSuccess = "SUCCESS".equals(codeNode.asText());
+        } else {
+            JsonNode successNode = rootNode.get("success");
+            responseSuccess = successNode != null && successNode.asBoolean();
+        }
+        if (!responseSuccess) {
             JsonNode messageNode = rootNode.get("message");
             String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Decryption failed";
 
@@ -614,8 +638,16 @@ public class HubCryptoService {
                 JsonNode resultsNode = rootNode.get("results");
                 if (resultsNode == null || !resultsNode.isArray()) {
                     // ApiResponse 래퍼가 있는 경우
-                    JsonNode successNode = rootNode.get("success");
-                    if (successNode != null && successNode.asBoolean()) {
+                    // v2: code 기반 (primary), v1: success boolean fallback
+                    JsonNode codeNode = rootNode.get("code");
+                    boolean outerSuccess;
+                    if (codeNode != null && codeNode.isTextual()) {
+                        outerSuccess = "SUCCESS".equals(codeNode.asText());
+                    } else {
+                        JsonNode successNode = rootNode.get("success");
+                        outerSuccess = successNode != null && successNode.asBoolean();
+                    }
+                    if (outerSuccess) {
                         JsonNode dataNode = rootNode.get("data");
                         if (dataNode != null && !dataNode.isNull()) {
                             resultsNode = dataNode.get("results");
@@ -711,8 +743,16 @@ public class HubCryptoService {
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
 
-                JsonNode successNode = rootNode.get("success");
-                if (successNode == null || !successNode.asBoolean()) {
+                // v2: code 기반 (primary), v1: success boolean fallback
+                JsonNode codeNode = rootNode.get("code");
+                boolean responseSuccess;
+                if (codeNode != null && codeNode.isTextual()) {
+                    responseSuccess = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    JsonNode successNode = rootNode.get("success");
+                    responseSuccess = successNode != null && successNode.asBoolean();
+                }
+                if (!responseSuccess) {
                     JsonNode messageNode = rootNode.get("message");
                     String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Batch encryption failed";
                     throw new HubCryptoException("Batch encryption failed: " + errorMessage);

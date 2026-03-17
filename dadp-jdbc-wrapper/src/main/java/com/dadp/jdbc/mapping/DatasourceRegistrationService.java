@@ -233,11 +233,23 @@ public class DatasourceRegistrationService {
      */
     public static class ApiResponse<T> {
         private boolean success;
+        private String code;
         private T data;
         private String message;
-        
+
         public boolean isSuccess() {
+            if (code != null) {
+                return "SUCCESS".equals(code);
+            }
             return success;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public void setCode(String code) {
+            this.code = code;
         }
         
         public void setSuccess(boolean success) {

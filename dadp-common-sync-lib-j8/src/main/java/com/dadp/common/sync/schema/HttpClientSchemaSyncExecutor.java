@@ -124,7 +124,15 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
             Map<String, Object> apiResponse = objectMapper.readValue(responseBody, 
                     objectMapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class));
             
-            if (apiResponse != null && Boolean.TRUE.equals(apiResponse.get("success"))) {
+            // v2: code 기반 (primary), v1: success boolean fallback
+            boolean apiSuccess;
+            Object codeVal = apiResponse != null ? apiResponse.get("code") : null;
+            if (codeVal instanceof String) {
+                apiSuccess = "SUCCESS".equals(codeVal);
+            } else {
+                apiSuccess = apiResponse != null && Boolean.TRUE.equals(apiResponse.get("success"));
+            }
+            if (apiSuccess) {
                 // 응답에서 hubId 추출 (재등록 시 hubId가 응답에 포함됨)
                 String receivedHubId = extractHubIdFromResponse(apiResponse);
                 if (receivedHubId != null && !receivedHubId.trim().isEmpty()) {

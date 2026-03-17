@@ -89,8 +89,15 @@ public class EndpointSyncService {
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 // 응답 파싱
                 JsonNode rootNode = objectMapper.readTree(response.getBody());
-                boolean success = rootNode.path("success").asBoolean(false);
-                
+                // v2: code 기반 (primary), v1: success boolean fallback
+                boolean success;
+                JsonNode codeNode = rootNode.path("code");
+                if (!codeNode.isMissingNode() && codeNode.isTextual()) {
+                    success = "SUCCESS".equals(codeNode.asText());
+                } else {
+                    success = rootNode.path("success").asBoolean(false);
+                }
+
                 if (!success) {
                     log.warn("Hub endpoint query failed: response success=false");
                     return false;
