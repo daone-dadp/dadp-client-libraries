@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.5.15] - 2026-03-13
+
+### Added
+
+- **Oracle/Tibero: USER_TAB_COLUMNS + USER_OBJECTS 데이터 딕셔너리 뷰 기반 스키마 수집**
+  - `getTables()` VIEW 누락 방지: 메타데이터 기반 스키마 수집으로 안정성 향상
+  - USER_TAB_COLUMNS (컬럼 정보) + USER_OBJECTS (객체 정보) 조인으로 완벽한 스키마 정보 구성
+
+- **Oracle: MATERIALIZED VIEW 수집 지원**
+  - ROW_NUMBER 중복 제거: MATERIALIZED VIEW도 일반 VIEW와 동일하게 취급
+  - MVIEW 타입 객체도 정상적으로 스키마 수집
+
+- **Oracle: USER_COL_COMMENTS 한글 코멘트 수집**
+  - columnComment 필드 추가: 한글 주석도 정상 수집
+
+- **로그 설정 우선순위 정리**
+  - Hub PolicySnapshot logConfig 1순위 (hubManaged 플래그)
+  - 로컬 설정은 무시됨: Hub에서 중앙화된 로깅 정책 관리
+
+---
+
+## [5.5.14] - 2026-03-13
+
+### Added
+
+- **Schema force reload support**
+  - Hub UI에서 "스키마 리로드" 버튼 클릭 시 Wrapper가 DB 메타데이터를 재수집
+  - PolicySnapshot에 `forceSchemaReload` 플래그 추가
+  - `JdbcBootstrapOrchestrator.forceReloadSchemas()`: 네이티브 JDBC Connection으로 스키마 재수집 후 Hub에 전송
+  - VIEW 추가 등 DB 구조 변경 시 Wrapper 재시작 없이 스키마 갱신 가능
+
+---
+
+## [5.5.13] - 2026-03-13
+
+### Fixed
+
+- **Empty string encryption skip**
+  - `processStringEncryption()` now skips encryption for empty strings (`""`)
+  - Prevents Engine `@NotBlank` validation failure (HTTP 400) when WHERE clause parameters are empty
+  - Applies to all SQL types: SELECT WHERE, INSERT, UPDATE
+
+---
+
+## [5.5.12] - 2026-03-12
+
+### Added
+
+- **VIEW support in schema collection**
+  - `SchemaRecognizer.getTables()` now collects both TABLE and VIEW types
+  - VIEWs can be mapped with encryption policies in Hub, enabling encrypt/decrypt on VIEW columns
+
+---
+
 ## [5.5.11] - 2026-03-12
 
 ### Fixed

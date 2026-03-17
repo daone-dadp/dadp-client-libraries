@@ -66,6 +66,9 @@ public class JdbcPolicyMappingSyncService {
     
     // 재등록 콜백 (JdbcBootstrapOrchestrator에서 설정, 재등록 시 저장 메타데이터만 사용)
     private Runnable reregistrationCallback;
+
+    // 스키마 강제 리로드 콜백 (JdbcBootstrapOrchestrator에서 설정)
+    private Runnable schemaReloadCallback;
     
     public JdbcPolicyMappingSyncService(
             MappingSyncService mappingSyncService,
@@ -148,6 +151,17 @@ public class JdbcPolicyMappingSyncService {
                     // Hub PolicySnapshot logConfig 적용 (매핑 갱신 시마다 반영)
                     applyLogConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
                 }
+
+                @Override
+                public void onSchemaReloadRequested() {
+                    // 스키마 강제 리로드: JdbcBootstrapOrchestrator에 위임
+                    if (schemaReloadCallback != null) {
+                        log.info("Schema force reload callback invoked from Hub");
+                        schemaReloadCallback.run();
+                    } else {
+                        log.warn("Schema force reload requested but callback not set");
+                    }
+                }
             }
         );
     }
@@ -181,9 +195,9 @@ public class JdbcPolicyMappingSyncService {
         // 30초 주기 버전 체크 시작 (스키마 등록 완료 후에만 시작)
         startPeriodicSync();
         
-        // 첫 번째 주기적 버전 체크는 30초 후에 실행됨
+        // 첫 번째 버전 체크는 즉시 실행 (initialDelay=0)
         // Hub 버전=1, Wrapper 초기 버전=0이므로 첫 버전 체크에서 무조건 갱신 발생
-        log.info("30-second periodic version check started: hubId={} (first check in 30 seconds)", hubId);
+        log.info("Periodic version check started: hubId={} (first check immediately)", hubId);
     }
     
     /**
@@ -216,9 +230,9 @@ public class JdbcPolicyMappingSyncService {
                 // 예외가 발생해도 스케줄러는 계속 실행되도록 예외를 잡아서 로그만 출력
                 log.warn("Exception during periodic policy mapping version check (will retry next cycle): {}", e.getMessage(), e);
             }
-        }, 30, 30, TimeUnit.SECONDS);
-        
-        log.info("Periodic policy mapping sync scheduler registered: 30s interval, instanceId={}", instanceId);
+        }, 0, 30, TimeUnit.SECONDS);
+
+        log.info("Periodic policy mapping sync scheduler registered: immediate first + 30s interval, instanceId={}", instanceId);
     }
     
     /**
@@ -359,13 +373,17 @@ public class JdbcPolicyMappingSyncService {
             return;
         }
         if (logConfig.getEnabled() != null) {
-            DadpLoggerFactory.setLoggingEnabled(logConfig.getEnabled());
+            // Hub logConfig가 있으면 setFromHub()로 적용 → hubManaged=true → 로컬 설정 무시
+            String level = (logConfig.getLevel() != null && !logConfig.getLevel().trim().isEmpty())
+                    ? logConfig.getLevel().trim() : null;
+            DadpLoggerFactory.setFromHub(logConfig.getEnabled(), level);
+            log.info("Log config applied from Hub (1st priority): enabled={}, level={}",
+                    logConfig.getEnabled(), level);
+        } else if (logConfig.getLevel() != null && !logConfig.getLevel().trim().isEmpty()) {
+            // enabled는 null이지만 level만 Hub에서 지정한 경우
+            DadpLoggerFactory.setFromHub(DadpLoggerFactory.isLoggingEnabled(), logConfig.getLevel().trim());
+            log.info("Log level applied from Hub (1st priority): level={}", logConfig.getLevel());
         }
-        if (logConfig.getLevel() != null && !logConfig.getLevel().trim().isEmpty()) {
-            DadpLoggerFactory.setLogLevel(logConfig.getLevel());
-        }
-        log.info("Log config applied from Hub PolicySnapshot: enabled={}, level={}",
-                logConfig.getEnabled(), logConfig.getLevel());
     }
 
     /**
@@ -373,6 +391,13 @@ public class JdbcPolicyMappingSyncService {
      */
     public void setReregistrationCallback(Runnable callback) {
         this.reregistrationCallback = callback;
+    }
+
+    /**
+     * 스키마 강제 리로드 콜백 설정 (JdbcBootstrapOrchestrator에서 호출)
+     */
+    public void setSchemaReloadCallback(Runnable callback) {
+        this.schemaReloadCallback = callback;
     }
     
     /**

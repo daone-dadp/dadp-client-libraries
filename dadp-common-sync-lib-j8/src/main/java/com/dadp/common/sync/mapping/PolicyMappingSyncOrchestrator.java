@@ -49,10 +49,18 @@ public class PolicyMappingSyncOrchestrator {
         
         /**
          * 엔드포인트 동기화 후 호출 (암복호화 어댑터 업데이트 등)
-         * 
+         *
          * @param endpointData 엔드포인트 데이터
          */
         void onEndpointSynced(Object endpointData);
+
+        /**
+         * 스키마 강제 리로드 요청 시 호출
+         * Hub에서 forceSchemaReload=true를 보낸 경우 호출
+         */
+        default void onSchemaReloadRequested() {
+            // 기본 구현: 아무것도 하지 않음 (하위 호환성)
+        }
     }
     
     /**
@@ -178,6 +186,18 @@ public class PolicyMappingSyncOrchestrator {
                     }
                 }
                 
+                // 4. 스키마 강제 리로드 요청 확인
+                if (lastSnapshot != null && Boolean.TRUE.equals(lastSnapshot.getForceSchemaReload())) {
+                    log.info("Schema force reload requested by Hub");
+                    if (callbacks != null) {
+                        try {
+                            callbacks.onSchemaReloadRequested();
+                        } catch (Exception e) {
+                            log.warn("Schema force reload callback failed: {}", e.getMessage());
+                        }
+                    }
+                }
+
                 log.info("Policy mapping sync completed: {} mappings", loadedCount);
             } else {
                 // 304 Not Modified: 버전 동일 -> 아무것도 하지 않음

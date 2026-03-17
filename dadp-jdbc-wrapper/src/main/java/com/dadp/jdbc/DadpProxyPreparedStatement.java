@@ -332,8 +332,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
      * @return EncryptionResult 암호화 처리 결과
      */
     private EncryptionResult processStringEncryption(int parameterIndex, String value, String methodName) {
-        // null 체크 및 SQL 파싱 결과 확인
-        if (value == null || sqlParseResult == null) {
+        // null/빈 문자열 체크 및 SQL 파싱 결과 확인
+        if (value == null || value.isEmpty() || sqlParseResult == null) {
             if (value != null && sqlParseResult == null) {
                 log.debug("{}: No SQL parse result: cannot determine encryption target, parameterIndex={}", methodName, parameterIndex);
             }

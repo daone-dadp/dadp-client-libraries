@@ -87,8 +87,8 @@ public class DadpJdbcDriver implements Driver {
                 throw e;
             }
             
-            // Proxy Connection으로 래핑 (Proxy 설정 전달)
-            return new DadpProxyConnection(actualConnection, url, proxyParams);
+            // Proxy Connection으로 래핑 (Proxy 설정 + 접속 정보 전달)
+            return new DadpProxyConnection(actualConnection, url, proxyParams, info);
             
         } catch (SQLException e) {
             log.warn("DADP JDBC Driver connection failed: {}", e.getMessage(), e);

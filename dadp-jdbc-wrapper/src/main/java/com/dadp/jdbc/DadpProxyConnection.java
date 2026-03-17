@@ -62,10 +62,14 @@ public class DadpProxyConnection implements Connection {
     }
     
     public DadpProxyConnection(Connection actualConnection, String originalUrl, Map<String, String> urlParams) {
+        this(actualConnection, originalUrl, urlParams, null);
+    }
+
+    public DadpProxyConnection(Connection actualConnection, String originalUrl, Map<String, String> urlParams, java.util.Properties connectionProperties) {
         this.actualConnection = actualConnection;
         // JDBC URL 파라미터가 있으면 사용, 없으면 싱글톤 인스턴스 사용
         this.config = urlParams != null ? new ProxyConfig(urlParams) : ProxyConfig.getInstance();
-        
+
         
         // DB 벤더 정보 저장
         String vendor = null;
@@ -103,7 +107,12 @@ public class DadpProxyConnection implements Connection {
         // instanceId당 오케스트레이터 1세트 공유: 캐시에서 조회 또는 생성
         String instanceId = config.getInstanceId();
         this.orchestrator = JdbcBootstrapOrchestrator.getOrCreate(instanceId, originalUrl, config);
-        
+
+        // 접속 정보 전달 (스키마 강제 리로드 시 네이티브 Connection 생성용)
+        if (connectionProperties != null) {
+            this.orchestrator.setNativeConnectionProperties(connectionProperties);
+        }
+
         // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {

@@ -105,7 +105,13 @@ public class JdbcBootstrapOrchestrator {
     
     // Hub 알림 서비스 (instanceId당 1개 공유, 커넥션 풀에서 재사용)
     private volatile HubNotificationService notificationService;
-    
+
+    // 스키마 강제 리로드용: 원본 JDBC URL 정보 (네이티브 드라이버로 Connection 생성)
+    private volatile String nativeJdbcUrl;
+    private volatile java.util.Properties nativeJdbcProperties;
+    // DadpJdbcDriver에서 전달받은 원본 접속 Properties (user/password 포함)
+    private volatile java.util.Properties originalConnectionProperties;
+
     // 초기화 완료 플래그
     private volatile boolean initialized = false;
     private volatile String cachedDatasourceId = null;
@@ -206,11 +212,49 @@ public class JdbcBootstrapOrchestrator {
                 }
                 log.debug("Oracle database fallback value set: {}", storedDatabase);
             }
+
+            // 네이티브 JDBC URL 저장 (스키마 강제 리로드 시 Connection 생성용)
+            try {
+                this.nativeJdbcUrl = metaData.getURL();
+                // 원본 접속 Properties 우선 사용 (정확한 user/password 포함)
+                // DatabaseMetaData.getUserName()은 MySQL에서 "user@host" 형태를 반환할 수 있어 인증 실패 가능
+                if (originalConnectionProperties != null) {
+                    this.nativeJdbcProperties = (java.util.Properties) originalConnectionProperties.clone();
+                } else {
+                    this.nativeJdbcProperties = new java.util.Properties();
+                    String userName = metaData.getUserName();
+                    if (userName != null) {
+                        // MySQL: "root@172.20.0.3" → "root" (@ 이후 제거)
+                        int atIdx = userName.indexOf('@');
+                        if (atIdx > 0) {
+                            userName = userName.substring(0, atIdx);
+                        }
+                        this.nativeJdbcProperties.setProperty("user", userName);
+                    }
+                }
+                log.debug("Native JDBC URL stored for schema reload: url={}, user={}",
+                        nativeJdbcUrl, nativeJdbcProperties.getProperty("user"));
+            } catch (Exception urlEx) {
+                log.debug("Failed to store native JDBC URL (ignored): {}", urlEx.getMessage());
+            }
         } catch (Exception e) {
             log.debug("Metadata extraction failed (ignored): {}", e.getMessage());
         }
     }
     
+    /**
+     * DadpJdbcDriver에서 전달받은 원본 접속 Properties 저장 (user/password 포함)
+     */
+    public void setNativeConnectionProperties(java.util.Properties props) {
+        if (this.originalConnectionProperties == null && props != null) {
+            this.originalConnectionProperties = props;
+            // nativeJdbcProperties에 password 병합 (storeMetadataFrom에서 user만 저장되므로)
+            if (this.nativeJdbcProperties != null && props.getProperty("password") != null) {
+                this.nativeJdbcProperties.setProperty("password", props.getProperty("password"));
+            }
+        }
+    }
+
     /** 저장된 메타데이터로 datasourceId 로드 시 사용 (이미 실행됨/재등록 시 Connection 없이 사용) */
     public String getStoredDbVendor() { return storedDbVendor; }
     public String getStoredHost() { return storedHost; }
@@ -979,7 +1023,13 @@ public class JdbcBootstrapOrchestrator {
                 // registerWithHub()를 호출하여 Datasource 재등록 및 스키마 재전송
                 self.registerWithHub();
             });
-            
+
+            // 스키마 강제 리로드 콜백 설정 (Hub에서 forceSchemaReload=true 수신 시)
+            policyMappingSyncService.setSchemaReloadCallback(() -> {
+                log.info("Schema force reload callback invoked");
+                self.forceReloadSchemas();
+            });
+
             log.info("JdbcPolicyMappingSyncService initialized: hubId={}", hubId);
         } catch (Exception e) {
             log.warn("JdbcPolicyMappingSyncService initialization failed: {}", e.getMessage());
@@ -1254,6 +1304,77 @@ public class JdbcBootstrapOrchestrator {
     /** instanceId당 1개 공유, 커넥션 풀에서 재사용 */
     public HubNotificationService getNotificationService() {
         return notificationService;
+    }
+
+    /**
+     * 스키마 강제 리로드 수행
+     *
+     * Hub에서 forceSchemaReload=true를 수신한 경우 호출.
+     * 네이티브 JDBC URL로 Connection을 생성하여 스키마를 재수집하고 Hub에 전송.
+     */
+    public void forceReloadSchemas() {
+        if (nativeJdbcUrl == null || nativeJdbcUrl.trim().isEmpty()) {
+            log.warn("Schema force reload failed: native JDBC URL not available");
+            return;
+        }
+
+        String hubId = hubIdManager.getCachedHubId();
+        if (hubId == null || hubId.trim().isEmpty()) {
+            log.warn("Schema force reload failed: hubId not available");
+            return;
+        }
+
+        log.info("Schema force reload starting: nativeUrl={}, hubId={}", nativeJdbcUrl, hubId);
+
+        Connection connection = null;
+        try {
+            // 네이티브 드라이버로 직접 Connection 생성 (Wrapper 프록시 우회)
+            if (nativeJdbcProperties != null && !nativeJdbcProperties.isEmpty()) {
+                connection = java.sql.DriverManager.getConnection(nativeJdbcUrl, nativeJdbcProperties);
+            } else {
+                connection = java.sql.DriverManager.getConnection(nativeJdbcUrl);
+            }
+
+            // 스키마 재수집
+            List<SchemaMetadata> reloadedSchemas = schemaSyncService.collectSchemasWithRetry(connection, 3, 2000);
+            if (reloadedSchemas == null || reloadedSchemas.isEmpty()) {
+                log.warn("Schema force reload: no schemas collected");
+                return;
+            }
+
+            log.info("Schema force reload: collected {} schemas", reloadedSchemas.size());
+
+            // datasourceId 설정
+            if (cachedDatasourceId != null) {
+                for (SchemaMetadata schema : reloadedSchemas) {
+                    if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
+                        schema.setDatasourceId(cachedDatasourceId);
+                    }
+                }
+            }
+
+            // 영구저장소 업데이트
+            saveSchemasToStorage(reloadedSchemas);
+
+            // Hub에 전송 (모든 스키마를 강제 전송)
+            boolean synced = schemaSyncService.syncSpecificSchemasToHub(reloadedSchemas);
+            if (synced) {
+                log.info("Schema force reload completed: {} schemas sent to Hub", reloadedSchemas.size());
+            } else {
+                log.warn("Schema force reload: Hub sync failed (will retry on next cycle)");
+            }
+
+        } catch (Exception e) {
+            log.warn("Schema force reload failed: {}", e.getMessage());
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (SQLException e) {
+                    log.debug("Failed to close schema reload connection: {}", e.getMessage());
+                }
+            }
+        }
     }
 }
 

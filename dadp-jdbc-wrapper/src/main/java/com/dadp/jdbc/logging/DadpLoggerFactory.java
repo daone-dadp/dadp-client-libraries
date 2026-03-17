@@ -9,11 +9,13 @@ package com.dadp.jdbc.logging;
  * 기본값: false (로그 출력 안 함)
  * 고객사 앱에서 명시적으로 설정해야만 로그가 출력됩니다.
  *
- * 설정 방법 (우선순위):
- * 1. 환경 변수: DADP_ENABLE_LOGGING=true
- * 2. 시스템 프로퍼티: -Ddadp.enable-logging=true
- * 3. JDBC URL 파라미터: enableLogging=true (ProxyConfig를 통해 전달)
- * 4. Hub PolicySnapshot logConfig (동적 변경)
+ * 설정 우선순위:
+ * 1순위: Hub PolicySnapshot logConfig (원격 제어, 한번 수신되면 로컬 설정 무시)
+ * 2순위: 앱 구동 시 직접 설정 (시스템 프로퍼티 -Ddadp.enable-logging, JDBC URL enableLogging)
+ * 3순위: 환경 변수 (DADP_ENABLE_LOGGING)
+ *
+ * Hub에서 logConfig를 한 번이라도 수신하면 hubManaged=true가 되어,
+ * 이후 ProxyConfig(Connection 생성)에서의 setLoggingEnabled() 호출은 무시됩니다.
  *
  * SLF4J가 있으면 SLF4J를 통해 출력하고, 없으면 System.out 폴백 로거를 사용합니다.
  *
@@ -29,6 +31,9 @@ public final class DadpLoggerFactory {
 
     /** Hub PolicySnapshot logConfig 로 동적으로 설정되는 최소 로그 레벨 (기본값: INFO) */
     private static volatile String minimumLogLevel = "INFO";
+
+    /** Hub에서 logConfig를 수신하면 true → 이후 로컬(ProxyConfig) 설정 무시 */
+    private static volatile boolean hubManaged = false;
     
     static {
         // SLF4J 사용 가능 여부 확인 (있으면 사용, 없으면 NoOpLogger 사용)
@@ -54,24 +59,48 @@ public final class DadpLoggerFactory {
     }
     
     /**
-     * 로그 활성화 설정을 동적으로 변경합니다.
-     * ProxyConfig에서 JDBC URL 파라미터를 읽은 후 호출할 수 있습니다.
-     * Hub PolicySnapshot logConfig 수신 시에도 호출됩니다.
+     * 로그 활성화 설정을 로컬에서 변경합니다.
+     * ProxyConfig(Connection 생성 시)에서 호출됩니다.
+     * Hub에서 logConfig를 수신한 이후에는 무시됩니다.
      *
      * @param enabled 로그 활성화 여부
      */
     public static void setLoggingEnabled(boolean enabled) {
+        if (hubManaged) {
+            return;  // Hub 설정이 우선, 로컬 변경 무시
+        }
         loggingEnabled = enabled;
     }
 
     /**
-     * 최소 로그 레벨을 동적으로 설정합니다.
-     * Hub PolicySnapshot logConfig 수신 시 호출됩니다.
-     * 유효하지 않은 값이 전달되면 INFO로 fallback 합니다.
+     * Hub PolicySnapshot logConfig에서 로그 설정을 적용합니다.
+     * 한 번 호출되면 hubManaged=true가 되어 이후 로컬 설정은 무시됩니다.
+     *
+     * @param enabled 로그 활성화 여부
+     * @param level 로그 레벨 문자열 (TRACE, DEBUG, INFO, WARN, ERROR), null이면 레벨 변경 안 함
+     */
+    public static void setFromHub(boolean enabled, String level) {
+        hubManaged = true;
+        loggingEnabled = enabled;
+        if (level != null && !level.trim().isEmpty()) {
+            setLogLevelInternal(level);
+        }
+    }
+
+    /**
+     * 최소 로그 레벨을 로컬에서 설정합니다.
+     * Hub에서 logConfig를 수신한 이후에는 무시됩니다.
      *
      * @param level 로그 레벨 문자열 (TRACE, DEBUG, INFO, WARN, ERROR)
      */
     public static void setLogLevel(String level) {
+        if (hubManaged) {
+            return;  // Hub 설정이 우선, 로컬 변경 무시
+        }
+        setLogLevelInternal(level);
+    }
+
+    private static void setLogLevelInternal(String level) {
         if (level == null || level.trim().isEmpty()) {
             minimumLogLevel = "INFO";
             return;
@@ -83,8 +112,16 @@ public final class DadpLoggerFactory {
                 return;
             }
         }
-        // 알 수 없는 레벨은 INFO로 fallback
         minimumLogLevel = "INFO";
+    }
+
+    /**
+     * Hub에서 로그 설정을 관리하고 있는지 확인합니다.
+     *
+     * @return Hub 관리 여부
+     */
+    public static boolean isHubManaged() {
+        return hubManaged;
     }
 
     /**

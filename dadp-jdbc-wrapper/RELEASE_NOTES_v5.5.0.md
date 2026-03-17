@@ -154,6 +154,67 @@
 
 ---
 
+## v5.5.13 — #배포 전 (2026-03-13)
+
+### 🐛 Fixed
+
+#### Empty String 암호화 스킵
+
+- **문제**: WHERE절 파라미터가 빈 문자열(`""`)인 경우 Engine에 암호화 요청 시 `@NotBlank` 검증 실패(HTTP 400) 발생
+- **수정**: `processStringEncryption()`에서 빈 문자열은 암호화를 건너뛰고 그대로 전달
+- **영향**: SELECT WHERE, INSERT, UPDATE 모든 SQL 타입에 적용
+
+---
+
+## v5.5.14 — #배포 전 (2026-03-13)
+
+### ✨ New
+
+#### Hub 스키마 강제 리로드 (Schema Force Reload)
+
+- **기능**: Hub UI에서 "스키마 리로드" 버튼 클릭 시 Wrapper가 DB 메타데이터를 재수집하여 Hub에 재전송
+- **Hub 변경**:
+  - `InstanceSyncStatus` 엔티티에 `schemaReloadRequested` 필드 추가
+  - `EngineRoutingController`: 스키마 리로드 요청/상태 조회 API 추가 (`POST/GET /api/engine-routing/schema-reload/proxy/{hubId}`)
+  - `ProxyController`: PolicySnapshot에 `forceSchemaReload` 플래그 포함, 스키마 수신 시 플래그 자동 해제
+  - Hub 프론트엔드: 프록시 인스턴스 설정 모달에 "스키마 리로드" 버튼 추가 (상태 폴링 포함)
+- **Wrapper 변경**:
+  - `JdbcBootstrapOrchestrator`: `forceReloadSchemas()` 메서드 추가 — 네이티브 JDBC Connection을 구해 SchemaRecognizer로 스키마 재수집 후 Hub에 전송
+  - `JdbcPolicyMappingSyncService`: PolicySnapshot에서 `forceSchemaReload` 플래그 감지 시 `forceReloadSchemas()` 호출
+  - `MappingSyncService` (j8): PolicySnapshot 파싱에 `forceSchemaReload` 필드 추가
+- **효과**: VIEW 추가, 테이블 변경 등 DB 구조 변경 시 Wrapper 재시작 없이 스키마 갱신 가능
+
+---
+
+## v5.5.15 — #배포 전 (2026-03-13)
+
+### ✨ New
+
+#### Oracle/Tibero 데이터 딕셔너리 뷰 기반 스키마 수집
+
+- **기능**: Oracle/Tibero DB에서 표준 JDBC `getTables()`/`getColumns()` 대신 데이터 딕셔너리 뷰(`USER_TAB_COLUMNS`, `USER_OBJECTS`, `USER_COL_COMMENTS`)를 사용하여 스키마 수집
+- **배경**: 고객 Oracle 앱에서 표준 JDBC 메타데이터 API로 VIEW가 수집되지 않는 문제 발생
+- **변경**: `SchemaRecognizer` 분기 추가:
+  - Oracle/Tibero → `collectOracleSchemas()`: 데이터 딕셔너리 뷰 기반 (TABLE + VIEW + MATERIALIZED VIEW)
+  - 기타 DB → `collectStandardSchemas()`: 기존 JDBC `getTables()`/`getColumns()` 유지
+- **Oracle SQL**: `USER_TAB_COLUMNS` + `USER_OBJECTS` JOIN + `USER_COL_COMMENTS` LEFT JOIN
+  - `ROW_NUMBER()` OVER 중복 제거: MATERIALIZED VIEW가 TABLE + MV 두 가지 오브젝트를 생성하는 문제 대응
+  - `columnComment` 필드 추가: 한글 주석도 정상 수집
+- **검증**: Oracle XE 18c Docker 환경에서 TABLE(6) + VIEW(2) + MATERIALIZED VIEW(1) 정상 수집 확인
+
+### 🔧 Changed
+
+#### Hub 로그 설정 우선순위 정리 (Hub > Local)
+
+- **변경 전**: Hub PolicySnapshot과 로컬 설정(앱 구동시 옵션, 환경변수)이 서로 덮어쓰는 "last-write-wins" 구조
+- **변경 후**: Hub PolicySnapshot의 logConfig가 1순위, 로컬 설정은 Hub 설정 이후 무시
+- **구현**: `DadpLoggerFactory`에 `hubManaged` 플래그 추가
+  - `setFromHub(boolean enabled, String level)`: Hub에서 호출 → `hubManaged=true` 설정 후 적용
+  - `setLoggingEnabled()`, `setLogLevel()`: `hubManaged=true`이면 무시 (early return)
+- **Wrapper**: `JdbcPolicyMappingSyncService.applyLogConfigFromSnapshot()`에서 `setFromHub()` 사용으로 변경
+
+---
+
 ## v5.5.11 — #배포 전 (2026-03-12)
 
 ### ✨ New

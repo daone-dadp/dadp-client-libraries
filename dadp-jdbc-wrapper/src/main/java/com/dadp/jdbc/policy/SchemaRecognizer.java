@@ -88,143 +88,33 @@ public class SchemaRecognizer {
             DatabaseMetaData metaData = connection.getMetaData();
             String dbVendor = metaData.getDatabaseProductName().toLowerCase();
             String databaseName = connection.getCatalog();
-            
-            // Oracle: 자기 스키마(OWNER)만 조회 (ALL_TABLES 대신 USER_TABLES 효과)
-            // 다른 DB: null (전체 스키마 조회 후 필터링)
-            String schemaPattern = null;
-            if (dbVendor.contains("oracle")) {
-                schemaPattern = connection.getSchema();
-                if (schemaPattern == null || schemaPattern.isEmpty()) {
-                    schemaPattern = metaData.getUserName();
-                }
-                log.debug("Oracle self-schema only query: schema={}", schemaPattern);
-            }
 
-            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, database={}, schemaPattern={}, " +
+            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, database={}, " +
                     "allowlist={}, maxSchemas={}, timeout={}ms",
-                datasourceId, dbVendor, databaseName, schemaPattern,
+                datasourceId, dbVendor, databaseName,
                 allowedSchemas != null ? allowedSchemas : "all allowed",
                 maxSchemas > 0 ? maxSchemas : "unlimited",
                 timeoutMs != null && timeoutMs > 0 ? timeoutMs : "unlimited");
 
-            // 테이블 조회 (Oracle은 자기 스키마만, 다른 DB는 전체 후 필터링)
-            try (ResultSet tables = metaData.getTables(databaseName, schemaPattern, "%", new String[]{"TABLE"})) {
-                while (tables.next()) {
-                    // 타임아웃 체크
-                    if (timeoutMs != null && timeoutMs > 0) {
-                        long elapsed = System.currentTimeMillis() - startTime;
-                        if (elapsed > timeoutMs) {
-                            log.warn("Schema collection timeout: {}ms elapsed (limit: {}ms), {} schemas collected so far",
-                                elapsed, timeoutMs, schemas.size());
-                            throw new SQLException("Schema collection timeout: " + elapsed + "ms elapsed (limit: " + timeoutMs + "ms)");
-                        }
-                    }
-                    
-                    // 최대 개수 체크
-                    if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
-                        log.warn("Max schema count exceeded: {} (limit: {}), collection stopped", schemas.size(), maxSchemas);
-                        break;
-                    }
-                    
-                    String tableName = tables.getString("TABLE_NAME");
-                    String tableSchema = tables.getString("TABLE_SCHEM");  // ResultSet에서 실제 스키마 이름 가져옴
-                    
-                    // 시스템 스키마 제외
-                    if (tableSchema != null) {
-                        String lowerSchema = tableSchema.toLowerCase();
-                        boolean isExcluded = false;
-                        
-                        // 공통 시스템 스키마 체크
-                        for (String excluded : EXCLUDED_SCHEMAS) {
-                            if (lowerSchema.equals(excluded)) {
-                                isExcluded = true;
-                                log.trace("System schema excluded: {}.{}", tableSchema, tableName);
-                                break;
-                            }
-                        }
-                        
-                        // Oracle 전용 시스템 스키마 체크
-                        if (!isExcluded && dbVendor.contains("oracle")) {
-                            for (String excluded : ORACLE_EXCLUDED_SCHEMAS) {
-                                if (lowerSchema.equals(excluded)) {
-                                    isExcluded = true;
-                                    log.trace("Oracle system schema excluded: {}.{}", tableSchema, tableName);
-                                    break;
-                                }
-                            }
-                            // Oracle: APEX_*, FLOWS_* 패턴으로 시작하는 스키마도 제외
-                            if (!isExcluded && (lowerSchema.startsWith("apex_") || lowerSchema.startsWith("flows_"))) {
-                                isExcluded = true;
-                                log.trace("Oracle system schema excluded (pattern): {}.{}", tableSchema, tableName);
-                            }
-                        }
-                        
-                        if (isExcluded) {
-                            continue;
-                        }
-                        
-                        // Allowlist 필터링
-                        if (allowedSchemas != null && !allowedSchemas.contains(lowerSchema)) {
-                            log.trace("Schema not in Allowlist, excluded: {}.{}", tableSchema, tableName);
-                            continue;
-                        }
-                    }
-                    
-                    log.trace("Table found: {}.{}", tableSchema, tableName);
-                    
-                    // DB 벤더별로 스키마 이름 결정
-                    // PostgreSQL: TABLE_SCHEM에서 가져온 실제 스키마 이름 사용 (예: "public")
-                    // MySQL: database 이름 사용 (TABLE_SCHEM은 null일 수 있음)
-                    String finalSchemaName = determineSchemaName(dbVendor, tableSchema, connection);
-                    
-                    // 컬럼 정보 조회
-                    try (ResultSet columns = metaData.getColumns(databaseName, tableSchema, tableName, "%")) {
-                        while (columns.next()) {
-                            String columnName = columns.getString("COLUMN_NAME");
-                            String columnType = columns.getString("TYPE_NAME");
-                            String columnDefault = columns.getString("COLUMN_DEF");
-                            String isAutoIncrement = columns.getString("IS_AUTOINCREMENT");
-                            
-                            // 암복호화 대상에서 제외할 컬럼 필터링
-                            if (shouldExcludeColumn(columnName, columnType, columnDefault, isAutoIncrement)) {
-                                log.trace("   Excluded: {} ({}) - not a crypto target", columnName, columnType);
-                                continue;
-                            }
-                            
-                            // 식별자 정규화 (암복호화 시와 동일한 방식으로 정규화)
-                            // 모든 DB 벤더에 대해 소문자로 정규화 (영구저장소 저장 및 매핑 모두 소문자 기준)
-                            String normalizedDatabaseName = normalizeIdentifier(databaseName, dbVendor);
-                            String normalizedSchemaName = normalizeIdentifier(finalSchemaName, dbVendor);
-                            String normalizedTableName = normalizeIdentifier(tableName, dbVendor);
-                            String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
-                            
-                            SchemaMetadata schema = new SchemaMetadata();
-                            schema.setDatasourceId(datasourceId);
-                            schema.setDbVendor(dbVendor);
-                            schema.setDatabaseName(normalizedDatabaseName);  // 정규화된 데이터베이스 이름 사용
-                            schema.setSchemaName(normalizedSchemaName);  // 정규화된 스키마 이름 사용
-                            schema.setTableName(normalizedTableName);  // 정규화된 테이블 이름 사용
-                            schema.setColumnName(normalizedColumnName);  // 정규화된 컬럼 이름 사용
-                            schema.setColumnType(columnType);
-                            schema.setIsNullable("YES".equals(columns.getString("IS_NULLABLE")));
-                            schema.setColumnDefault(columnDefault);
-                            
-                            schemas.add(schema);
-                            
-                            log.trace("   Column: {} ({})", schema.getColumnName(), schema.getColumnType());
-                        }
-                    }
-                }
+            if (dbVendor.contains("oracle") || dbVendor.contains("tibero")) {
+                // Oracle/Tibero: 데이터 딕셔너리 뷰 사용 (getTables()보다 안정적, VIEW 누락 방지)
+                collectOracleSchemas(connection, datasourceId, dbVendor, databaseName,
+                        allowedSchemas, maxSchemas, timeoutMs, startTime, schemas);
+            } else {
+                // 기타 DB: 표준 JDBC DatabaseMetaData 사용
+                collectStandardSchemas(connection, metaData, datasourceId, dbVendor, databaseName,
+                        allowedSchemas, maxSchemas, timeoutMs, startTime, schemas,
+                        EXCLUDED_SCHEMAS, ORACLE_EXCLUDED_SCHEMAS);
             }
-            
+
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("Schema metadata collection completed: {} columns (elapsed: {}ms)", schemas.size(), elapsed);
-            
+
             // 최대 개수 초과 경고
             if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
                 log.warn("Max schema count reached: {} (limit: {})", schemas.size(), maxSchemas);
             }
-            
+
         } catch (SQLException e) {
             long elapsed = System.currentTimeMillis() - startTime;
             log.error("Schema metadata collection failed: {} (elapsed: {}ms, collected: {})",
@@ -235,6 +125,225 @@ public class SchemaRecognizer {
         return schemas;
     }
     
+    /**
+     * Oracle/Tibero 전용 스키마 수집 (데이터 딕셔너리 뷰 사용)
+     *
+     * getTables()는 Oracle JDBC 드라이버 버전에 따라 VIEW가 누락되는 경우가 있어,
+     * USER_TAB_COLUMNS + USER_OBJECTS를 직접 조회하여 TABLE, VIEW, MATERIALIZED VIEW를 확실하게 수집합니다.
+     */
+    private void collectOracleSchemas(Connection connection, String datasourceId, String dbVendor,
+                                       String databaseName, Set<String> allowedSchemas,
+                                       int maxSchemas, Long timeoutMs, long startTime,
+                                       List<SchemaMetadata> schemas) throws SQLException {
+        String schemaOwner = connection.getSchema();
+        if (schemaOwner == null || schemaOwner.isEmpty()) {
+            schemaOwner = connection.getMetaData().getUserName();
+        }
+        log.info("Oracle dictionary view collection: owner={}", schemaOwner);
+
+        // Allowlist 필터링 (Oracle은 자기 스키마만 조회하므로, allowlist에 자기 스키마가 없으면 skip)
+        if (allowedSchemas != null && !allowedSchemas.contains(schemaOwner.toLowerCase())) {
+            log.info("Oracle schema '{}' not in allowlist, skipped", schemaOwner);
+            return;
+        }
+
+        // USER_TAB_COLUMNS + USER_OBJECTS 조인으로 한 번에 수집
+        // USER_OBJECTS: TABLE, VIEW, MATERIALIZED VIEW 구분
+        // USER_COL_COMMENTS: 컬럼 코멘트 (암호화 대상 추천용)
+        //
+        // MATERIALIZED VIEW 중복 방지:
+        //   Oracle은 MV 생성 시 같은 이름의 TABLE + MATERIALIZED VIEW 2개 오브젝트를 생성함.
+        //   ROW_NUMBER()로 MATERIALIZED VIEW > VIEW > TABLE 우선순위를 적용하여 1건만 선택.
+        String sql =
+            "SELECT c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.NULLABLE, c.DATA_DEFAULT, " +
+            "       c.OBJECT_TYPE, c.COLUMN_COMMENT " +
+            "FROM ( " +
+            "  SELECT tc.TABLE_NAME, tc.COLUMN_NAME, tc.DATA_TYPE, tc.NULLABLE, tc.DATA_DEFAULT, " +
+            "         tc.COLUMN_ID, o.OBJECT_TYPE, cc.COMMENTS AS COLUMN_COMMENT, " +
+            "         ROW_NUMBER() OVER (PARTITION BY tc.TABLE_NAME, tc.COLUMN_NAME " +
+            "           ORDER BY CASE o.OBJECT_TYPE " +
+            "             WHEN 'MATERIALIZED VIEW' THEN 1 WHEN 'VIEW' THEN 2 ELSE 3 END) AS rn " +
+            "  FROM USER_TAB_COLUMNS tc " +
+            "  JOIN USER_OBJECTS o ON o.OBJECT_NAME = tc.TABLE_NAME " +
+            "    AND o.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW') " +
+            "  LEFT JOIN USER_COL_COMMENTS cc ON cc.TABLE_NAME = tc.TABLE_NAME " +
+            "    AND cc.COLUMN_NAME = tc.COLUMN_NAME " +
+            ") c WHERE c.rn = 1 " +
+            "ORDER BY c.TABLE_NAME, c.COLUMN_ID";
+
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                // 타임아웃 체크
+                if (timeoutMs != null && timeoutMs > 0) {
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    if (elapsed > timeoutMs) {
+                        log.warn("Oracle schema collection timeout: {}ms elapsed (limit: {}ms), {} columns collected",
+                            elapsed, timeoutMs, schemas.size());
+                        throw new SQLException("Schema collection timeout: " + elapsed + "ms (limit: " + timeoutMs + "ms)");
+                    }
+                }
+
+                // 최대 개수 체크
+                if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
+                    log.warn("Max schema count exceeded: {} (limit: {}), collection stopped", schemas.size(), maxSchemas);
+                    break;
+                }
+
+                String tableName = rs.getString("TABLE_NAME");
+                String columnName = rs.getString("COLUMN_NAME");
+                String dataType = rs.getString("DATA_TYPE");
+                String nullable = rs.getString("NULLABLE");
+                String dataDefault = rs.getString("DATA_DEFAULT");
+                String objectType = rs.getString("OBJECT_TYPE");
+                String columnComment = rs.getString("COLUMN_COMMENT");
+
+                // Oracle의 DATA_DEFAULT는 뒤에 공백/개행이 붙을 수 있음
+                if (dataDefault != null) {
+                    dataDefault = dataDefault.trim();
+                }
+
+                // Oracle의 자동 증가는 IDENTITY 기반 (DATA_DEFAULT에 시퀀스가 포함)
+                String isAutoIncrement = "NO";
+                if (dataDefault != null && (dataDefault.contains(".nextval") || dataDefault.contains("ISEQ$$"))) {
+                    isAutoIncrement = "YES";
+                }
+
+                // 제외 컬럼 필터링
+                if (shouldExcludeColumn(columnName, dataType, dataDefault, isAutoIncrement)) {
+                    log.trace("   Oracle excluded: {}.{} ({}) - not a crypto target", tableName, columnName, dataType);
+                    continue;
+                }
+
+                // 식별자 정규화 (소문자)
+                String normalizedSchemaName = normalizeIdentifier(schemaOwner, dbVendor);
+                String normalizedTableName = normalizeIdentifier(tableName, dbVendor);
+                String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
+
+                SchemaMetadata schema = new SchemaMetadata();
+                schema.setDatasourceId(datasourceId);
+                schema.setDbVendor(dbVendor);
+                schema.setDatabaseName(null);  // Oracle은 database 개념 없음
+                schema.setSchemaName(normalizedSchemaName);
+                schema.setTableName(normalizedTableName);
+                schema.setColumnName(normalizedColumnName);
+                schema.setColumnType(dataType);
+                schema.setIsNullable("Y".equals(nullable));
+                schema.setColumnDefault(dataDefault);
+                schema.setColumnComment(columnComment);
+
+                schemas.add(schema);
+
+                log.trace("   Oracle [{}] {}.{} ({}) comment={}",
+                    objectType, normalizedTableName, normalizedColumnName, dataType,
+                    columnComment != null ? columnComment : "");
+            }
+        }
+
+        log.info("Oracle dictionary view collection completed: {} columns from owner={}", schemas.size(), schemaOwner);
+    }
+
+    /**
+     * 표준 JDBC DatabaseMetaData 기반 스키마 수집 (MySQL, PostgreSQL, MSSQL 등)
+     */
+    private void collectStandardSchemas(Connection connection, DatabaseMetaData metaData,
+                                         String datasourceId, String dbVendor, String databaseName,
+                                         Set<String> allowedSchemas, int maxSchemas, Long timeoutMs,
+                                         long startTime, List<SchemaMetadata> schemas,
+                                         String[] excludedSchemas, String[] oracleExcludedSchemas) throws SQLException {
+        String schemaPattern = null;
+
+        log.info("Standard JDBC metadata collection: dbVendor={}, database={}", dbVendor, databaseName);
+
+        // 테이블 및 뷰 조회
+        try (ResultSet tables = metaData.getTables(databaseName, schemaPattern, "%", new String[]{"TABLE", "VIEW"})) {
+            while (tables.next()) {
+                // 타임아웃 체크
+                if (timeoutMs != null && timeoutMs > 0) {
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    if (elapsed > timeoutMs) {
+                        log.warn("Schema collection timeout: {}ms elapsed (limit: {}ms), {} schemas collected so far",
+                            elapsed, timeoutMs, schemas.size());
+                        throw new SQLException("Schema collection timeout: " + elapsed + "ms elapsed (limit: " + timeoutMs + "ms)");
+                    }
+                }
+
+                // 최대 개수 체크
+                if (maxSchemas > 0 && schemas.size() >= maxSchemas) {
+                    log.warn("Max schema count exceeded: {} (limit: {}), collection stopped", schemas.size(), maxSchemas);
+                    break;
+                }
+
+                String tableName = tables.getString("TABLE_NAME");
+                String tableSchema = tables.getString("TABLE_SCHEM");
+
+                // 시스템 스키마 제외
+                if (tableSchema != null) {
+                    String lowerSchema = tableSchema.toLowerCase();
+                    boolean isExcluded = false;
+
+                    for (String excluded : excludedSchemas) {
+                        if (lowerSchema.equals(excluded)) {
+                            isExcluded = true;
+                            log.trace("System schema excluded: {}.{}", tableSchema, tableName);
+                            break;
+                        }
+                    }
+
+                    if (isExcluded) {
+                        continue;
+                    }
+
+                    // Allowlist 필터링
+                    if (allowedSchemas != null && !allowedSchemas.contains(lowerSchema)) {
+                        log.trace("Schema not in Allowlist, excluded: {}.{}", tableSchema, tableName);
+                        continue;
+                    }
+                }
+
+                log.trace("Table found: {}.{}", tableSchema, tableName);
+
+                String finalSchemaName = determineSchemaName(dbVendor, tableSchema, connection);
+
+                // 컬럼 정보 조회
+                try (ResultSet columns = metaData.getColumns(databaseName, tableSchema, tableName, "%")) {
+                    while (columns.next()) {
+                        String columnName = columns.getString("COLUMN_NAME");
+                        String columnType = columns.getString("TYPE_NAME");
+                        String columnDefault = columns.getString("COLUMN_DEF");
+                        String isAutoIncrement = columns.getString("IS_AUTOINCREMENT");
+
+                        if (shouldExcludeColumn(columnName, columnType, columnDefault, isAutoIncrement)) {
+                            log.trace("   Excluded: {} ({}) - not a crypto target", columnName, columnType);
+                            continue;
+                        }
+
+                        String normalizedDatabaseName = normalizeIdentifier(databaseName, dbVendor);
+                        String normalizedSchemaName = normalizeIdentifier(finalSchemaName, dbVendor);
+                        String normalizedTableName = normalizeIdentifier(tableName, dbVendor);
+                        String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
+
+                        SchemaMetadata schema = new SchemaMetadata();
+                        schema.setDatasourceId(datasourceId);
+                        schema.setDbVendor(dbVendor);
+                        schema.setDatabaseName(normalizedDatabaseName);
+                        schema.setSchemaName(normalizedSchemaName);
+                        schema.setTableName(normalizedTableName);
+                        schema.setColumnName(normalizedColumnName);
+                        schema.setColumnType(columnType);
+                        schema.setIsNullable("YES".equals(columns.getString("IS_NULLABLE")));
+                        schema.setColumnDefault(columnDefault);
+
+                        schemas.add(schema);
+
+                        log.trace("   Column: {} ({})", schema.getColumnName(), schema.getColumnType());
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * DB 벤더별로 스키마 이름 결정
      * 
@@ -443,7 +552,8 @@ public class SchemaRecognizer {
         private String columnType;
         private Boolean isNullable;
         private String columnDefault;
-        
+        private String columnComment;   // Oracle USER_COL_COMMENTS (한글 코멘트 등)
+
         // Getters and Setters
         public String getDatasourceId() {
             return datasourceId;
@@ -515,6 +625,14 @@ public class SchemaRecognizer {
         
         public void setColumnDefault(String columnDefault) {
             this.columnDefault = columnDefault;
+        }
+
+        public String getColumnComment() {
+            return columnComment;
+        }
+
+        public void setColumnComment(String columnComment) {
+            this.columnComment = columnComment;
         }
     }
 }
