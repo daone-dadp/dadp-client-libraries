@@ -7,7 +7,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-client-libraries</artifactId>
-    <version>5.5.1</version>
+    <version>5.6.0</version>
     <packaging>pom</packaging>
 
     <name>DADP Client Libraries</name>

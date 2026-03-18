@@ -8,13 +8,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>5.5.1</version>
+        <version>5.6.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.5.15</version>
+    <version>5.6.0</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -112,7 +112,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-j8</artifactId>
-            <version>5.5.0</version>
+            <version>5.6.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.github.daone-dadp</groupId>
@@ -125,7 +125,7 @@
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
             <artifactId>dadp-common-sync-lib-core</artifactId>
-            <version>5.5.0</version>
+            <version>5.6.0</version>
         </dependency>
         
         <!-- Jackson for JSON processing -->

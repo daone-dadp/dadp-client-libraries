@@ -106,7 +106,7 @@ public class DatasourceRegistrationService {
                         new TypeReference<ApiResponse<DatasourceInfo>>() {}
                     );
                     
-                    if (apiResponse != null && apiResponse.isSuccess() && apiResponse.getData() != null) {
+                    if (apiResponse != null && apiResponse.getData() != null && apiResponse.getData().getHubId() != null) {
                         DatasourceInfo info = apiResponse.getData();
                         // 로컬에 저장
                         DatasourceStorage.saveDatasource(info.getDatasourceId(), dbVendor, host, port, database, schema);
@@ -114,8 +114,9 @@ public class DatasourceRegistrationService {
                             info.getDatasourceId(), info.getDisplayName(), info.getHubId());
                         return info;
                     } else {
-                        log.warn("Hub datasource registration failed: invalid response format. statusCode={}, success={}, data={}, responseBody={}",
-                            statusCode, apiResponse != null ? apiResponse.isSuccess() : "null", 
+                        log.warn("Hub datasource registration failed: invalid response format. statusCode={}, code={}, success={}, data={}, responseBody={}",
+                            statusCode, apiResponse != null ? apiResponse.getCode() : "null",
+                            apiResponse != null ? apiResponse.isSuccess() : "null",
                             apiResponse != null ? apiResponse.getData() : "null", responseBody);
                     }
                 } catch (Exception parseEx) {
