@@ -8,47 +8,38 @@ import com.dadp.common.logging.DadpLoggerFactory;
 import com.dadp.common.sync.config.StoragePathResolver;
 
 /**
- * ?•ì±… ë¦¬ì¡¸ë²?
- * 
- * ?Œì´ë¸?ì»¬ëŸ¼ ???•ì±…ëª??ë™ ë§¤í•‘???˜í–‰?©ë‹ˆ??
- * ê·œì¹™ ê¸°ë°˜, ì¹´íƒˆë¡œê·¸ ê¸°ë°˜, ?ˆìš©ë¦¬ìŠ¤??ê¸°ë°˜ ë§¤í•‘??ì§€?í•©?ˆë‹¤.
- * 
- * Hubê°€ ?¤ìš´?˜ì–´???™ì‘?????ˆë„ë¡??êµ¬ ?€?¥ì†Œë¥??¬ìš©?©ë‹ˆ??
- * 
- * @author DADP Development Team
- * @version 5.0.9
- * @since 2025-11-07
+ * Resolves policy names for schema, table, and column combinations.
+ *
+ * <p>The resolver keeps an in-memory cache and persists mappings so wrapper
+ * components can continue operating when Hub synchronization is temporarily
+ * unavailable.</p>
  */
+
 public class PolicyResolver {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(PolicyResolver.class);
     
-    // ?±ê????¸ìŠ¤?´ìŠ¤ (ê¸°ë³¸ ê²½ë¡œ ?¬ìš©)
+    
     private static volatile PolicyResolver defaultInstance = null;
     private static final Object singletonLock = new Object();
     private static final Map<String, PolicyResolver> instanceResolvers = new ConcurrentHashMap<>();
     
-    // ìºì‹œ: ?Œì´ë¸?ì»¬ëŸ¼ ???•ì±…ëª?
+    
     private final Map<String, String> policyCache = new ConcurrentHashMap<>();
 
-    // ?•ì±… ?ì„± ìºì‹œ: policyName ??PolicyAttributes (useIv/usePlain)
+    
     private final Map<String, PolicyAttributes> policyAttributeCache = new ConcurrentHashMap<>();
 
-    // ?„ì¬ ?•ì±… ë²„ì „ (instanceId ?¨ìœ„ ?„ì—­ ë²„ì „)
+    
     private volatile Long currentVersion = null;
 
-    // persisted hub log config cache
+    
     private volatile StoredLogConfig storedLogConfig = null;
     
-    // ?êµ¬ ?€?¥ì†Œ (Hub ?¤ìš´ ?œì—???¬ìš©)
+    
     private final PolicyMappingStorage storage;
     
-    /**
-     * ê¸°ë³¸ ?€???”ë ‰? ë¦¬ ì¡°íšŒ
-     * ?œìŠ¤???„ë¡œ?¼í‹° ?ëŠ” ?˜ê²½ ë³€?˜ì—???½ê³ , ?†ìœ¼ë©?ê¸°ë³¸ê°??¬ìš©
-     * 
-     * @return ?€???”ë ‰? ë¦¬ ê²½ë¡œ
-     */
+    
     private static String getDefaultStorageDir() {
         return StoragePathResolver.resolveStorageDir();
     }
@@ -57,12 +48,7 @@ public class PolicyResolver {
         return StoragePathResolver.resolveStorageDir(instanceId);
     }
     
-    /**
-     * ?±ê????¸ìŠ¤?´ìŠ¤ ì¡°íšŒ (ê¸°ë³¸ ê²½ë¡œ ?¬ìš©)
-     * ê¸°ë³¸ ê²½ë¡œ???œìŠ¤???„ë¡œ?¼í‹°(dadp.storage.dir) ?ëŠ” ?˜ê²½ ë³€??DADP_STORAGE_DIR)ë¡??¤ì • ê°€??
-     * 
-     * @return ?±ê???PolicyResolver ?¸ìŠ¤?´ìŠ¤
-     */
+    
     public static PolicyResolver getInstance() {
         if (defaultInstance == null) {
             synchronized (singletonLock) {
@@ -79,52 +65,40 @@ public class PolicyResolver {
         return instanceResolvers.computeIfAbsent(storageDir, dir -> new PolicyResolver(dir, "policy-mappings.json"));
     }
     
-    /**
-     * ê¸°ë³¸ ?ì„±??(?êµ¬ ?€?¥ì†Œ ?ë™ ì´ˆê¸°??
-     * ê¸°ë³¸ ê²½ë¡œ???œìŠ¤???„ë¡œ?¼í‹°(dadp.storage.dir) ?ëŠ” ?˜ê²½ ë³€??DADP_STORAGE_DIR)ë¡??¤ì • ê°€??
-     */
+    
     public PolicyResolver() {
         this(getDefaultStorageDir(), "policy-mappings.json");
     }
     
-    /**
-     * ì»¤ìŠ¤?€ ?€?¥ì†Œ ê²½ë¡œ ì§€??
-     * 
-     * @param storageDir ?€???”ë ‰? ë¦¬
-     * @param fileName ?Œì¼ëª?
-     */
+    
     public PolicyResolver(String storageDir, String fileName) {
         this.storage = new PolicyMappingStorage(storageDir, fileName);
-        // ?€?¥ëœ ë§¤í•‘ ?•ë³´ ë¡œë“œ (Hub ?¤ìš´ ?œì—???¬ìš©)
+        
         loadMappingsFromStorage();
     }
     
-    /**
-     * PolicyMappingStorageë¥?ì§ì ‘ ë°›ëŠ” ?ì„±??
-     */
+    
     public PolicyResolver(PolicyMappingStorage storage) {
         this.storage = storage;
-        // ?€?¥ëœ ë§¤í•‘ ?•ë³´ ë¡œë“œ (Hub ?¤ìš´ ?œì—???¬ìš©)
+        
         loadMappingsFromStorage();
     }
     
-    /**
-     * ?êµ¬ ?€?¥ì†Œ?ì„œ ë§¤í•‘ ?•ë³´ ë¡œë“œ
-     */
+    
     private void loadMappingsFromStorage() {
         Map<String, String> storedMappings = storage.loadMappings();
         if (!storedMappings.isEmpty()) {
             policyCache.putAll(storedMappings);
-            // ?€?¥ëœ ë²„ì „ ?•ë³´??ë¡œë“œ
+            
             Long storedVersion = storage.loadVersion();
             if (storedVersion != null) {
                 this.currentVersion = storedVersion;
             } else {
-                // ë²„ì „???†ìœ¼ë©?0?¼ë¡œ ì´ˆê¸°??(ì²??¤í–‰ ??
+                
                 this.currentVersion = 0L;
                 log.debug("No version info in persistent storage, initializing to 0");
             }
-            // ?•ì±… ?ì„±??ë¡œë“œ
+            
             Map<String, PolicyAttributes> storedAttributes = storage.loadPolicyAttributes();
             if (storedAttributes != null && !storedAttributes.isEmpty()) {
                 policyAttributeCache.putAll(storedAttributes);
@@ -138,28 +112,20 @@ public class PolicyResolver {
             log.debug("Policy mappings loaded from persistent storage: {} mappings, version={}",
                     storedMappings.size(), this.currentVersion);
         } else {
-            // ë§¤í•‘???†ì–´??ë²„ì „?€ 0?¼ë¡œ ì´ˆê¸°??(ì²??¤í–‰ ??
+            
             this.currentVersion = 0L;
             log.debug("No policy mappings in persistent storage (will load from Hub), initializing version=0");
         }
     }
     
-    /**
-     * ?•ì±…ëª?ì¡°íšŒ
-     * 
-     * @param datasourceId ?°ì´?°ì†Œ??ID (NEW)
-     * @param schemaName ?¤í‚¤ë§ˆëª… (NEW)
-     * @param tableName ?Œì´ë¸”ëª…
-     * @param columnName ì»¬ëŸ¼ëª?
-     * @return ?•ì±…ëª?(?†ìœ¼ë©?null)
-     */
+    
     public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
-        // ?µì¼?????•ì‹: datasourceId : schemaName.tableName.columnName
+        
         String key;
         if (datasourceId != null && !datasourceId.trim().isEmpty()) {
             key = datasourceId + ":" + schemaName + "." + tableName + "." + columnName;
         } else {
-            // datasourceIdê°€ ?†ìœ¼ë©?schema.table.column ?•ì‹ (?˜ìœ„ ?¸í™˜??
+            
             if (schemaName != null && !schemaName.trim().isEmpty()) {
                 key = schemaName + "." + tableName + "." + columnName;
             } else {
@@ -167,11 +133,11 @@ public class PolicyResolver {
             }
         }
         
-        // ?”ë²„ê¹? ?•ì±… ì¡°íšŒ ?œë„ ??ë¡œê·¸ ì¶œë ¥
+        
         log.trace("Policy lookup: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}",
                 key, datasourceId, schemaName, tableName, columnName);
         
-        // Hub?ì„œ ë¡œë“œ??ë§¤í•‘ ?•ë³´ë§??¬ìš© (ìºì‹œ?ì„œ ì¡°íšŒ)
+        
         String policy = policyCache.get(key);
         
         if (policy != null) {
@@ -179,7 +145,7 @@ public class PolicyResolver {
             return policy;
         }
 
-        // ?´ë? ?€ë¬¸ìë¡??€?¥ëœ ?•ì±… ë§¤í•‘??ì°¾ì„ ???ˆë„ë¡??Œë¬¸?ë¡œ ë³€?˜í•œ ?¤ë¡œ??ì¡°íšŒ ?œë„
+        
         String lowerKey = key.toLowerCase();
         if (!lowerKey.equals(key)) {
             policy = policyCache.get(lowerKey);
@@ -189,7 +155,7 @@ public class PolicyResolver {
             }
         }
         
-        // ?˜ìœ„ ?¸í™˜?? datasourceIdê°€ ?†ìœ¼ë©?ê¸°ì¡´ ?•ì‹ ?œë„
+        
         if (datasourceId == null || datasourceId.trim().isEmpty()) {
             if (schemaName != null && !schemaName.trim().isEmpty()) {
                 String fallbackKey = schemaName + "." + tableName + "." + columnName;
@@ -198,7 +164,7 @@ public class PolicyResolver {
                     log.trace("Policy cache hit (fallback): {} -> {}", fallbackKey, policy);
                     return policy;
                 }
-                // fallback ?¤ë„ ?Œë¬¸?ë¡œ ë³€?˜í•´??ì¡°íšŒ ?œë„
+                
                 String fallbackLowerKey = fallbackKey.toLowerCase();
                 if (!fallbackLowerKey.equals(fallbackKey)) {
                     policy = policyCache.get(fallbackLowerKey);
@@ -214,7 +180,7 @@ public class PolicyResolver {
                 log.trace("Policy cache hit (fallback2): {} -> {}", fallbackKey2, policy);
                 return policy;
             }
-            // fallback2 ?¤ë„ ?Œë¬¸?ë¡œ ë³€?˜í•´??ì¡°íšŒ ?œë„
+            
             String fallback2LowerKey = fallbackKey2.toLowerCase();
             if (!fallback2LowerKey.equals(fallbackKey2)) {
                 policy = policyCache.get(fallback2LowerKey);
@@ -225,65 +191,47 @@ public class PolicyResolver {
             }
         }
         
-        // ?•ì±… ë§¤í•‘???†ìœ¼ë©?null ë°˜í™˜ (ë¡œê·¸ ì¶œë ¥ ?†ìŒ: ?”í˜¸??ë¹„ë??ì¼ ???ˆìŒ)
+        
         return null;
     }
     
-    /**
-     * ?•ì±…ëª?ì¡°íšŒ (?˜ìœ„ ?¸í™˜?? databaseName, tableName, columnName ?•ì‹)
-     * 
-     * @param databaseName ?°ì´?°ë² ?´ìŠ¤/?¤í‚¤ë§ˆëª… (null ê°€??
-     * @param tableName ?Œì´ë¸”ëª…
-     * @param columnName ì»¬ëŸ¼ëª?
-     * @return ?•ì±…ëª?(?†ìœ¼ë©?null)
-     * @deprecated datasourceId?€ schemaName???¬í•¨??resolvePolicy(String, String, String, String) ?¬ìš© ê¶Œì¥
-     */
+    
     @Deprecated
     public String resolvePolicy(String databaseName, String tableName, String columnName) {
         return resolvePolicy(null, databaseName != null ? databaseName : "", tableName, columnName);
     }
     
-    /**
-     * ?•ì±…ëª?ì¡°íšŒ (?˜ìœ„ ?¸í™˜?? table.column ?•ì‹)
-     * 
-     * @param tableName ?Œì´ë¸”ëª…
-     * @param columnName ì»¬ëŸ¼ëª?
-     * @return ?•ì±…ëª?(?†ìœ¼ë©?null)
-     * @deprecated databaseName???¬í•¨??resolvePolicy(String, String, String) ?¬ìš© ê¶Œì¥
-     */
+    
     @Deprecated
     public String resolvePolicy(String tableName, String columnName) {
         return resolvePolicy(null, tableName, columnName);
     }
     
-    /**
-     * ê·œì¹™ ê¸°ë°˜ ?•ì±… ë§¤í•‘
-     * ì»¬ëŸ¼ëª??¨í„´?¼ë¡œ ë§¤í•‘ (email, phone ??
-     */
+    
     private String resolveByRules(String tableName, String columnName) {
         String columnLower = columnName.toLowerCase();
         
-        // ?´ë©”???¨í„´
+        
         if (columnLower.contains("email") || columnLower.contains("mail")) {
             return "dadp";
         }
         
-        // ?„í™”ë²ˆí˜¸ ?¨í„´
+        
         if (columnLower.contains("phone") || columnLower.contains("tel") || columnLower.contains("mobile")) {
             return "dadp";
         }
         
-        // ì£¼ë??±ë¡ë²ˆí˜¸/ì£¼ë?ë²ˆí˜¸ ?¨í„´
+        
         if (columnLower.contains("ssn") || columnLower.contains("rrn") || columnLower.contains("resident")) {
             return "pii";
         }
         
-        // ?´ë¦„ ?¨í„´
+        
         if (columnLower.contains("name") && !columnLower.contains("username")) {
             return "dadp";
         }
         
-        // ì£¼ì†Œ ?¨í„´
+        
         if (columnLower.contains("address") || columnLower.contains("addr")) {
             return "dadp";
         }
@@ -291,32 +239,25 @@ public class PolicyResolver {
         return null;
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ ê°±ì‹ 
-     * Hub APIë¡œë???ìµœì‹  ë§¤í•‘ ?•ë³´ë¥?ë°›ì•„ ìºì‹œë¥?ê°±ì‹ ?˜ê³  ?êµ¬ ?€?¥ì†Œ???€?¥í•©?ˆë‹¤.
-     * 
-     * @param mappings ?•ì±… ë§¤í•‘ ë§?(?Œì´ë¸?ì»¬ëŸ¼ ???•ì±…ëª? null ê°€??
-     *                 ?¤ê? ?¤í‚¤ë§??•ë³´(table.column)?´ê³ , ê°’ì´ null?´ë©´ ?¤í‚¤ë§ˆëŠ” ?ˆì?ë§??•ì±…???†ëŠ” ?íƒœ
-     * @param version ?•ì±… ë²„ì „ (null ê°€??
-     */
+    
     public void refreshMappings(Map<String, String> mappings, Long version) {
         log.trace("Policy mapping cache refresh started: {} mappings, version={}", mappings.size(), version);
         policyCache.clear();
         policyCache.putAll(mappings);
         
-        // ë²„ì „ ?•ë³´ ?€??(version??null?´ë©´ 0?¼ë¡œ ì´ˆê¸°??
-        // ?¬ë“±ë¡???ë²„ì „??0?¼ë¡œ ì´ˆê¸°?”ë˜ë¯€ë¡?0??? íš¨??ë²„ì „?¼ë¡œ ì²˜ë¦¬
+        
+        
         if (version != null) {
             this.currentVersion = version;
             log.debug("Policy version updated: version={}", version);
         } else {
-            // Hub?ì„œ ë²„ì „??ë°›ì? ëª»í•œ ê²½ìš° 0?¼ë¡œ ì´ˆê¸°??(ì²??¤í–‰ ?œë‚˜ ?¬ë“±ë¡???
+            
             this.currentVersion = 0L;
             log.debug("No version info received from Hub (version=null), initializing to 0");
         }
         
-        // ?êµ¬ ?€?¥ì†Œ???€??(Hub ?¤ìš´ ?œì—???¬ìš© ê°€?¥í•˜?„ë¡)
-        // ë²„ì „??null?´ì–´??ë§¤í•‘ ?•ë³´???€??(ë²„ì „?€ ë³„ë„ë¡??€??
+        
+        
         boolean saved = storage.saveMappings(mappings, null, storedLogConfig, version);
         if (saved) {
             log.debug("Policy mappings persisted: {} mappings, version={}", mappings.size(), version);
@@ -327,93 +268,55 @@ public class PolicyResolver {
         log.trace("Policy mapping cache refresh completed");
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ ê°±ì‹  (?•ì±… ?ì„± ?¬í•¨)
-     * Hubê°€ ?•ì±… ?¤ëƒ…?·ì— useIv/usePlain???¬í•¨?˜ì—¬ ?´ë ¤ì¤????¬ìš©?©ë‹ˆ??
-     *
-     * @param mappings ?•ì±… ë§¤í•‘ ë§?(?Œì´ë¸?ì»¬ëŸ¼ ???•ì±…ëª?
-     * @param attributes ?•ì±… ?ì„± ë§?(?•ì±…ëª???PolicyAttributes)
-     * @param version ?•ì±… ë²„ì „
-     */
+    
     public void refreshMappings(Map<String, String> mappings, Map<String, PolicyAttributes> attributes, Long version) {
         refreshMappings(mappings, version);
 
-        // ?•ì±… ?ì„± ìºì‹œ ê°±ì‹ 
+        
         if (attributes != null && !attributes.isEmpty()) {
             policyAttributeCache.clear();
             policyAttributeCache.putAll(attributes);
             log.debug("Policy attributes cache refreshed: {} policies", attributes.size());
 
-            // ?êµ¬ ?€?¥ì†Œ?ë„ ?€??
+            
             storage.saveMappings(mappings, attributes, storedLogConfig, version);
         }
     }
 
-    /**
-     * ê²€?‰ìš© ?”í˜¸?”ê? ?„ìš”?œì? ?ë‹¨ (ë¡œì»¬ ìºì‹œ ê¸°ë°˜)
-     *
-     * useIv=false AND usePlain=false ??ê³ ì • IV ?„ì²´ ?”í˜¸????Engine ?¸ì¶œ ?„ìš” (true)
-     * ê·?????ê²€???”í˜¸??ë¶ˆí•„??(false)
-     *
-     * ?ì„±??ìºì‹œ???†ìœ¼ë©?ê¸°ë³¸ê°?useIv=true, usePlain=false)???ìš©?˜ì—¬ false ë°˜í™˜.
-     * ?´ëŠ” êµ¬ë²„??Hub?ì„œ ?ì„±???´ë ¤?¤ì? ?ŠëŠ” ê²½ìš°?€ ?¸í™˜?©ë‹ˆ??
-     *
-     * @param policyName ?•ì±…ëª?
-     * @return true: Engine ?¸ì¶œ ?„ìš” (ê³ ì • IV ?„ì²´ ?”í˜¸??, false: ?‰ë¬¸ ë°˜í™˜ (Engine ?¸ì¶œ ë¶ˆí•„??
-     */
+    
     public boolean isSearchEncryptionNeeded(String policyName) {
         if (policyName == null) {
             return false;
         }
         PolicyAttributes attrs = policyAttributeCache.get(policyName);
         if (attrs == null) {
-            // ?ì„± ?†ìŒ ??ê¸°ë³¸ê°?useIv=true, usePlain=false) ??ê²€???”í˜¸??ë¶ˆí•„??
+            
             return false;
         }
         boolean useIv = attrs.getUseIv() != null ? attrs.getUseIv() : true;
         boolean usePlain = attrs.getUsePlain() != null ? attrs.getUsePlain() : false;
-        // ê³ ì • IV + ?„ì²´ ?”í˜¸????ê²€???”í˜¸???„ìš”
+        
         return !useIv && !usePlain;
     }
 
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ ê°±ì‹  (?˜ìœ„ ?¸í™˜?? ë²„ì „ ?†ìŒ)
-     *
-     * @param mappings ?•ì±… ë§¤í•‘ ë§?(?Œì´ë¸?ì»¬ëŸ¼ ???•ì±…ëª?
-     * @deprecated refreshMappings(Map, Long) ?¬ìš© ê¶Œì¥
-     */
+    
     @Deprecated
     public void refreshMappings(Map<String, String> mappings) {
         refreshMappings(mappings, null);
     }
     
     
-    /**
-     * ?„ì¬ ?•ì±… ë²„ì „ ì¡°íšŒ
-     * 
-     * @return ?•ì±… ë²„ì „ (?†ìœ¼ë©?null)
-     */
+    
     public Long getCurrentVersion() {
         return currentVersion;
     }
     
-    /**
-     * ?•ì±… ë²„ì „ ?¤ì • (ë©”ëª¨ë¦¬ë§Œ ?…ë°?´íŠ¸, ?êµ¬?€?¥ì†Œ ?€?¥ì? refreshMappings?ì„œ ?˜í–‰)
-     * 
-     * @param version ?•ì±… ë²„ì „
-     */
+    
     public void setCurrentVersion(Long version) {
         this.currentVersion = version;
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ??ì¶”ê?
-     * 
-     * @param databaseName ?°ì´?°ë² ?´ìŠ¤/?¤í‚¤ë§ˆëª… (null ê°€??
-     * @param tableName ?Œì´ë¸”ëª…
-     * @param columnName ì»¬ëŸ¼ëª?
-     * @param policyName ?•ì±…ëª?
-     */
+    
     public void addMapping(String databaseName, String tableName, String columnName, String policyName) {
         String key;
         if (databaseName != null && !databaseName.trim().isEmpty()) {
@@ -425,23 +328,13 @@ public class PolicyResolver {
         log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ??ì¶”ê? (?˜ìœ„ ?¸í™˜?? table.column ?•ì‹)
-     * 
-     * @deprecated databaseName???¬í•¨??addMapping(String, String, String, String) ?¬ìš© ê¶Œì¥
-     */
+    
     @Deprecated
     public void addMapping(String tableName, String columnName, String policyName) {
         addMapping(null, tableName, columnName, policyName);
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ?ì„œ ?œê±°
-     * 
-     * @param databaseName ?°ì´?°ë² ?´ìŠ¤/?¤í‚¤ë§ˆëª… (null ê°€??
-     * @param tableName ?Œì´ë¸”ëª…
-     * @param columnName ì»¬ëŸ¼ëª?
-     */
+    
     public void removeMapping(String databaseName, String tableName, String columnName) {
         String key;
         if (databaseName != null && !databaseName.trim().isEmpty()) {
@@ -453,28 +346,19 @@ public class PolicyResolver {
         log.trace("Policy mapping removed: {}", key);
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ?ì„œ ?œê±° (?˜ìœ„ ?¸í™˜?? table.column ?•ì‹)
-     * 
-     * @deprecated databaseName???¬í•¨??removeMapping(String, String, String) ?¬ìš© ê¶Œì¥
-     */
+    
     @Deprecated
     public void removeMapping(String tableName, String columnName) {
         removeMapping(null, tableName, columnName);
     }
     
-    /**
-     * ?•ì±… ë§¤í•‘ ìºì‹œ ì´ˆê¸°??
-     */
+    
     public void clearCache() {
         policyCache.clear();
         log.trace("Policy mapping cache cleared");
     }
     
-    /**
-     * ?êµ¬ ?€?¥ì†Œ?ì„œ ë§¤í•‘ ?•ë³´ ?¤ì‹œ ë¡œë“œ
-     * Hub ?°ê²° ?¤íŒ¨ ???¸ì¶œ?˜ì—¬ ?€?¥ëœ ?•ë³´ ?¬ìš©
-     */
+    
     public void reloadFromStorage() {
         Map<String, String> storedMappings = storage.loadMappings();
         if (!storedMappings.isEmpty()) {
@@ -492,20 +376,12 @@ public class PolicyResolver {
         }
     }
     
-    /**
-     * ?êµ¬ ?€?¥ì†Œ ê²½ë¡œ ì¡°íšŒ
-     * 
-     * @return ?€??ê²½ë¡œ
-     */
+    
     public String getStoragePath() {
         return storage.getStoragePath();
     }
     
-    /**
-     * ëª¨ë“  ?•ì±… ë§¤í•‘ ì¡°íšŒ (?¤í‚¤ë§??•ì±…ëª??…ë°?´íŠ¸??
-     *
-     * @return ?•ì±… ë§¤í•‘ ë§?(schema.table.column ??policyName)
-     */
+    
     public Map<String, String> getAllMappings() {
         return new HashMap<>(policyCache);
     }
@@ -524,9 +400,7 @@ public class PolicyResolver {
         return storedLogConfig;
     }
 
-    /**
-     * Á¤Ã¥ ¼Ó¼º (useIv, usePlain)
-     */
+    
     public static class PolicyAttributes {
         private Boolean useIv;
         private Boolean usePlain;
