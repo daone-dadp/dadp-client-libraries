@@ -4,6 +4,7 @@ import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.config.HubIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
+import com.dadp.common.sync.config.StoragePathResolver;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
 import com.dadp.common.sync.mapping.MappingSyncService;
@@ -132,7 +133,7 @@ public class JdbcBootstrapOrchestrator {
         
         // InstanceConfigStorage 초기화 (instanceId 사용)
         this.configStorage = new InstanceConfigStorage(
-            System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId, 
+            StoragePathResolver.resolveStorageDir(instanceId),
             "proxy-config.json"
         );
         
@@ -152,7 +153,7 @@ public class JdbcBootstrapOrchestrator {
         );
         
         // PolicyResolver 초기화 (싱글톤)
-        this.policyResolver = PolicyResolver.getInstance();
+        this.policyResolver = PolicyResolver.getInstance(instanceId);
         
         // EndpointStorage 초기화 (instanceId를 사용하여 경로 생성: ./dadp/wrapper/instanceId)
         this.endpointStorage = new EndpointStorage(instanceId);
@@ -285,7 +286,7 @@ public class JdbcBootstrapOrchestrator {
                 if (hasStoredMetadata()) {
                     try {
                         String cached = com.dadp.jdbc.config.DatasourceStorage.loadDatasourceId(
-                            storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
+                            instanceId, storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
                         if (cached != null && !cached.trim().isEmpty()) {
                             this.cachedDatasourceId = cached;
                         }
@@ -335,7 +336,7 @@ public class JdbcBootstrapOrchestrator {
             // 2.5. Try loading from exported config file (initial bootstrap or policy update)
             // ExportedConfigLoader internally compares policyVersion and skips if current >= file
             {
-                String storageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+                String storageDir = StoragePathResolver.resolveStorageDir(instanceId);
                 String exportedDatasourceId = ExportedConfigLoader.loadIfExists(
                     storageDir,
                     instanceId,
@@ -453,7 +454,7 @@ public class JdbcBootstrapOrchestrator {
         if (hasStoredMetadata()) {
             try {
                 String cached = com.dadp.jdbc.config.DatasourceStorage.loadDatasourceId(
-                    storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
+                    instanceIdProvider.getInstanceId(), storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
                 if (cached != null && !cached.trim().isEmpty()) {
                     this.cachedDatasourceId = cached;
                     log.debug("Stored datasourceId loaded: datasourceId={}", this.cachedDatasourceId);
@@ -492,7 +493,7 @@ public class JdbcBootstrapOrchestrator {
         log.info("Hub Datasource registration completed: hubId={}, datasourceId={}", hubId, datasourceInfo.getDatasourceId());
         
         // EndpointSyncService 초기화 (instanceId를 사용하여 경로 생성)
-        String endpointStorageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+        String endpointStorageDir = StoragePathResolver.resolveStorageDir(instanceId);
         String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),
@@ -617,7 +618,7 @@ public class JdbcBootstrapOrchestrator {
             DatasourceRegistrationService registrationService = 
                 new DatasourceRegistrationService(config.getHubUrl(), instanceIdProvider.getInstanceId(), caCertPath);
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                dbVendor, host, port, database, schema, currentVersion
+                dbVendor, host, port, database, schema, currentVersion, hubIdManager.getCachedHubId()
             );
             
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
@@ -955,7 +956,7 @@ public class JdbcBootstrapOrchestrator {
         );
         
         // EndpointSyncService 초기화 (instanceId를 사용하여 경로 생성)
-        String endpointStorageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+        String endpointStorageDir = StoragePathResolver.resolveStorageDir(instanceId);
         String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),

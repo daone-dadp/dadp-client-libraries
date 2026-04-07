@@ -252,7 +252,7 @@ public class DadpProxyConnection implements Connection {
             DatasourceRegistrationService registrationService =
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                normalizedVendor, host, port, database, schema, currentVersion
+                normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
             );
 
             if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
@@ -310,7 +310,7 @@ public class DadpProxyConnection implements Connection {
             DatasourceRegistrationService registrationService =
                 new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                normalizedVendor, host, port, database, schema, currentVersion
+                normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
             );
             
             if (datasourceInfo != null && datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {

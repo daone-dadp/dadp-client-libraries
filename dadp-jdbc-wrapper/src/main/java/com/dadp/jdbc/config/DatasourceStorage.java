@@ -1,70 +1,50 @@
 package com.dadp.jdbc.config;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dadp.common.sync.config.StoragePathResolver;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Datasource ID 로컬 저장소
- * 
- * Hub가 죽어 있어도 다음 기동 시 datasourceId를 사용할 수 있도록 로컬에 저장
- * 
- * @author DADP Development Team
- * @version 4.17.0
- * @since 2025-12-05
+ * Datasource ID local persistent storage.
  */
 public class DatasourceStorage {
-    
+
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DatasourceStorage.class);
-    private static final String STORAGE_FILE = System.getProperty("user.dir") + "/.dadp-wrapper/datasources.json";
+    private static final String STORAGE_FILE_NAME = "datasources.json";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    
-    /**
-     * Datasource ID 저장
-     * 
-     * @param datasourceId Datasource ID
-     * @param dbVendor DB 벤더
-     * @param host 호스트
-     * @param port 포트
-     * @param database 데이터베이스명
-     * @param schema 스키마명
-     */
-    public static void saveDatasource(String datasourceId, String dbVendor, String host, 
-                                     int port, String database, String schema) {
+
+    public static void saveDatasource(String instanceId, String datasourceId, String dbVendor, String host,
+                                      int port, String database, String schema) {
         try {
-            File file = new File(STORAGE_FILE);
-            file.getParentFile().mkdirs();
-            
-            Map<String, Object> datasources = loadAll();
+            File file = getStorageFile(instanceId);
+            File parent = file.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
+
+            Map<String, Object> datasources = loadAll(instanceId);
             String key = buildKey(dbVendor, host, port, database, schema);
             datasources.put(key, datasourceId);
-            
+
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(file, datasources);
-            log.debug("Datasource ID saved: {} -> {}", key, datasourceId);
+            log.debug("Datasource ID saved: instanceId={}, {} -> {}", instanceId, key, datasourceId);
         } catch (Exception e) {
             log.warn("Failed to save Datasource ID: {}", e.getMessage());
         }
     }
-    
-    /**
-     * Datasource ID 로드
-     * 
-     * @param dbVendor DB 벤더
-     * @param host 호스트
-     * @param port 포트
-     * @param database 데이터베이스명
-     * @param schema 스키마명
-     * @return Datasource ID (없으면 null)
-     */
-    public static String loadDatasourceId(String dbVendor, String host, 
+
+    public static String loadDatasourceId(String instanceId, String dbVendor, String host,
                                           int port, String database, String schema) {
         try {
-            Map<String, Object> datasources = loadAll();
+            Map<String, Object> datasources = loadAll(instanceId);
             String key = buildKey(dbVendor, host, port, database, schema);
             return (String) datasources.get(key);
         } catch (Exception e) {
@@ -72,20 +52,37 @@ public class DatasourceStorage {
             return null;
         }
     }
-    
+
     /**
-     * 물리 키 생성
+     * Legacy compatibility path. New code should always pass instanceId.
      */
+    @Deprecated
+    public static void saveDatasource(String datasourceId, String dbVendor, String host,
+                                      int port, String database, String schema) {
+        saveDatasource(null, datasourceId, dbVendor, host, port, database, schema);
+    }
+
+    /**
+     * Legacy compatibility path. New code should always pass instanceId.
+     */
+    @Deprecated
+    public static String loadDatasourceId(String dbVendor, String host,
+                                          int port, String database, String schema) {
+        return loadDatasourceId(null, dbVendor, host, port, database, schema);
+    }
+
+    private static File getStorageFile(String instanceId) {
+        Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(instanceId));
+        return storageDir.resolve(STORAGE_FILE_NAME).toFile();
+    }
+
     private static String buildKey(String dbVendor, String host, int port, String database, String schema) {
         return dbVendor + "://" + host + ":" + port + "/" + database + (schema != null ? "/" + schema : "");
     }
-    
-    /**
-     * 모든 Datasource 정보 로드
-     */
-    private static Map<String, Object> loadAll() {
+
+    private static Map<String, Object> loadAll(String instanceId) {
         try {
-            File file = new File(STORAGE_FILE);
+            File file = getStorageFile(instanceId);
             if (file.exists()) {
                 return objectMapper.readValue(file, new TypeReference<Map<String, Object>>() {});
             }
@@ -95,4 +92,3 @@ public class DatasourceStorage {
         return new HashMap<>();
     }
 }
-

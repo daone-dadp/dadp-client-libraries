@@ -3,6 +3,7 @@ package com.dadp.common.sync.schema;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
+import com.dadp.common.sync.config.StoragePathResolver;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +40,7 @@ public class SchemaStorage {
      * @return 저장 디렉토리 경로
      */
     private static String getDefaultStorageDir() {
-        return getDefaultStorageDir(null);
+        return StoragePathResolver.resolveStorageDir();
     }
     
     /**
@@ -50,26 +51,7 @@ public class SchemaStorage {
      * @return 저장 디렉토리 경로
      */
     private static String getDefaultStorageDir(String instanceId) {
-        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
-        String storageDir = System.getProperty("dadp.storage.dir");
-        if (storageDir != null && !storageDir.trim().isEmpty()) {
-            return storageDir;
-        }
-        
-        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
-        storageDir = System.getenv("DADP_STORAGE_DIR");
-        if (storageDir != null && !storageDir.trim().isEmpty()) {
-            return storageDir;
-        }
-        
-        // 3. instanceId를 사용하여 경로 생성
-        if (instanceId != null && !instanceId.trim().isEmpty()) {
-            // ./dadp/wrapper/instanceId 형태로 생성
-            return System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId.trim();
-        }
-        
-        // 4. 기본값 사용 (앱 구동 위치/.dadp-wrapper)
-        return System.getProperty("user.dir") + "/.dadp-wrapper";
+        return StoragePathResolver.resolveStorageDir(instanceId);
     }
     
     /**

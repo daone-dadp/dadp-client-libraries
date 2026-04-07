@@ -134,7 +134,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         // WHERE 절에서 파라미터 위치와 컬럼명 매핑
         // 패턴: table.col like ?, table.col = ?, table.col > ? 등
         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-            "(?:\\w+\\.)?(\\w+)\\s*(?:like|=|!=|<>|>|<|>=|<=|in|not\\s+in)\\s*\\?",
+            "(?:\\w+\\.)?(\\w+)\\s*(like|=|!=|<>|>|<|>=|<=|in|not\\s+in)\\s*(?:concat\\s*\\(\\s*)?\\?",
             java.util.regex.Pattern.CASE_INSENSITIVE
         );
         java.util.regex.Matcher matcher = pattern.matcher(whereClause);

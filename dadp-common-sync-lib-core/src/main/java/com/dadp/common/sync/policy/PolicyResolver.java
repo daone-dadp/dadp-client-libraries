@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
+import com.dadp.common.sync.config.StoragePathResolver;
 
 /**
  * 정책 리졸버
@@ -25,6 +26,7 @@ public class PolicyResolver {
     // 싱글톤 인스턴스 (기본 경로 사용)
     private static volatile PolicyResolver defaultInstance = null;
     private static final Object singletonLock = new Object();
+    private static final Map<String, PolicyResolver> instanceResolvers = new ConcurrentHashMap<>();
     
     // 캐시: 테이블.컬럼 → 정책명
     private final Map<String, String> policyCache = new ConcurrentHashMap<>();
@@ -45,20 +47,11 @@ public class PolicyResolver {
      * @return 저장 디렉토리 경로
      */
     private static String getDefaultStorageDir() {
-        // 1. 시스템 프로퍼티 확인 (dadp.storage.dir)
-        String storageDir = System.getProperty("dadp.storage.dir");
-        if (storageDir != null && !storageDir.trim().isEmpty()) {
-            return storageDir;
-        }
-        
-        // 2. 환경 변수 확인 (DADP_STORAGE_DIR)
-        storageDir = System.getenv("DADP_STORAGE_DIR");
-        if (storageDir != null && !storageDir.trim().isEmpty()) {
-            return storageDir;
-        }
-        
-        // 3. 기본값 사용 (앱 구동 위치/.dadp-wrapper)
-        return System.getProperty("user.dir") + "/.dadp-wrapper";
+        return StoragePathResolver.resolveStorageDir();
+    }
+    
+    private static String getDefaultStorageDir(String instanceId) {
+        return StoragePathResolver.resolveStorageDir(instanceId);
     }
     
     /**
@@ -76,6 +69,11 @@ public class PolicyResolver {
             }
         }
         return defaultInstance;
+    }
+    
+    public static PolicyResolver getInstance(String instanceId) {
+        String storageDir = getDefaultStorageDir(instanceId);
+        return instanceResolvers.computeIfAbsent(storageDir, dir -> new PolicyResolver(dir, "policy-mappings.json"));
     }
     
     /**

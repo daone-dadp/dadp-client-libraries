@@ -1,5 +1,6 @@
 package com.dadp.jdbc.config;
 
+import com.dadp.common.sync.config.StoragePathResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -28,7 +29,7 @@ public class EndpointStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = System.getProperty("user.dir") + "/.dadp-wrapper";
+    private static final String DEFAULT_STORAGE_DIR = StoragePathResolver.resolveStorageDir();
     private static final String DEFAULT_STORAGE_FILE = "crypto-endpoints.json";
     
     private final String storagePath;

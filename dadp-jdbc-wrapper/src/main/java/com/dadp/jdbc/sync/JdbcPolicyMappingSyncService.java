@@ -6,6 +6,7 @@ import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.config.HubIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
+import com.dadp.common.sync.config.StoragePathResolver;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
 import com.dadp.common.sync.mapping.MappingSyncService;
@@ -240,7 +241,7 @@ public class JdbcPolicyMappingSyncService {
      */
     public void updateEndpointSyncService(String hubId, String instanceId) {
         // instanceId를 사용하여 경로 생성 (./dadp/wrapper/instanceId)
-        String storageDir = System.getProperty("user.dir") + "/dadp/wrapper/" + instanceId;
+        String storageDir = StoragePathResolver.resolveStorageDir(instanceId);
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(), hubId, instanceId, storageDir, fileName);
