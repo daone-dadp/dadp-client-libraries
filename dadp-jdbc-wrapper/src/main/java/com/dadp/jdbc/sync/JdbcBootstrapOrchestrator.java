@@ -293,7 +293,8 @@ public class JdbcBootstrapOrchestrator {
                     instanceId,
                     hubIdManager,
                     policyResolver,
-                    endpointStorage
+                    endpointStorage,
+                    config
                 );
                 if (exportedDatasourceId != null) {
                     hubId = hubIdManager.getCachedHubId();

@@ -132,7 +132,7 @@ public class DadpJdbcDriver implements Driver {
                 String value = pair.substring(eqIndex + 1).trim();
                 
                 // Proxy 설정 파라미터만 추출
-                if ("hubUrl".equals(key) || "instanceId".equals(key) || "failOpen".equals(key) || "enableLogging".equals(key)) {
+                if ("hubUrl".equals(key) || "instanceId".equals(key) || "failOpen".equals(key) || "enableLogging".equals(key) || "enabled".equals(key)) {
                     try {
                         // URL 디코딩
                         value = java.net.URLDecoder.decode(value, "UTF-8");
@@ -188,7 +188,7 @@ public class DadpJdbcDriver implements Driver {
                 if (eqIndex > 0) {
                     String key = pair.substring(0, eqIndex).trim();
                     // Proxy 파라미터가 아니면 유지
-                    if (!"hubUrl".equals(key) && !"instanceId".equals(key) && !"failOpen".equals(key) && !"enableLogging".equals(key)) {
+                    if (!"hubUrl".equals(key) && !"instanceId".equals(key) && !"failOpen".equals(key) && !"enableLogging".equals(key) && !"enabled".equals(key)) {
                         validParams.add(pair);
                     }
                 } else {

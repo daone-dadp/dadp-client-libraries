@@ -144,6 +144,8 @@ public class JdbcPolicyMappingSyncService {
                     }
                     
                     applyLogConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
+                    // Hub PolicySnapshot wrapperConfig 적용 (매핑 갱신 시마다 반영)
+                    applyWrapperConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
                 }
 
                 @Override
@@ -355,7 +357,35 @@ public class JdbcPolicyMappingSyncService {
         }
     }
 
-    
+
+    /**
+     * Hub PolicySnapshot wrapperConfig를 ProxyConfig에 반영합니다.
+     * wrapperConfig가 null이거나 enabled 필드가 없으면 아무것도 하지 않습니다.
+     *
+     * @param snapshot 마지막으로 수신한 PolicySnapshot
+     */
+    private void applyWrapperConfigFromSnapshot(MappingSyncService.PolicySnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        MappingSyncService.WrapperConfig wrapperConfig = snapshot.getWrapperConfig();
+        if (wrapperConfig == null) return;
+        if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
+            if (config != null && config.isEnabled()) {
+                config.setEnabled(false);
+                log.info("Wrapper DISABLED by Hub config (30s sync)");
+            }
+        } else {
+            if (config != null && !config.isEnabled()) {
+                config.setEnabled(true);
+                log.info("Wrapper ENABLED by Hub config (30s sync)");
+            }
+        }
+    }
+
+    /**
+     * 재등록 콜백 설정 (JdbcBootstrapOrchestrator에서 호출)
+     */
     public void setReregistrationCallback(Runnable callback) {
         this.reregistrationCallback = callback;
     }

@@ -44,7 +44,8 @@ public class ProxyConfig {
     private final int maxSchemas;  // 최대 스키마 개수
     private final String schemaAllowlist;  // 허용 스키마 목록 (쉼표로 구분, 예: "public,auth,payment")
     private final String schemaCollectionFailMode;  // 실패 모드 ("fail-open" 또는 "fail-close")
-    
+    private volatile boolean enabled;  // Wrapper 활성화 여부 (false면 암복호화 없이 순수 패스스루, Hub 설정으로 변경 가능)
+
     // InstanceConfigStorage는 HubIdManager에서 관리하므로 제거
     
     /**
@@ -240,6 +241,12 @@ public class ProxyConfig {
                 : DEFAULT_SCHEMA_COLLECTION_FAIL_MODE;
         // }
         
+        // Wrapper 활성화 여부 (JDBC URL 파라미터 또는 exported config에서만 설정)
+        // 시스템 프로퍼티/환경변수는 모든 인스턴스에 적용되어 Hub 인스턴스별 설정을 덮어쓰므로 제거
+        String enabledProp = urlParams != null ? urlParams.get("enabled") : null;
+        this.enabled = enabledProp == null || enabledProp.trim().isEmpty() ||
+                       !"false".equalsIgnoreCase(enabledProp.trim());
+
         // hubId는 HubIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음 (AOP 플로우와 일치)
         this.hubId = null;
@@ -249,6 +256,7 @@ public class ProxyConfig {
         log.trace("   - Hub URL (schema sync + crypto routing): {}", this.hubUrl);
         log.trace("   - Instance ID: {}", this.instanceId);
         log.trace("   - Fail-open: {}", this.failOpen);
+        log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
         log.trace("   - Max schemas: {}", this.maxSchemas);
@@ -316,6 +324,25 @@ public class ProxyConfig {
     
     public boolean isFailOpen() {
         return failOpen;
+    }
+
+    /**
+     * Wrapper 활성화 여부 조회
+     * false이면 암복호화 없이 순수 패스스루 모드로 동작합니다.
+     *
+     * @return Wrapper 활성화 여부 (기본값: true)
+     */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
+     * Wrapper 활성화 여부 설정 (Hub 설정 또는 exported config에서 변경 시 사용)
+     *
+     * @param enabled Wrapper 활성화 여부
+     */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
     
     /**

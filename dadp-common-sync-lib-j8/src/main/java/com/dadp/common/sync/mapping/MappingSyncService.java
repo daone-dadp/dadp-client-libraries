@@ -618,8 +618,9 @@ public class MappingSyncService {
         private Long version;
         private String updatedAt;
         private List<PolicyMapping> mappings;
-        private EndpointInfo endpoint;  // 엔드포인트 정보 (정책 매핑과 함께 받아옴)
-        private LogConfig logConfig;    // 로그 설정 (Hub에서 동적으로 수신)
+        private EndpointInfo endpoint;      // 엔드포인트 정보 (정책 매핑과 함께 받아옴)
+        private LogConfig logConfig;        // 로그 설정 (Hub에서 동적으로 수신)
+        private WrapperConfig wrapperConfig; // Wrapper 활성화 설정 (Hub에서 동적으로 수신)
 
         public Long getVersion() {
             return version;
@@ -659,6 +660,14 @@ public class MappingSyncService {
 
         public void setLogConfig(LogConfig logConfig) {
             this.logConfig = logConfig;
+        }
+
+        public WrapperConfig getWrapperConfig() {
+            return wrapperConfig;
+        }
+
+        public void setWrapperConfig(WrapperConfig wrapperConfig) {
+            this.wrapperConfig = wrapperConfig;
         }
 
         private Map<String, Map<String, Object>> policyAttributes;
@@ -705,7 +714,16 @@ public class MappingSyncService {
             this.level = level;
         }
     }
-    
+
+    /**
+     * Wrapper 설정 DTO (Hub PolicySnapshot wrapperConfig)
+     */
+    public static class WrapperConfig {
+        private Boolean enabled;
+        public Boolean getEnabled() { return enabled; }
+        public void setEnabled(Boolean enabled) { this.enabled = enabled; }
+    }
+
     /**
      * 엔드포인트 정보 DTO
      */

@@ -69,6 +69,20 @@ public class ExportedConfigLoader {
             HubIdManager hubIdManager,
             PolicyResolver policyResolver,
             EndpointStorage endpointStorage) {
+        return loadIfExists(storageDir, instanceId, hubIdManager, policyResolver, endpointStorage, null);
+    }
+
+    /**
+     * Try to load exported config (with ProxyConfig for wrapperEnabled support).
+     */
+    @SuppressWarnings("unchecked")
+    public static String loadIfExists(
+            String storageDir,
+            String instanceId,
+            HubIdManager hubIdManager,
+            PolicyResolver policyResolver,
+            EndpointStorage endpointStorage,
+            ProxyConfig proxyConfig) {
 
         // 1. Find config file: exported-config.json first, then wrapper-config*.json
         File configFile = findConfigFile(storageDir);
@@ -120,6 +134,18 @@ public class ExportedConfigLoader {
                 log.warn("Exported config instanceId mismatch: exported={}, current={}",
                         exportedInstanceId, instanceId);
                 return null;
+            }
+
+            // Wrapper 활성화 설정은 policyVersion과 무관하게 항상 적용
+            if (proxyConfig != null) {
+                Map<String, Object> wrapperConfig = (Map<String, Object>) config.get("wrapperConfig");
+                if (wrapperConfig != null) {
+                    Object enabledObj = wrapperConfig.get("enabled");
+                    if (enabledObj instanceof Boolean && !((Boolean) enabledObj)) {
+                        proxyConfig.setEnabled(false);
+                        log.info("Exported config: Wrapper DISABLED (passthrough mode) by Hub config");
+                    }
+                }
             }
 
             // Version comparison: skip if current version is same or newer
