@@ -86,23 +86,25 @@ public class SchemaRecognizer {
         
         try {
             DatabaseMetaData metaData = connection.getMetaData();
-            String dbVendor = metaData.getDatabaseProductName().toLowerCase();
+            String dbProductName = metaData.getDatabaseProductName();
+            String dbVendor = dbProductName != null ? dbProductName.toLowerCase() : "";
+            String normalizedVendor = normalizeDbVendor(dbProductName);
             String databaseName = connection.getCatalog();
 
-            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, database={}, " +
+            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, normalizedVendor={}, database={}, " +
                     "allowlist={}, maxSchemas={}, timeout={}ms",
-                datasourceId, dbVendor, databaseName,
+                datasourceId, dbVendor, normalizedVendor, databaseName,
                 allowedSchemas != null ? allowedSchemas : "all allowed",
                 maxSchemas > 0 ? maxSchemas : "unlimited",
                 timeoutMs != null && timeoutMs > 0 ? timeoutMs : "unlimited");
 
             if (dbVendor.contains("oracle") || dbVendor.contains("tibero")) {
                 // Oracle/Tibero: 데이터 딕셔너리 뷰 사용 (getTables()보다 안정적, VIEW 누락 방지)
-                collectOracleSchemas(connection, datasourceId, dbVendor, databaseName,
+                collectOracleSchemas(connection, datasourceId, dbVendor, normalizedVendor, databaseName,
                         allowedSchemas, maxSchemas, timeoutMs, startTime, schemas);
             } else {
                 // 기타 DB: 표준 JDBC DatabaseMetaData 사용
-                collectStandardSchemas(connection, metaData, datasourceId, dbVendor, databaseName,
+                collectStandardSchemas(connection, metaData, datasourceId, dbVendor, normalizedVendor, databaseName,
                         allowedSchemas, maxSchemas, timeoutMs, startTime, schemas,
                         EXCLUDED_SCHEMAS, ORACLE_EXCLUDED_SCHEMAS);
             }
@@ -132,6 +134,7 @@ public class SchemaRecognizer {
      * USER_TAB_COLUMNS + USER_OBJECTS를 직접 조회하여 TABLE, VIEW, MATERIALIZED VIEW를 확실하게 수집합니다.
      */
     private void collectOracleSchemas(Connection connection, String datasourceId, String dbVendor,
+                                       String normalizedVendor,
                                        String databaseName, Set<String> allowedSchemas,
                                        int maxSchemas, Long timeoutMs, long startTime,
                                        List<SchemaMetadata> schemas) throws SQLException {
@@ -223,7 +226,7 @@ public class SchemaRecognizer {
 
                 SchemaMetadata schema = new SchemaMetadata();
                 schema.setDatasourceId(datasourceId);
-                schema.setDbVendor(dbVendor);
+                schema.setDbVendor(normalizedVendor);
                 schema.setDatabaseName(null);  // Oracle은 database 개념 없음
                 schema.setSchemaName(normalizedSchemaName);
                 schema.setTableName(normalizedTableName);
@@ -248,7 +251,8 @@ public class SchemaRecognizer {
      * 표준 JDBC DatabaseMetaData 기반 스키마 수집 (MySQL, PostgreSQL, MSSQL 등)
      */
     private void collectStandardSchemas(Connection connection, DatabaseMetaData metaData,
-                                         String datasourceId, String dbVendor, String databaseName,
+                                         String datasourceId, String dbVendor, String normalizedVendor,
+                                         String databaseName,
                                          Set<String> allowedSchemas, int maxSchemas, Long timeoutMs,
                                          long startTime, List<SchemaMetadata> schemas,
                                          String[] excludedSchemas, String[] oracleExcludedSchemas) throws SQLException {
@@ -308,11 +312,12 @@ public class SchemaRecognizer {
 
                 // 컬럼 정보 조회
                 try (ResultSet columns = metaData.getColumns(databaseName, tableSchema, tableName, "%")) {
+                    Set<String> availableColumnLabels = getAvailableColumnLabels(columns);
                     while (columns.next()) {
                         String columnName = columns.getString("COLUMN_NAME");
                         String columnType = columns.getString("TYPE_NAME");
-                        String columnDefault = columns.getString("COLUMN_DEF");
-                        String isAutoIncrement = columns.getString("IS_AUTOINCREMENT");
+                        String columnDefault = getOptionalColumnValue(columns, availableColumnLabels, "COLUMN_DEF");
+                        String isAutoIncrement = getOptionalColumnValue(columns, availableColumnLabels, "IS_AUTOINCREMENT");
 
                         if (shouldExcludeColumn(columnName, columnType, columnDefault, isAutoIncrement)) {
                             log.trace("   Excluded: {} ({}) - not a crypto target", columnName, columnType);
@@ -326,13 +331,13 @@ public class SchemaRecognizer {
 
                         SchemaMetadata schema = new SchemaMetadata();
                         schema.setDatasourceId(datasourceId);
-                        schema.setDbVendor(dbVendor);
+                        schema.setDbVendor(normalizedVendor);
                         schema.setDatabaseName(normalizedDatabaseName);
                         schema.setSchemaName(normalizedSchemaName);
                         schema.setTableName(normalizedTableName);
                         schema.setColumnName(normalizedColumnName);
                         schema.setColumnType(columnType);
-                        schema.setIsNullable("YES".equals(columns.getString("IS_NULLABLE")));
+                        schema.setIsNullable("YES".equals(getOptionalColumnValue(columns, availableColumnLabels, "IS_NULLABLE")));
                         schema.setColumnDefault(columnDefault);
 
                         schemas.add(schema);
@@ -393,6 +398,11 @@ public class SchemaRecognizer {
                 }
             }
             return schema;
+        } else if (dbVendor.contains("sqream")) {
+            if (tableSchema != null && !tableSchema.trim().isEmpty()) {
+                return tableSchema;
+            }
+            return connection.getCatalog();
         }
         
         // 기본값: tableSchema가 있으면 사용, 없으면 database 이름
@@ -441,6 +451,8 @@ public class SchemaRecognizer {
                 }
             }
             return schema;
+        } else if (dbVendor.contains("sqream")) {
+            return connection.getCatalog();
         }
         
         // 기본값: database 이름
@@ -464,6 +476,58 @@ public class SchemaRecognizer {
         
         // 모든 DB 벤더에 대해 소문자로 정규화 (스키마 저장 및 매칭 모두 소문자 기준)
         return identifier.toLowerCase();
+    }
+
+    private String normalizeDbVendor(String dbProductName) {
+        if (dbProductName == null || dbProductName.trim().isEmpty()) {
+            return "unknown";
+        }
+
+        String lower = dbProductName.toLowerCase();
+        if (lower.contains("mysql") || lower.contains("mariadb")) {
+            return "mysql";
+        }
+        if (lower.contains("postgresql") || lower.contains("postgres")) {
+            return "postgresql";
+        }
+        if (lower.contains("microsoft sql server") || lower.contains("sql server") || lower.contains("mssql")) {
+            return "mssql";
+        }
+        if (lower.contains("oracle")) {
+            return "oracle";
+        }
+        if (lower.contains("tibero")) {
+            return "tibero";
+        }
+        if (lower.contains("sqream")) {
+            return "sqream";
+        }
+        return lower;
+    }
+
+    private Set<String> getAvailableColumnLabels(ResultSet resultSet) throws SQLException {
+        Set<String> labels = new HashSet<>();
+        ResultSetMetaData metaData = resultSet.getMetaData();
+        int columnCount = metaData.getColumnCount();
+        for (int i = 1; i <= columnCount; i++) {
+            String columnLabel = metaData.getColumnLabel(i);
+            if (columnLabel != null && !columnLabel.trim().isEmpty()) {
+                labels.add(columnLabel.toUpperCase());
+            }
+            String columnName = metaData.getColumnName(i);
+            if (columnName != null && !columnName.trim().isEmpty()) {
+                labels.add(columnName.toUpperCase());
+            }
+        }
+        return labels;
+    }
+
+    private String getOptionalColumnValue(ResultSet resultSet, Set<String> availableColumnLabels, String columnLabel)
+        throws SQLException {
+        if (!availableColumnLabels.contains(columnLabel.toUpperCase())) {
+            return null;
+        }
+        return resultSet.getString(columnLabel);
     }
     
     /**

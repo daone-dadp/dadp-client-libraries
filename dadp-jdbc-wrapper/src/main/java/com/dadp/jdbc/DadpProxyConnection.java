@@ -92,7 +92,7 @@ public class DadpProxyConnection implements Connection {
         String vendor = null;
         try {
             DatabaseMetaData metaData = actualConnection.getMetaData();
-            vendor = metaData.getDatabaseProductName().toLowerCase();
+            vendor = normalizeDbVendor(metaData.getDatabaseProductName());
         } catch (SQLException e) {
             log.debug("DB vendor info lookup failed (ignored): {}", e.getMessage());
         }
@@ -439,6 +439,7 @@ public class DadpProxyConnection implements Connection {
             case "oracle": return 1521;
             case "postgresql": return 5432;
             case "mssql": return 1433;
+            case "sqream": return 3108;
             default: return 3306;
         }
     }
@@ -450,6 +451,7 @@ public class DadpProxyConnection implements Connection {
         if (lower.contains("postgresql") || lower.contains("postgres")) return "postgresql";
         if (lower.contains("microsoft sql server") || lower.contains("sql server") || lower.contains("mssql")) return "mssql";
         if (lower.contains("oracle")) return "oracle";
+        if (lower.contains("sqream")) return "sqream";
         return lower;
     }
 
@@ -498,6 +500,8 @@ public class DadpProxyConnection implements Connection {
                 }
             }
             return schema;
+        } else if (dbVendor.contains("sqream")) {
+            return connection.getCatalog();
         }
         return connection.getCatalog();
     }
@@ -1114,4 +1118,3 @@ public class DadpProxyConnection implements Connection {
         }
     }
 }
-

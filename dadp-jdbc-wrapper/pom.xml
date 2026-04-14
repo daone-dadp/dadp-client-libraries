@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.8.0</version>
+    <version>5.8.1</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -234,6 +234,12 @@
                         <exclude>**/Java11HttpClientAdapter.java</exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
             </plugin>
 
             <!-- JAR 생성 (4.8.0은 classifier 없이 기본 JAR만 생성) -->

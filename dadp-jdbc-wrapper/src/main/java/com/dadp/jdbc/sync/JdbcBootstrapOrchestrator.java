@@ -1055,6 +1055,7 @@ public class JdbcBootstrapOrchestrator {
             case "oracle": return 1521;
             case "postgresql": return 5432;
             case "mssql": return 1433;
+            case "sqream": return 3108;
             default: return 3306;
         }
     }
@@ -1114,6 +1115,8 @@ public class JdbcBootstrapOrchestrator {
             return "mssql";
         } else if (lower.contains("oracle")) {
             return "oracle";
+        } else if (lower.contains("sqream")) {
+            return "sqream";
         }
         return lower; 
     }
@@ -1138,6 +1141,8 @@ public class JdbcBootstrapOrchestrator {
                 }
             }
             return schema;
+        } else if (lower.contains("sqream")) {
+            return connection.getCatalog();
         }
         return connection.getCatalog();
     }
@@ -1255,5 +1260,3 @@ public class JdbcBootstrapOrchestrator {
         }
     }
 }
-
-

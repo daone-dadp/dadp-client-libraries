@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.1] - 2026-04-13
+
+### Added
+
+- **SQream JDBC URL and vendor recognition support**
+  - Wrapper now accepts `jdbc:dadp:Sqream://...` URLs
+  - SQream semicolon JDBC parameters are preserved while wrapper-only options are stripped before vendor-driver handoff
+  - `SqreamDB` product metadata is normalized to the internal `sqream` vendor key
+
+### Fixed
+
+- **SQream metadata collection no longer fails on missing optional JDBC columns**
+  - `SchemaRecognizer` now checks the available `DatabaseMetaData.getColumns()` labels before reading optional fields such as `IS_AUTOINCREMENT`
+  - Missing SQream optional metadata is treated as absent data instead of a wrapper-side failure
+
+- **Java 8 dependency modules now explicitly override inherited compiler release**
+  - `dadp-common-logging-lib`, `dadp-common-sync-lib-core`, and `dadp-common-sync-lib-j8` now force `release 8`
+  - This prevents Java 17 bytecode leakage into the wrapper Java 8 runtime path
+
+### Verified
+
+- Existing JDBC URL extraction behavior kept for MySQL, MariaDB, PostgreSQL, Oracle, and SQL Server
+- SQream wrapper URL path now preserves vendor parameters while extracting wrapper-only options
+- Wrapper dependency modules remain on Java 8 bytecode during reactor builds
+
 ## [5.5.15] - 2026-03-13
 
 ### Added
@@ -504,4 +529,3 @@ Java 8 환경에서는 반드시 `4.8.0` 버전을 사용해야 합니다.
 
 - [v3.0.5 Release Notes](RELEASE_NOTES_v3.0.5.md)
 - [v3.0.4 Release Notes](RELEASE_NOTES_v3.0.4.md)
-
