@@ -224,6 +224,7 @@ public class HubCryptoService {
 
     private HttpResponse doPost(String url, String requestBody) {
         HttpURLConnection conn = null;
+        boolean responseFullyConsumed = false;
         try {
             URL urlObj = new URL(url);
             conn = (HttpURLConnection) urlObj.openConnection();
@@ -247,6 +248,7 @@ public class HubCryptoService {
 
             int code = conn.getResponseCode();
             String responseBody = readStream(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+            responseFullyConsumed = true;
             return new HttpResponse(code, responseBody);
 
         } catch (java.net.SocketTimeoutException e) {
@@ -254,7 +256,10 @@ public class HubCryptoService {
         } catch (IOException e) {
             throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
         } finally {
-            if (conn != null) conn.disconnect();
+            // Keep successful connections eligible for JDK keep-alive reuse.
+            if (conn != null && !responseFullyConsumed) {
+                conn.disconnect();
+            }
         }
     }
 
