@@ -106,32 +106,42 @@ public class TelemetryStatsSender {
             
             EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
             if (endpointData == null) {
+                log.debug("Skipping stats event: endpoint storage is empty");
                 return;
             }
 
             Boolean enabled = endpointData.getStatsAggregatorEnabled();
             String aggregatorUrl = endpointData.getStatsAggregatorUrl();
             if (enabled == null || !enabled || aggregatorUrl == null || aggregatorUrl.trim().isEmpty()) {
+                log.debug("Skipping stats event: stats aggregator disabled or url missing (enabled={}, url={})",
+                        enabled, aggregatorUrl);
                 return;
             }
 
             // 샘플링
             if (samplingRate < 1.0 && random.nextDouble() > samplingRate) {
+                log.debug("Skipping stats event by sampling: samplingRate={}", samplingRate);
                 return;
             }
 
             SqlEvent event = buildEvent(sql, sqlType, durationMs, errorFlag);
             if (!buffer.offer(event)) {
                 // overflow -> DROP
+                log.warn("Dropping stats event: telemetry buffer full (bufferMaxEvents={})", bufferMaxEvents);
                 return;
             }
 
+            log.debug("Queued stats event: eventId={}, operation={}, durationMs={}, errorFlag={}, bufferSize={}",
+                    event.eventId, event.operation, durationMs, errorFlag, buffer.size());
+
             if (buffer.size() >= flushMaxEvents) {
+                log.debug("Triggering immediate telemetry flush: bufferSize={}, flushMaxEvents={}",
+                        buffer.size(), flushMaxEvents);
                 flushAsync();
             }
 
         } catch (Exception e) {
-            log.warn("Exception during stats send (DROP): {}", e.getMessage());
+            log.warn("Exception during stats send (DROP): {}", e.toString());
         }
     }
 
@@ -144,7 +154,7 @@ public class TelemetryStatsSender {
         SqlEvent event = new SqlEvent();
         event.batchId = batchId;
         event.eventId = eventId;
-        event.occurredAt = LocalDateTime.now();
+        event.occurredAt = LocalDateTime.now().toString();
         event.sqlHash = sqlHash;
         event.operation = normalizedSqlType;
         event.durationMs = durationMs;
@@ -198,6 +208,7 @@ public class TelemetryStatsSender {
 
             EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
             if (endpointData == null) {
+                log.debug("Dropping telemetry buffer: endpoint storage is empty");
                 buffer.clear();
                 return;
             }
@@ -205,6 +216,8 @@ public class TelemetryStatsSender {
             Boolean enabled = endpointData.getStatsAggregatorEnabled();
             String aggregatorUrl = endpointData.getStatsAggregatorUrl();
             if (enabled == null || !enabled || aggregatorUrl == null || aggregatorUrl.trim().isEmpty()) {
+                log.debug("Dropping telemetry buffer: stats aggregator disabled or url missing (enabled={}, url={})",
+                        enabled, aggregatorUrl);
                 buffer.clear();
                 return;
             }
@@ -226,6 +239,7 @@ public class TelemetryStatsSender {
             }
 
             if (batch.isEmpty()) {
+                log.warn("Telemetry flush produced an empty batch after payload sizing");
                 return;
             }
 
@@ -268,6 +282,9 @@ public class TelemetryStatsSender {
             Map<String, String> headers = new HashMap<>();
             headers.put("X-DADP-TENANT", appId);
 
+            log.debug("Sending telemetry batch: tenantId={}, sourceId={}, batchSize={}, url={}",
+                    appId, appId, batch.size(), ingestUrl);
+
             // Java 8용 HTTP 클라이언트 사용 (공통 인터페이스)
             HttpClientAdapter client = Java8HttpClientAdapterFactory.create(httpConnectTimeoutMillis, httpReadTimeoutMillis);
 
@@ -298,7 +315,8 @@ public class TelemetryStatsSender {
                 int status = response.getStatusCode();
                 
                 if (status >= 200 && status < 300) {
-                    log.trace("Stats sent successfully: status={}, url={}", status, uriString);
+                    log.debug("Telemetry batch sent: status={}, url={}, responseBody={}",
+                            status, uriString, response.getBody());
                     success = true;
                 } else {
                     // WARN 로그: uri.toString()을 직접 사용하여 실제 요청 URL과 동일하게
@@ -312,14 +330,14 @@ public class TelemetryStatsSender {
                 // uriString 변수 대신 uri.toString()을 직접 사용하여 로그 포맷팅 오류 방지
                 String actualRequestUrl = uri.toString();
                 log.warn("Stats send IO failed (DROP): url={}, error={}",
-                        actualRequestUrl, e.getMessage());
+                        actualRequestUrl, e.toString());
             }
             
             // 재시도 로직 제거: Best-effort 정책에 따라 실패 시 즉시 DROP
 
         } catch (Exception e) {
             // DROP on failure
-            log.warn("Stats flush failed (DROP): {}", e.getMessage());
+            log.warn("Stats flush failed (DROP): {}", e.toString());
         }
     }
 
@@ -354,7 +372,7 @@ public class TelemetryStatsSender {
     private static class SqlEvent {
         String batchId;
         String eventId;
-        LocalDateTime occurredAt;
+        String occurredAt;
         String sqlHash;
         String operation;
         long durationMs;
@@ -363,4 +381,3 @@ public class TelemetryStatsSender {
         String sql;
     }
 }
-
