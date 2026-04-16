@@ -77,4 +77,23 @@ class SqlTelemetryCoverageTest {
                 longThat(duration -> duration >= 0L),
                 eq(false));
     }
+
+    @Test
+    void statementExecuteLargeUpdateSendsSqlTelemetry() throws Exception {
+        Statement actualStatement = mock(Statement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        String sql = "DELETE FROM users WHERE inactive = 1";
+
+        when(actualStatement.executeLargeUpdate(sql)).thenReturn(3L);
+
+        DadpProxyStatement proxyStatement = new DadpProxyStatement(actualStatement, proxyConnection);
+
+        proxyStatement.executeLargeUpdate(sql);
+
+        verify(proxyConnection).sendSqlTelemetry(
+                eq(sql),
+                eq("DELETE"),
+                longThat(duration -> duration >= 0L),
+                eq(false));
+    }
 }
