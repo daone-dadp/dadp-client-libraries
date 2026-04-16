@@ -144,7 +144,14 @@ public class AopPolicyMappingSyncService {
                 
                 @Override
                 public void onEndpointSynced(Object endpointData) {
-                    // 엔드포인트 동기화 후 처리
+                    if (endpointData instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> endpointInfo = (Map<String, Object>) endpointData;
+                        if (endpointInfo != null && !endpointInfo.isEmpty()) {
+                            syncEndpointsFromPolicySnapshot(endpointInfo);
+                            return;
+                        }
+                    }
                     syncEndpointsAfterPolicyMapping();
                 }
             }
@@ -259,6 +266,105 @@ public class AopPolicyMappingSyncService {
                 log.warn("Endpoint sync failed: {}", e.getMessage());
             }
         }
+    }
+
+    private void syncEndpointsFromPolicySnapshot(Map<String, Object> endpointInfo) {
+        try {
+            String cryptoUrl = getStringValue(endpointInfo, "cryptoUrl");
+            if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
+                log.warn("cryptoUrl not found in policy snapshot");
+                return;
+            }
+
+            String currentHubId = hubIdManager.getCachedHubId();
+            if (currentHubId == null || currentHubId.trim().isEmpty()) {
+                log.warn("hubId not available, cannot save endpoint data");
+                return;
+            }
+
+            Map<String, Object> statsAggregator = getMapValue(endpointInfo, "statsAggregator");
+            Boolean statsEnabled = getBooleanValue(statsAggregator, "enabled");
+            String statsUrl = getStringValue(statsAggregator, "url");
+            String statsMode = getStringValue(statsAggregator, "mode");
+            Integer slowThresholdMs = getIntegerValue(statsAggregator, "slowThresholdMs");
+
+            boolean saved = endpointStorage.saveEndpoints(
+                cryptoUrl, currentHubId, null, statsEnabled, statsUrl, statsMode, slowThresholdMs);
+
+            if (saved) {
+                EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+                if (endpointData != null && directCryptoAdapter != null) {
+                    directCryptoAdapter.setEndpointData(endpointData);
+                }
+                log.info("Endpoint sync completed: cryptoUrl={}, hubId={}", cryptoUrl, currentHubId);
+            } else {
+                log.warn("Endpoint data save failed");
+            }
+        } catch (Exception e) {
+            log.warn("Endpoint sync failed: {}", e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getMapValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Map) {
+            return (Map<String, Object>) value;
+        }
+        return null;
+    }
+
+    private Boolean getBooleanValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                return Boolean.parseBoolean(text);
+            }
+        }
+        return null;
+    }
+
+    private String getStringValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString().trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private Integer getIntegerValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                try {
+                    return Integer.parseInt(text);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
     
     /**

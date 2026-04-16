@@ -207,15 +207,27 @@ public class ExportedConfigLoader {
             String statsAggregatorMode = null;
             Integer slowThresholdMs = null;
 
-            if (statsConfig != null) {
-                statsAggregatorEnabled = statsConfig.get("enabled") instanceof Boolean
-                        ? (Boolean) statsConfig.get("enabled") : null;
-                statsAggregatorUrl = statsConfig.get("url") instanceof String
-                        ? (String) statsConfig.get("url") : null;
-                statsAggregatorMode = statsConfig.get("mode") instanceof String
-                        ? (String) statsConfig.get("mode") : null;
-                slowThresholdMs = statsConfig.get("slowThresholdMs") instanceof Number
-                        ? ((Number) statsConfig.get("slowThresholdMs")).intValue() : null;
+            statsAggregatorEnabled = getBooleanValue(statsConfig, "enabled");
+            if (statsAggregatorEnabled == null) {
+                statsAggregatorEnabled = getBooleanValue(config, "statsAggregatorEnabled");
+            }
+
+            statsAggregatorUrl = getStringValue(statsConfig, "url");
+            if (statsAggregatorUrl == null) {
+                statsAggregatorUrl = getStringValue(config, "statsAggregatorUrl");
+            }
+
+            statsAggregatorMode = getStringValue(statsConfig, "mode");
+            if (statsAggregatorMode == null) {
+                statsAggregatorMode = getStringValue(config, "statsAggregatorMode");
+            }
+
+            slowThresholdMs = getIntegerValue(statsConfig, "slowThresholdMs");
+            if (slowThresholdMs == null) {
+                slowThresholdMs = getIntegerValue(config, "statsAggregatorSlowThresholdMs");
+            }
+            if (slowThresholdMs == null) {
+                slowThresholdMs = getIntegerValue(config, "slowThresholdMs");
             }
 
             endpointStorage.saveEndpoints(cryptoUrl, hubId, filePolicyVersion,
@@ -269,5 +281,34 @@ public class ExportedConfigLoader {
         }
 
         return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Boolean getBooleanValue(Map<String, Object> map, String key) {
+        if (map == null) {
+            return null;
+        }
+        Object value = map.get(key);
+        return value instanceof Boolean ? (Boolean) value : null;
+    }
+
+    private static String getStringValue(Map<String, Object> map, String key) {
+        if (map == null) {
+            return null;
+        }
+        Object value = map.get(key);
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            return text.isEmpty() ? null : text;
+        }
+        return null;
+    }
+
+    private static Integer getIntegerValue(Map<String, Object> map, String key) {
+        if (map == null) {
+            return null;
+        }
+        Object value = map.get(key);
+        return value instanceof Number ? ((Number) value).intValue() : null;
     }
 }

@@ -730,6 +730,7 @@ public class MappingSyncService {
     public static class EndpointInfo {
         private String cryptoUrl;
         private String apiBasePath;
+        private StatsAggregatorInfo statsAggregator;
         
         public String getCryptoUrl() {
             return cryptoUrl;
@@ -745,6 +746,53 @@ public class MappingSyncService {
         
         public void setApiBasePath(String apiBasePath) {
             this.apiBasePath = apiBasePath;
+        }
+
+        public StatsAggregatorInfo getStatsAggregator() {
+            return statsAggregator;
+        }
+
+        public void setStatsAggregator(StatsAggregatorInfo statsAggregator) {
+            this.statsAggregator = statsAggregator;
+        }
+    }
+
+    public static class StatsAggregatorInfo {
+        private Boolean enabled;
+        private String url;
+        private String mode;
+        private Integer slowThresholdMs;
+
+        public Boolean getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
+
+        public Integer getSlowThresholdMs() {
+            return slowThresholdMs;
+        }
+
+        public void setSlowThresholdMs(Integer slowThresholdMs) {
+            this.slowThresholdMs = slowThresholdMs;
         }
     }
     

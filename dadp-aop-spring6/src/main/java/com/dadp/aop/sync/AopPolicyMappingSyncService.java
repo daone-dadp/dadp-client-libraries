@@ -236,7 +236,7 @@ public class AopPolicyMappingSyncService {
      */
     private void syncEndpointsFromPolicySnapshot(Map<String, Object> endpointInfo) {
         try {
-            String cryptoUrl = (String) endpointInfo.get("cryptoUrl");
+            String cryptoUrl = getStringValue(endpointInfo, "cryptoUrl");
             if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
                 log.warn("cryptoUrl not found in policy snapshot");
                 return;
@@ -248,10 +248,14 @@ public class AopPolicyMappingSyncService {
                 return;
             }
             
-            // 엔드포인트 정보를 영구 저장소에 저장
+            Map<String, Object> statsAggregator = getMapValue(endpointInfo, "statsAggregator");
+            Boolean statsEnabled = getBooleanValue(statsAggregator, "enabled");
+            String statsUrl = getStringValue(statsAggregator, "url");
+            String statsMode = getStringValue(statsAggregator, "mode");
+            Integer slowThresholdMs = getIntegerValue(statsAggregator, "slowThresholdMs");
+
             boolean saved = endpointStorage.saveEndpoints(
-                cryptoUrl, currentHubId, null,  // version은 정책 스냅샷의 version 사용
-                null, null, null, null);  // statsAggregator 정보는 정책 스냅샷에 없을 수 있음
+                cryptoUrl, currentHubId, null, statsEnabled, statsUrl, statsMode, slowThresholdMs);
             
             if (saved) {
                 // 암복호화 어댑터에 엔드포인트 정보 적용 (캐싱)
@@ -266,6 +270,68 @@ public class AopPolicyMappingSyncService {
         } catch (Exception e) {
             log.warn("Endpoint sync failed: {}", e.getMessage());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getMapValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Map) {
+            return (Map<String, Object>) value;
+        }
+        return null;
+    }
+
+    private Boolean getBooleanValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                return Boolean.parseBoolean(text);
+            }
+        }
+        return null;
+    }
+
+    private String getStringValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString().trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private Integer getIntegerValue(Map<String, Object> source, String key) {
+        if (source == null) {
+            return null;
+        }
+        Object value = source.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                try {
+                    return Integer.parseInt(text);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
     
     /**
@@ -376,4 +442,3 @@ public class AopPolicyMappingSyncService {
     }
     
 }
-

@@ -266,16 +266,21 @@ public class JdbcPolicyMappingSyncService {
             
             String currentHubId = hubIdManager.getCachedHubId();
             Long currentVersion = policyResolver.getCurrentVersion();
+            MappingSyncService.StatsAggregatorInfo statsAggregator = endpointInfo.getStatsAggregator();
+            Boolean statsEnabled = statsAggregator != null ? statsAggregator.getEnabled() : null;
+            String statsUrl = statsAggregator != null ? statsAggregator.getUrl() : null;
+            String statsMode = statsAggregator != null ? statsAggregator.getMode() : null;
+            Integer slowThresholdMs = statsAggregator != null ? statsAggregator.getSlowThresholdMs() : null;
             
             
             boolean saved = endpointStorage.saveEndpoints(
                 cryptoUrl.trim(),
                 currentHubId,
                 currentVersion,  
-                false,  
-                "",     
-                "DIRECT", 
-                500     
+                statsEnabled,
+                statsUrl,
+                statsMode,
+                slowThresholdMs
             );
             
             if (saved) {
@@ -286,8 +291,8 @@ public class JdbcPolicyMappingSyncService {
                     if (directCryptoAdapter != null) {
                         directCryptoAdapter.setEndpointData(endpointData);
                     }
-                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, hubId={}, version={}",
-                            cryptoUrl, currentHubId, currentVersion);
+                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, hubId={}, version={}, statsEnabled={}, statsMode={}",
+                            cryptoUrl, currentHubId, currentVersion, statsEnabled, statsMode);
                 } else {
                     log.warn("Failed to load endpoint info after saving");
                 }
@@ -442,5 +447,4 @@ public class JdbcPolicyMappingSyncService {
         }
     }
 }
-
 

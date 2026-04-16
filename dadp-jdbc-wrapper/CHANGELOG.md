@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.6] - 2026-04-16
+
+### Fixed
+
+- **AOP and JDBC policy snapshot endpoint sync now preserve stats-aggregator settings**
+  - AOP snapshot consumers now pass `endpoint.statsAggregator.enabled/url/mode/slowThresholdMs` through to endpoint storage
+  - Spring 5 AOP now consumes snapshot endpoint data directly when the Hub includes it, instead of always forcing a follow-up endpoint sync
+
+## [5.8.5] - 2026-04-16
+
+### Fixed
+
+- **Wrapper stats-aggregator config now honors the Hub 5.8.6 policy snapshot contract**
+  - `PolicySnapshot.endpoint.statsAggregator` is now deserialized by the wrapper sync DTO
+  - Wrapper endpoint storage no longer overwrites snapshot stats values with hard-coded defaults during policy-sync saves
+
+- **Exported config stats parsing now prefers the new contract with legacy fallback**
+  - `statsConfig.enabled/url/mode/slowThresholdMs` is read first
+  - Legacy `statsAggregator*` keys are used only when the new fields are absent
+
 ## [5.8.4] - 2026-04-16
 
 ### Added
