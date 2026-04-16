@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.4] - 2026-04-16
+
+### Added
+
+- **SQL insight telemetry now covers previously missed JDBC execution paths**
+  - `Statement.executeQuery/executeUpdate/execute` and their overloads now emit wrapper SQL telemetry
+  - `PreparedStatement.execute()` now emits wrapper SQL telemetry with the existing best-effort async sender
+  - `PreparedStatement` Statement-style overloads now emit telemetry and preserve the SQL text used by `getResultSet()`
+
+### Notes
+
+- Telemetry remains best-effort and asynchronous to avoid adding a blocking network round trip to SQL execution
+- Result-set wrapping now keeps the last executed SQL text for `Statement.execute(...)` and equivalent overloads
+
 ## [5.8.3] - 2026-04-16
 
 ### Changed

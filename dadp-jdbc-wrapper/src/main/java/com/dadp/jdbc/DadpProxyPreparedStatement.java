@@ -11,6 +11,7 @@ import java.sql.*;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import com.dadp.jdbc.logging.DadpLogger;
@@ -36,11 +37,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private final Map<Integer, String> parameterToColumnMap; // parameterIndex -> columnName
     private final Set<Integer> whereClauseParamIndices; // UPDATE WHERE clause parameter indices (for search encryption routing)
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
+    private String lastResultSetSql;
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
         this.actualPreparedStatement = actualPs;
         this.sql = sql;
         this.proxyConnection = proxyConnection;
+        this.lastResultSetSql = sql;
         
         // SQL 파싱
         SqlParser sqlParser = new SqlParser();
@@ -178,6 +181,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         boolean error = false;
         try {
             ResultSet actualRs = actualPreparedStatement.executeQuery();
+            lastResultSetSql = sql;
             return new DadpProxyResultSet(actualRs, sql, proxyConnection);
         } catch (SQLException e) {
             error = true;
@@ -645,87 +649,18 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public boolean execute() throws SQLException {
-        // SQL 파싱 결과를 확인하여 쿼리 타입에 따라 처리
-        if (sqlParseResult != null) {
-            String sqlType = sqlParseResult.getSqlType();
-            
-            if ("INSERT".equals(sqlType) || "UPDATE".equals(sqlType) || "DELETE".equals(sqlType)) {
-                // INSERT/UPDATE/DELETE인 경우: executeUpdate()와 동일한 Data truncation 처리 로직 적용
-                try {
-                    boolean result = actualPreparedStatement.execute();
-                    // INSERT/UPDATE/DELETE는 보통 ResultSet이 없으므로 false 반환
-                    // 하지만 실제로는 execute() 결과를 그대로 반환해야 함
-                    return result;
-                } catch (SQLException e) {
-                    // Data truncation 에러 처리 (executeUpdate()와 동일한 로직)
-                    if (e.getErrorCode() == 1406 || 
-                        (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
-                        
-                        // 원본 데이터가 저장된 파라미터가 있는지 확인
-                        if (originalDataMap.isEmpty()) {
-                            log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
-                            throw e;
-                        }
-                        
-                        String tableName = sqlParseResult != null ? sqlParseResult.getTableName() : null;
-                        
-                        // 모든 암호화된 파라미터를 원본 데이터로 되돌리기
-                        int restoredCount = 0;
-                        for (Map.Entry<Integer, String> entry : originalDataMap.entrySet()) {
-                            Integer paramIndex = entry.getKey();
-                            String originalData = entry.getValue();
-                            
-                            // 원본 데이터로 재설정
-                            actualPreparedStatement.setString(paramIndex, originalData);
-                            restoredCount++;
-                            
-                    // 해당 파라미터의 컬럼명 찾기
-                    String paramColumnName = parameterToColumnMap.get(paramIndex);
-                    if (paramColumnName != null) {
-                        // datasourceId와 schemaName 결정
-                        String datasourceId = proxyConnection.getDatasourceId();
-                        String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
-                        if (schemaName == null || schemaName.trim().isEmpty()) {
-                            schemaName = proxyConnection.getCurrentSchemaName();
-                            if (schemaName == null || schemaName.trim().isEmpty()) {
-                                schemaName = proxyConnection.getCurrentDatabaseName();
-                            }
-                        }
-                        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
-                        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
-                        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
-                        String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
-                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
-                                String errorMsg = "Encrypted data exceeds column size (original: " +
-                                                 (originalData != null ? originalData.length() : 0) + " chars)";
-                                log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
-                                         tableName, paramColumnName, policyName, errorMsg);
-                            } else {
-                                log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
-                            }
-                        }
-                        
-                        log.warn("Data truncation occurred: {} parameters reverted to plaintext for retry", restoredCount);
-
-                        // 평문으로 재시도
-                        try {
-                            return actualPreparedStatement.execute();
-                        } catch (SQLException retryException) {
-                            // 재시도에서도 실패하면 원래 예외 발생
-                            log.error("Retry with plaintext still failed: {}", retryException.getMessage());
-                            throw e; // 원래 예외 발생
-                        }
-                    } else {
-                        // 다른 SQLException은 그대로 발생
-                        throw e;
-                    }
-                }
-            }
-            // SELECT나 기타 쿼리 타입은 그대로 실행 (getResultSet()에서 래핑 처리됨)
+        long start = System.nanoTime();
+        boolean error = false;
+        try {
+            boolean result = executeInternal();
+            lastResultSetSql = result ? sql : null;
+            return result;
+        } catch (SQLException e) {
+            error = true;
+            throw e;
+        } finally {
+            recordTelemetry(start, error);
         }
-        
-        // SQL 파싱 결과가 없거나 알 수 없는 타입인 경우 기본 동작
-        return actualPreparedStatement.execute();
     }
     
     @Override
@@ -950,12 +885,23 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     // Statement 인터페이스 메서드들
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
-        return actualPreparedStatement.executeQuery(sql);
+        long start = System.nanoTime();
+        boolean error = false;
+        try {
+            ResultSet actualRs = actualPreparedStatement.executeQuery(sql);
+            lastResultSetSql = sql;
+            return new DadpProxyResultSet(actualRs, sql, proxyConnection);
+        } catch (SQLException e) {
+            error = true;
+            throw e;
+        } finally {
+            recordTelemetry(sql, start, error);
+        }
     }
     
     @Override
     public int executeUpdate(String sql) throws SQLException {
-        return actualPreparedStatement.executeUpdate(sql);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.executeUpdate(sql), false);
     }
     
     @Override
@@ -1020,14 +966,14 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public boolean execute(String sql) throws SQLException {
-        return actualPreparedStatement.execute(sql);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.execute(sql), true);
     }
     
     @Override
     public ResultSet getResultSet() throws SQLException {
         ResultSet actualRs = actualPreparedStatement.getResultSet();
         if (actualRs != null) {
-            return new DadpProxyResultSet(actualRs, sql, proxyConnection);
+            return new DadpProxyResultSet(actualRs, lastResultSetSql, proxyConnection);
         }
         return null;
     }
@@ -1108,32 +1054,32 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public int executeUpdate(String sql, int autoGeneratedKeys) throws SQLException {
-        return actualPreparedStatement.executeUpdate(sql, autoGeneratedKeys);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.executeUpdate(sql, autoGeneratedKeys), false);
     }
     
     @Override
     public int executeUpdate(String sql, int[] columnIndexes) throws SQLException {
-        return actualPreparedStatement.executeUpdate(sql, columnIndexes);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.executeUpdate(sql, columnIndexes), false);
     }
     
     @Override
     public int executeUpdate(String sql, String[] columnNames) throws SQLException {
-        return actualPreparedStatement.executeUpdate(sql, columnNames);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.executeUpdate(sql, columnNames), false);
     }
     
     @Override
     public boolean execute(String sql, int autoGeneratedKeys) throws SQLException {
-        return actualPreparedStatement.execute(sql, autoGeneratedKeys);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.execute(sql, autoGeneratedKeys), true);
     }
     
     @Override
     public boolean execute(String sql, int[] columnIndexes) throws SQLException {
-        return actualPreparedStatement.execute(sql, columnIndexes);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.execute(sql, columnIndexes), true);
     }
     
     @Override
     public boolean execute(String sql, String[] columnNames) throws SQLException {
-        return actualPreparedStatement.execute(sql, columnNames);
+        return executeWithTelemetry(sql, () -> actualPreparedStatement.execute(sql, columnNames), true);
     }
     
     @Override
@@ -1227,5 +1173,130 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         String sqlType = sqlParseResult != null ? sqlParseResult.getSqlType() : "UNKNOWN";
         proxyConnection.sendSqlTelemetry(sql, sqlType, durationMs, errorFlag);
     }
-}
 
+    private boolean executeInternal() throws SQLException {
+        // SQL 파싱 결과를 확인하여 쿼리 타입에 따라 처리
+        if (sqlParseResult != null) {
+            String sqlType = sqlParseResult.getSqlType();
+            
+            if ("INSERT".equals(sqlType) || "UPDATE".equals(sqlType) || "DELETE".equals(sqlType)) {
+                // INSERT/UPDATE/DELETE인 경우: executeUpdate()와 동일한 Data truncation 처리 로직 적용
+                try {
+                    return actualPreparedStatement.execute();
+                } catch (SQLException e) {
+                    // Data truncation 에러 처리 (executeUpdate()와 동일한 로직)
+                    if (e.getErrorCode() == 1406 || 
+                        (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
+                        
+                        // 원본 데이터가 저장된 파라미터가 있는지 확인
+                        if (originalDataMap.isEmpty()) {
+                            log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
+                            throw e;
+                        }
+                        
+                        String tableName = sqlParseResult != null ? sqlParseResult.getTableName() : null;
+                        
+                        // 모든 암호화된 파라미터를 원본 데이터로 되돌리기
+                        int restoredCount = 0;
+                        for (Map.Entry<Integer, String> entry : originalDataMap.entrySet()) {
+                            Integer paramIndex = entry.getKey();
+                            String originalData = entry.getValue();
+                            
+                            // 원본 데이터로 재설정
+                            actualPreparedStatement.setString(paramIndex, originalData);
+                            restoredCount++;
+                            
+                            // 해당 파라미터의 컬럼명 찾기
+                            String paramColumnName = parameterToColumnMap.get(paramIndex);
+                            if (paramColumnName != null) {
+                                // datasourceId와 schemaName 결정
+                                String datasourceId = proxyConnection.getDatasourceId();
+                                String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
+                                if (schemaName == null || schemaName.trim().isEmpty()) {
+                                    schemaName = proxyConnection.getCurrentSchemaName();
+                                    if (schemaName == null || schemaName.trim().isEmpty()) {
+                                        schemaName = proxyConnection.getCurrentDatabaseName();
+                                    }
+                                }
+                                // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
+                                String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+                                String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+                                String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
+                                String policyName = proxyConnection.getPolicyResolver().resolvePolicy(
+                                        datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
+                                String errorMsg = "Encrypted data exceeds column size (original: " +
+                                                 (originalData != null ? originalData.length() : 0) + " chars)";
+                                log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
+                                         tableName, paramColumnName, policyName, errorMsg);
+                            } else {
+                                log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
+                            }
+                        }
+                        
+                        log.warn("Data truncation occurred: {} parameters reverted to plaintext for retry", restoredCount);
+
+                        // 평문으로 재시도
+                        try {
+                            return actualPreparedStatement.execute();
+                        } catch (SQLException retryException) {
+                            // 재시도에서도 실패하면 원래 예외 발생
+                            log.error("Retry with plaintext still failed: {}", retryException.getMessage());
+                            throw e; // 원래 예외 발생
+                        }
+                    } else {
+                        // 다른 SQLException은 그대로 발생
+                        throw e;
+                    }
+                }
+            }
+            // SELECT나 기타 쿼리 타입은 그대로 실행 (getResultSet()에서 래핑 처리됨)
+        }
+        
+        // SQL 파싱 결과가 없거나 알 수 없는 타입인 경우 기본 동작
+        return actualPreparedStatement.execute();
+    }
+
+    private <T> T executeWithTelemetry(String sqlText, SqlCallable<T> action, boolean captureResultSetSql)
+            throws SQLException {
+        long start = System.nanoTime();
+        boolean error = false;
+        try {
+            T result = action.call();
+            if (captureResultSetSql) {
+                boolean hasResultSet = result instanceof Boolean && ((Boolean) result).booleanValue();
+                lastResultSetSql = hasResultSet ? sqlText : null;
+            } else {
+                lastResultSetSql = null;
+            }
+            return result;
+        } catch (SQLException e) {
+            error = true;
+            throw e;
+        } finally {
+            recordTelemetry(sqlText, start, error);
+        }
+    }
+
+    private void recordTelemetry(String sqlText, long startNanos, boolean errorFlag) {
+        if (sqlText == null || sqlText.trim().isEmpty()) {
+            return;
+        }
+        long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
+        proxyConnection.sendSqlTelemetry(sqlText, extractSqlType(sqlText), durationMs, errorFlag);
+    }
+
+    private String extractSqlType(String sqlText) {
+        String trimmed = sqlText == null ? "" : sqlText.trim();
+        if (trimmed.isEmpty()) {
+            return "UNKNOWN";
+        }
+        int delimiter = trimmed.indexOf(' ');
+        String firstToken = delimiter >= 0 ? trimmed.substring(0, delimiter) : trimmed;
+        return firstToken.toUpperCase(Locale.ROOT);
+    }
+
+    @FunctionalInterface
+    private interface SqlCallable<T> {
+        T call() throws SQLException;
+    }
+}
