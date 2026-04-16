@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.2] - 2026-04-16
+
+### Changed
+
+- **Wrapper direct crypto transport now keeps successful HTTP connections reusable**
+  - `HubCryptoService` no longer force-disconnects successful requests after the response body has been fully consumed
+  - This keeps the Java 8 `HttpURLConnection` path eligible for JDK keep-alive reuse in repeated encrypt/decrypt calls
+
+### Verified
+
+- `mvn -pl dadp-jdbc-wrapper -am test -DskipITs=true`
+- Java 8 wrapper reactor build stayed green after the transport lifecycle change
+- Existing wrapper unit tests passed without additional runtime contract changes
+
 ## [5.8.1] - 2026-04-13
 
 ### Added
