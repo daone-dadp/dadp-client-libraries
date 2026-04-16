@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.3] - 2026-04-16
+
+### Changed
+
+- **Wrapper direct crypto HTTP logs now follow the shared logging-level policy**
+  - External API request/response success logs were lowered to `DEBUG`
+  - Recoverable HTTP failures, timeouts, and non-2xx responses are emitted at `WARN`
+  - Request logging now uses length and count metadata instead of plaintext/ciphertext previews
+
+### Added
+
+- **Wrapper HTTP timing logs for direct crypto calls**
+  - `HubCryptoService` now logs `writeMs`, `responseCodeMs`, `readMs`, and `totalMs` per HTTP call
+  - Timing logs are emitted at `DEBUG` for encrypt, decrypt, and batch direct-crypto requests
+
 ## [5.8.2] - 2026-04-16
 
 ### Changed

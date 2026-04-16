@@ -20,20 +20,22 @@ import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Hub 암복호화 서비스 (Wrapper 전용 - Spring 의존성 없음)
+ * Wrapper-side Hub crypto service with no Spring dependency.
  *
- * HttpURLConnection 기반으로 Engine과 직접 통신합니다.
- * hub-crypto-lib의 HubCryptoService와 동일한 public API를 제공합니다.
+ * This implementation talks directly to the Engine over {@link HttpURLConnection}
+ * and preserves the same public API surface as the hub-crypto-lib variant.
  *
  * @author DADP Development Team
- * @version 5.5.5
+ * @version 5.8.3
  * @since 2025-01-01
  */
 public class HubCryptoService {
 
     private static final Logger log = LoggerFactory.getLogger(HubCryptoService.class);
+    private static final AtomicLong HTTP_REQUEST_SEQUENCE = new AtomicLong(0);
 
     private final ObjectMapper objectMapper;
     private final SSLContext sslContext;
@@ -51,7 +53,7 @@ public class HubCryptoService {
     private volatile String lastUsedEndpoint = null;
     private volatile long endpointUsageCount = 0;
 
-    // ── HTTP Response holder ──────────────────────────────────────────
+    // HTTP response holder
 
     private static class HttpResponse {
         final int statusCode;
@@ -63,7 +65,7 @@ public class HubCryptoService {
         boolean is2xx() { return statusCode >= 200 && statusCode < 300; }
     }
 
-    // ── SSL ───────────────────────────────────────────────────────────
+    // SSL helpers
 
     private static String getDadpCaCertPath() {
         String caCertPath = System.getenv("DADP_CA_CERT_PATH");
@@ -109,7 +111,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── Constructor & Factory ─────────────────────────────────────────
+    // Construction and factory methods
 
     public HubCryptoService() {
         this.sslContext = createDadpCaSSLContext();
@@ -158,7 +160,7 @@ public class HubCryptoService {
         return instance;
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────
+    // Utility helpers
 
     private static boolean isLoggingEnabled() {
         String val = System.getenv("DADP_ENABLE_LOGGING");
@@ -212,20 +214,52 @@ public class HubCryptoService {
     private void recordEndpointUsage(String endpoint) {
         this.lastUsedEndpoint = endpoint;
         this.endpointUsageCount++;
-        if (enableLogging && (endpointUsageCount == 1 || endpointUsageCount % 100 == 0)) {
-            log.info("Telemetry: endpoint={}, count={}", endpoint, endpointUsageCount);
+        if (enableLogging && log.isDebugEnabled() && (endpointUsageCount == 1 || endpointUsageCount % 100 == 0)) {
+            log.debug("Wrapper endpoint usage: endpoint={}, count={}", endpoint, endpointUsageCount);
         }
     }
 
     public String getLastUsedEndpoint() { return lastUsedEndpoint; }
     public long getEndpointUsageCount() { return endpointUsageCount; }
 
-    // ── HTTP ──────────────────────────────────────────────────────────
+    private static double elapsedMs(long startedNs, long finishedNs) {
+        return (finishedNs - startedNs) / 1_000_000.0;
+    }
 
-    private HttpResponse doPost(String url, String requestBody) {
+    private static int utf8Length(String value) {
+        return value != null ? value.getBytes(StandardCharsets.UTF_8).length : 0;
+    }
+
+    private static String summarizeEndpoint(String url) {
+        try {
+            return java.net.URI.create(url).getPath();
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
+    // HTTP execution
+
+    private HttpResponse doPost(String operation, String url, String requestBody) {
         HttpURLConnection conn = null;
         boolean responseFullyConsumed = false;
+        long requestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
+        int requestBytes = utf8Length(requestBody);
+        String endpoint = summarizeEndpoint(url);
+        long startedNs = System.nanoTime();
+        long writeStartedNs = startedNs;
+        long writeFinishedNs = startedNs;
+        long responseStartedNs = startedNs;
+        long responseFinishedNs = startedNs;
+        long readStartedNs = startedNs;
+        long readFinishedNs = startedNs;
         try {
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug(
+                    "Wrapper HTTP request start: requestId={}, operation={}, endpoint={}, requestBytes={}",
+                    requestId, operation, endpoint, requestBytes);
+            }
+
             URL urlObj = new URL(url);
             conn = (HttpURLConnection) urlObj.openConnection();
 
@@ -241,19 +275,67 @@ public class HubCryptoService {
 
             byte[] body = requestBody.getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(body.length);
+            writeStartedNs = System.nanoTime();
             OutputStream os = conn.getOutputStream();
             os.write(body);
             os.flush();
             os.close();
+            writeFinishedNs = System.nanoTime();
 
+            responseStartedNs = System.nanoTime();
             int code = conn.getResponseCode();
+            responseFinishedNs = System.nanoTime();
+            readStartedNs = System.nanoTime();
             String responseBody = readStream(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+            readFinishedNs = System.nanoTime();
             responseFullyConsumed = true;
+
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug(
+                    "Wrapper HTTP request complete: requestId={}, operation={}, endpoint={}, status={}, requestBytes={}, responseBytes={}, writeMs={}, responseCodeMs={}, readMs={}, totalMs={}",
+                    requestId,
+                    operation,
+                    endpoint,
+                    code,
+                    requestBytes,
+                    utf8Length(responseBody),
+                    String.format("%.3f", elapsedMs(writeStartedNs, writeFinishedNs)),
+                    String.format("%.3f", elapsedMs(responseStartedNs, responseFinishedNs)),
+                    String.format("%.3f", elapsedMs(readStartedNs, readFinishedNs)),
+                    String.format("%.3f", elapsedMs(startedNs, readFinishedNs)));
+            }
+
+            if (code < 200 || code >= 300) {
+                log.warn(
+                    "Wrapper HTTP request returned non-2xx: requestId={}, operation={}, endpoint={}, status={}, totalMs={}",
+                    requestId,
+                    operation,
+                    endpoint,
+                    code,
+                    String.format("%.3f", elapsedMs(startedNs, readFinishedNs)));
+            }
+
             return new HttpResponse(code, responseBody);
 
         } catch (java.net.SocketTimeoutException e) {
+            log.warn(
+                "Wrapper HTTP request timed out: requestId={}, operation={}, endpoint={}, requestBytes={}, timeoutMs={}, totalMs={}",
+                requestId,
+                operation,
+                endpoint,
+                requestBytes,
+                timeout,
+                String.format("%.3f", elapsedMs(startedNs, System.nanoTime())));
             throw new HubConnectionException("Engine connection timeout: " + e.getMessage(), e);
         } catch (IOException e) {
+            log.warn(
+                "Wrapper HTTP request failed: requestId={}, operation={}, endpoint={}, requestBytes={}, totalMs={}, error={}",
+                requestId,
+                operation,
+                endpoint,
+                requestBytes,
+                String.format("%.3f", elapsedMs(startedNs, System.nanoTime())),
+                e.getMessage());
             throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
         } finally {
             // Keep successful connections eligible for JDK keep-alive reuse.
@@ -279,7 +361,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── Encrypt ───────────────────────────────────────────────────────
+    // Encrypt
 
     public String encrypt(String data, String policy) {
         return encrypt(data, policy, false);
@@ -289,9 +371,9 @@ public class HubCryptoService {
         initializeIfNeeded();
         validateNotHubPath();
 
-        if (enableLogging) {
-            log.info("Engine encrypt request: data={}, policy={}",
-                    data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null", policy);
+        if (enableLogging && log.isDebugEnabled()) {
+            log.debug("Wrapper encrypt request: dataLength={}, policy={}",
+                    data != null ? data.length() : 0, policy);
         }
 
         try {
@@ -309,20 +391,12 @@ public class HubCryptoService {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
 
-            if (enableLogging) {
-                log.info("Engine request URL: {}", url);
-            }
-
-            HttpResponse response = doPost(url, requestBody);
-
-            if (enableLogging) {
-                log.info("Engine response: status={}", response.statusCode);
-            }
+            HttpResponse response = doPost("encrypt", url, requestBody);
 
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
 
-                // v2: code 기반 (primary), v1: success boolean fallback
+                // Prefer the v2 "code" contract, then fall back to the legacy success flag.
                 JsonNode codeNode = rootNode.get("code");
                 boolean responseSuccess;
                 if (codeNode != null && codeNode.isTextual()) {
@@ -342,18 +416,17 @@ public class HubCryptoService {
                     throw new HubCryptoException("Encryption failed: no data field in response");
                 }
 
-                // Engine 응답: data가 암호화된 문자열
+                // Engine response: "data" is the encrypted string.
                 if (dataNode.isTextual()) {
                     String encryptedData = dataNode.asText();
-                    if (enableLogging) {
-                        log.info("Engine encryption successful: {} -> {}",
-                                data != null ? data.substring(0, Math.min(10, data.length())) + "..." : "null",
-                                encryptedData.substring(0, Math.min(20, encryptedData.length())) + "...");
+                    if (enableLogging && log.isDebugEnabled()) {
+                        log.debug("Wrapper encrypt response parsed: encryptedLength={}",
+                                encryptedData.length());
                     }
                     return encryptedData;
                 }
 
-                // 레거시 응답: data가 EncryptResponse 객체
+                // Legacy response: "data" contains an EncryptResponse object.
                 EncryptResponse encryptResponse;
                 try {
                     encryptResponse = objectMapper.treeToValue(dataNode, EncryptResponse.class);
@@ -379,13 +452,13 @@ public class HubCryptoService {
         }
     }
 
-    // ── Encrypt for Search ────────────────────────────────────────────
+    // Encrypt for search
 
     public String encryptForSearch(String data, String policyName) {
         initializeIfNeeded();
         validateNotHubPath();
 
-        if (enableLogging) log.info("Engine encrypt-for-search request: policy={}", policyName);
+        if (enableLogging && log.isDebugEnabled()) log.debug("Wrapper encrypt-for-search request: policy={}", policyName);
 
         try {
             String url = hubUrl + apiBasePath + "/encrypt";
@@ -403,11 +476,11 @@ public class HubCryptoService {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
 
-            HttpResponse response = doPost(url, requestBody);
+            HttpResponse response = doPost("encryptForSearch", url, requestBody);
 
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
-                // v2: code 기반 (primary), v1: success boolean fallback
+                // Prefer the v2 "code" contract, then fall back to the legacy success flag.
                 JsonNode codeNode = rootNode.get("code");
                 boolean responseSuccess;
                 if (codeNode != null && codeNode.isTextual()) {
@@ -423,9 +496,8 @@ public class HubCryptoService {
                 JsonNode dataNode = rootNode.get("data");
                 if (dataNode != null && dataNode.isTextual()) {
                     String result = dataNode.asText();
-                    if (enableLogging) {
-                        log.info("Encrypt-for-search completed: result={}",
-                                result.length() > 30 ? result.substring(0, 30) + "..." : result);
+                    if (enableLogging && log.isDebugEnabled()) {
+                        log.debug("Wrapper encrypt-for-search completed: resultLength={}", result.length());
                     }
                     return result;
                 }
@@ -440,7 +512,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── Decrypt ───────────────────────────────────────────────────────
+    // Decrypt
 
     public String decrypt(String encryptedData) {
         return decrypt(encryptedData, null, null, null, false);
@@ -458,10 +530,9 @@ public class HubCryptoService {
         initializeIfNeeded();
         validateNotHubPath();
 
-        if (enableLogging) {
-            log.info("Engine decrypt request: encryptedData={}, maskPolicyName={}, maskPolicyUid={}",
-                    encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
-                    maskPolicyName, maskPolicyUid);
+        if (enableLogging && log.isDebugEnabled()) {
+            log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyUid={}",
+                    encryptedData != null ? encryptedData.length() : 0, maskPolicyName, maskPolicyUid);
         }
 
         try {
@@ -481,20 +552,12 @@ public class HubCryptoService {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
 
-            if (enableLogging) {
-                log.info("Engine request URL: {}", url);
-            }
-
-            HttpResponse response = doPost(url, requestBody);
-
-            if (enableLogging) {
-                log.info("Engine decrypt response: status={}", response.statusCode);
-            }
+            HttpResponse response = doPost("decrypt", url, requestBody);
 
             if (response.is2xx()) {
                 return parseDecryptResponse(response.body, encryptedData);
             } else {
-                // 비-2xx 응답에서도 "Data is not encrypted" 확인
+                // Handle the known "Data is not encrypted" case even on non-2xx responses.
                 if (response.body != null && response.body.contains("Data is not encrypted")) {
                     if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
                     return null;
@@ -505,13 +568,13 @@ public class HubCryptoService {
         } catch (Exception e) {
             String errorMessage = e.getMessage() != null ? e.getMessage() : "";
 
-            // "Data is not encrypted" 감지
+            // Detect the known plaintext / pre-policy response case.
             if (errorMessage.contains("Data is not encrypted")) {
                 if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
                 return null;
             }
 
-            if (enableLogging) log.debug("Engine decryption failed: {}", errorMessage);
+            if (enableLogging && log.isDebugEnabled()) log.debug("Engine decryption failed: {}", errorMessage);
             if (e instanceof HubCryptoException) throw e;
             throw new HubConnectionException("Engine connection failed: " + errorMessage, e);
         }
@@ -520,7 +583,7 @@ public class HubCryptoService {
     private String parseDecryptResponse(String responseBody, String encryptedData) {
         JsonNode rootNode = parseJson(responseBody);
 
-        // v2: code 기반 (primary), v1: success boolean fallback
+        // Prefer the v2 "code" contract, then fall back to the legacy success flag.
         JsonNode codeNode = rootNode.get("code");
         boolean responseSuccess;
         if (codeNode != null && codeNode.isTextual()) {
@@ -545,18 +608,17 @@ public class HubCryptoService {
             throw new HubCryptoException("Decryption failed: no data field in response");
         }
 
-        // Engine 응답: data가 복호화된 문자열
+        // Engine response: "data" is the decrypted string.
         if (dataNode.isTextual()) {
             String decryptedData = dataNode.asText();
-            if (enableLogging) {
-                log.info("Engine decryption successful: {} -> {}",
-                        encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
-                        decryptedData.substring(0, Math.min(10, decryptedData.length())) + "...");
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug("Wrapper decrypt response parsed: decryptedLength={}",
+                        decryptedData.length());
             }
             return decryptedData;
         }
 
-        // 레거시 응답: data가 DecryptResponse 객체
+        // Legacy response: "data" contains a DecryptResponse object.
         DecryptResponse decryptResponse;
         try {
             decryptResponse = objectMapper.treeToValue(dataNode, DecryptResponse.class);
@@ -571,7 +633,7 @@ public class HubCryptoService {
         if (Boolean.TRUE.equals(decryptResponse.getSuccess()) && decryptResponse.getDecryptedData() != null) {
             return decryptResponse.getDecryptedData();
         } else if (decryptResponse.getDecryptedData() != null) {
-            // 마스킹 적용된 경우
+            // Masked results can still be returned as decryptedData.
             return decryptResponse.getDecryptedData();
         } else {
             String message = decryptResponse.getMessage() != null ? decryptResponse.getMessage() : "Decryption failed";
@@ -583,7 +645,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── Batch Decrypt ─────────────────────────────────────────────────
+    // Batch decrypt
 
     public java.util.List<String> batchDecrypt(java.util.List<String> encryptedDataList,
                                                 String maskPolicyName,
@@ -595,8 +657,8 @@ public class HubCryptoService {
             return new java.util.ArrayList<>();
         }
 
-        if (enableLogging) {
-            log.info("Engine batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyUid={}",
+        if (enableLogging && log.isDebugEnabled()) {
+            log.debug("Wrapper batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyUid={}",
                     encryptedDataList.size(), maskPolicyName, maskPolicyUid);
         }
 
@@ -606,7 +668,7 @@ public class HubCryptoService {
             String url = hubUrl + apiBasePath + "/decrypt/batch";
             recordEndpointUsage(url);
 
-            // 배치 요청 생성
+            // Build the batch request payload.
             java.util.Map<String, Object> batchRequest = new java.util.HashMap<>();
             java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
 
@@ -630,20 +692,16 @@ public class HubCryptoService {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
 
-            if (enableLogging) log.info("Engine batch request URL: {}", url);
-
-            HttpResponse response = doPost(url, requestBody);
-
-            if (enableLogging) log.info("Engine batch response: status={}", response.statusCode);
+            HttpResponse response = doPost("batchDecrypt", url, requestBody);
 
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
 
-                // results 배열 추출 (최상위 레벨)
+                // Extract the top-level "results" array.
                 JsonNode resultsNode = rootNode.get("results");
                 if (resultsNode == null || !resultsNode.isArray()) {
-                    // ApiResponse 래퍼가 있는 경우
-                    // v2: code 기반 (primary), v1: success boolean fallback
+                    // Handle the ApiResponse wrapper form.
+                    // Prefer the v2 "code" contract, then fall back to the legacy success flag.
                     JsonNode codeNode = rootNode.get("code");
                     boolean outerSuccess;
                     if (codeNode != null && codeNode.isTextual()) {
@@ -679,7 +737,7 @@ public class HubCryptoService {
                     }
                 }
 
-                if (enableLogging) log.info("Engine batch decryption successful: {} items", decryptedList.size());
+                if (enableLogging && log.isDebugEnabled()) log.debug("Wrapper batch decrypt response parsed: itemsCount={}", decryptedList.size());
                 return decryptedList;
             } else {
                 throw new HubCryptoException("Batch decryption failed: " + response.statusCode);
@@ -692,7 +750,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── Batch Encrypt ─────────────────────────────────────────────────
+    // Batch encrypt
 
     public java.util.List<String> batchEncrypt(java.util.List<String> dataList,
                                                 java.util.List<String> policyList) {
@@ -705,11 +763,9 @@ public class HubCryptoService {
             throw new HubCryptoException("Policy list size does not match data list size");
         }
 
-        log.info("Engine batchEncrypt called: itemsCount={}, hubUrl={}, apiBasePath={}",
-                dataList.size(), hubUrl, apiBasePath);
-
-        if (enableLogging) {
-            log.info("Engine batch encrypt request: itemsCount={}", dataList.size());
+        if (enableLogging && log.isDebugEnabled()) {
+            log.debug("Wrapper batch encrypt request: itemsCount={}, apiBasePath={}",
+                    dataList.size(), apiBasePath);
         }
 
         try {
@@ -739,16 +795,12 @@ public class HubCryptoService {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
 
-            if (enableLogging) log.info("Engine batch encrypt URL: {}", url);
-
-            HttpResponse response = doPost(url, requestBody);
-
-            if (enableLogging) log.info("Engine batch encrypt response: status={}", response.statusCode);
+            HttpResponse response = doPost("batchEncrypt", url, requestBody);
 
             if (response.is2xx()) {
                 JsonNode rootNode = parseJson(response.body);
 
-                // v2: code 기반 (primary), v1: success boolean fallback
+                // Prefer the v2 "code" contract, then fall back to the legacy success flag.
                 JsonNode codeNode = rootNode.get("code");
                 boolean responseSuccess;
                 if (codeNode != null && codeNode.isTextual()) {
@@ -789,7 +841,7 @@ public class HubCryptoService {
                     }
                 }
 
-                if (enableLogging) log.info("Engine batch encryption successful: {} items", encryptedList.size());
+                if (enableLogging && log.isDebugEnabled()) log.debug("Wrapper batch encrypt response parsed: itemsCount={}", encryptedList.size());
                 return encryptedList;
             } else {
                 throw new HubCryptoException("Batch encryption failed: " + response.statusCode);
@@ -802,7 +854,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── isEncryptedData ───────────────────────────────────────────────
+    // Encrypted-data detection
 
     public boolean isEncryptedData(String data) {
         if (data == null || data.isEmpty()) {
@@ -810,19 +862,17 @@ public class HubCryptoService {
         }
 
         if (enableLogging && log.isDebugEnabled()) {
-            log.debug("isEncryptedData check: dataLength={}, preview={}",
-                    data.length(),
-                    data.length() > 50 ? data.substring(0, 50) + "..." : data);
+            log.debug("isEncryptedData check: dataLength={}", data.length());
         }
 
-        // 부분암호화 형식: "[평문]::ENC::[암호문]"
+        // Partial-encryption format: "[plain]::ENC::[ciphertext]".
         String checkPart = data;
         if (data.contains("::ENC::")) {
             int idx = data.indexOf("::ENC::");
             checkPart = data.substring(idx + "::ENC::".length());
         }
 
-        // hub: 접두사
+        // hub: prefix
         if (checkPart.startsWith("hub:")) {
             String[] parts = checkPart.split(":", 3);
             if (parts.length >= 3) {
@@ -840,7 +890,7 @@ public class HubCryptoService {
             return false;
         }
 
-        // kms: 접두사
+        // kms: prefix
         if (checkPart.startsWith("kms:")) {
             String[] parts = checkPart.split(":", 4);
             if (parts.length >= 4) {
@@ -858,13 +908,13 @@ public class HubCryptoService {
             return false;
         }
 
-        // vault: 접두사
+        // vault: prefix
         if (checkPart.startsWith("vault:")) {
             String[] parts = checkPart.split(":", 4);
             return parts.length >= 4 && parts[2].startsWith("v");
         }
 
-        // 레거시 형식: Base64 + Policy UUID 검증
+        // Legacy format: Base64 payload plus Policy UUID validation.
         try {
             byte[] decoded = Base64.getDecoder().decode(checkPart);
             if (decoded.length >= 64 && decoded.length >= 36) {
@@ -885,7 +935,7 @@ public class HubCryptoService {
         }
     }
 
-    // ── JSON Helper ───────────────────────────────────────────────────
+    // JSON helper
 
     private JsonNode parseJson(String json) {
         try {
