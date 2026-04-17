@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -37,6 +38,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private final Map<Integer, String> parameterToColumnMap; // parameterIndex -> columnName
     private final Set<Integer> whereClauseParamIndices; // UPDATE WHERE clause parameter indices (for search encryption routing)
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
+    private final Map<Integer, ParameterEncryptionPlan> parameterPlanCacheByIndex; // parameterIndex -> cached encryption plan
     private String lastResultSetSql;
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
@@ -55,6 +57,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         
         // 원본 데이터 저장용 맵 초기화 (Data truncation 시 평문으로 재시도)
         this.originalDataMap = new HashMap<>();
+        this.parameterPlanCacheByIndex = new HashMap<>();
         
         // INSERT/UPDATE 쿼리인 경우 상세 로그 출력 (디버깅용)
         if (sqlParseResult != null && ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType()))) {
@@ -326,6 +329,36 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             this.shouldSkip = shouldSkip;
         }
     }
+
+    /**
+     * 파라미터별 암호화 계획 캐시.
+     * 스키마/정책 버전이 같으면 정규화와 정책 조회를 다시 수행하지 않는다.
+     */
+    private static class ParameterEncryptionPlan {
+        final String schemaName;
+        final String tableName;
+        final String columnName;
+        final String policyName;
+        final boolean searchContext;
+        final boolean searchEncryptionNeeded;
+        final Long policyVersion;
+
+        ParameterEncryptionPlan(String schemaName,
+                                String tableName,
+                                String columnName,
+                                String policyName,
+                                boolean searchContext,
+                                boolean searchEncryptionNeeded,
+                                Long policyVersion) {
+            this.schemaName = schemaName;
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.policyName = policyName;
+            this.searchContext = searchContext;
+            this.searchEncryptionNeeded = searchEncryptionNeeded;
+            this.policyVersion = policyVersion;
+        }
+    }
     
     /**
      * String 파라미터에 대한 암호화 처리 공통 로직
@@ -343,127 +376,66 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
             return new EncryptionResult(value, false);
         }
-        
-        String columnName = parameterToColumnMap.get(parameterIndex);
-        String tableName = sqlParseResult.getTableName();
-        
-        // INSERT/UPDATE 쿼리인 경우 상세 로그 출력 (디버깅용)
-        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.trace("{} called: parameterIndex={}, columnName={}, tableName={}, valueLength={}, sqlType={}",
-                    methodName, parameterIndex, columnName, tableName, value != null ? value.length() : 0, sqlParseResult.getSqlType());
-        }
-        
-        if (columnName == null || tableName == null) {
-            log.debug("{}: Missing table or column name: cannot determine encryption target, tableName={}, columnName={}, parameterIndex={}",
-                    methodName, tableName, columnName, parameterIndex);
+
+        ParameterEncryptionPlan plan = resolveParameterEncryptionPlan(parameterIndex, methodName);
+        if (plan == null || plan.columnName == null || plan.tableName == null) {
+            log.debug("{}: Missing parameter encryption plan: parameterIndex={}", methodName, parameterIndex);
             return new EncryptionResult(value, false);
         }
-        
-        // SELECT WHERE / UPDATE WHERE 절: 로컬 캐시로 검색용 암호화 필요 여부 판단
-        // PolicyResolver가 useIv/usePlain을 캐싱하므로 Engine 호출 없이 판단 가능.
-        // - useIv=false AND usePlain=false → Engine 호출하여 고정 IV 전체 암호화
-        // - 그 외 → 평문 반환 (Engine 호출 불필요)
-        boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
-                ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
-        if (isSearchContext) {
-            String datasourceId = proxyConnection.getDatasourceId();
-            String schemaName = sqlParseResult.getSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentSchemaName();
-                if (schemaName == null || schemaName.trim().isEmpty()) {
-                    schemaName = proxyConnection.getCurrentDatabaseName();
-                }
-            }
-            String nSchema = proxyConnection.normalizeIdentifier(schemaName);
-            String nTable = proxyConnection.normalizeIdentifier(tableName);
-            String nColumn = proxyConnection.normalizeIdentifier(columnName);
 
-            PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-            String policyName = policyResolver.resolvePolicy(datasourceId, nSchema, nTable, nColumn);
-            if (policyName == null) {
-                log.trace("{}: SELECT WHERE clause: not an encryption target, {}.{}", methodName, tableName, columnName);
+        if (plan.searchContext) {
+            if (plan.policyName == null) {
+                log.trace("{}: SELECT WHERE clause: not an encryption target, {}.{}", methodName, plan.tableName, plan.columnName);
                 return new EncryptionResult(value, true);
             }
 
-            // 로컬 캐시로 검색 암호화 필요 여부 판단 (Engine 호출 없이)
-            if (!policyResolver.isSearchEncryptionNeeded(policyName)) {
+            if (!plan.searchEncryptionNeeded) {
                 log.trace("{}: SELECT WHERE clause: search encryption not needed (useIv=true or usePlain=true), {}.{} (policy: {})",
-                        methodName, tableName, columnName, policyName);
+                        methodName, plan.tableName, plan.columnName, plan.policyName);
                 return new EncryptionResult(value, true);
             }
 
-            // 와일드카드(%, _) 포함 시 평문 검색 (부분암호화 컬럼의 평문 부분으로 검색 가능)
             if (value.contains("%") || value.contains("_")) {
                 log.trace("{}: SELECT WHERE clause: wildcard detected, plaintext search, {}.{} (policy: {})",
-                        methodName, tableName, columnName, policyName);
+                        methodName, plan.tableName, plan.columnName, plan.policyName);
                 return new EncryptionResult(value, true);
             }
 
-            // 와일드카드 없음 → 전체 암호화 후 검색 (Engine 호출)
             DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
             if (adapter == null || !adapter.isEndpointAvailable()) {
-                log.trace("{}: SELECT WHERE clause: adapter not available, plaintext search, {}.{}", methodName, tableName, columnName);
+                log.trace("{}: SELECT WHERE clause: adapter not available, plaintext search, {}.{}",
+                        methodName, plan.tableName, plan.columnName);
                 return new EncryptionResult(value, true);
             }
 
             try {
-                String searchValue = adapter.encryptForSearch(value, policyName);
+                String searchValue = adapter.encryptForSearch(value, plan.policyName);
                 boolean encrypted = !value.equals(searchValue);
                 if (encrypted) {
-                    log.trace("{} search encryption: {}.{} (policy: {})", methodName, tableName, columnName, policyName);
+                    log.trace("{} search encryption: {}.{} (policy: {})",
+                            methodName, plan.tableName, plan.columnName, plan.policyName);
                 } else {
-                    log.trace("{} search plaintext: {}.{} (policy: {})", methodName, tableName, columnName, policyName);
+                    log.trace("{} search plaintext: {}.{} (policy: {})",
+                            methodName, plan.tableName, plan.columnName, plan.policyName);
                 }
                 return new EncryptionResult(searchValue, false);
             } catch (Exception e) {
-                log.warn("{} search encryption failed, using plaintext: {}.{} - {}", methodName, tableName, columnName, e.getMessage());
+                log.warn("{} search encryption failed, using plaintext: {}.{} - {}",
+                        methodName, plan.tableName, plan.columnName, e.getMessage());
                 return new EncryptionResult(value, true);
             }
         }
 
-        // datasourceId와 schemaName 결정
-        String datasourceId = proxyConnection.getDatasourceId();
-        String schemaName = sqlParseResult.getSchemaName();
-        if (schemaName == null || schemaName.trim().isEmpty()) {
-            // SQL 파싱 결과에 스키마 이름이 없으면 Connection에서 가져옴
-            // PostgreSQL의 경우 스키마 이름(public), MySQL의 경우 데이터베이스 이름
-            schemaName = proxyConnection.getCurrentSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentDatabaseName();
-            }
-        }
-        
-        // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
-        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
-        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
-        String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
-        
-        // INSERT/UPDATE 쿼리인 경우 datasourceId와 schemaName 로그 출력 (디버깅용)
-        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.trace("{}: Policy lookup params: datasourceId={}, schemaName={}->{}, tableName={}->{}, columnName={}->{}",
-                    methodName, datasourceId, schemaName, normalizedSchemaName, 
-                    tableName, normalizedTableName, columnName, normalizedColumnName);
-        }
-        
-        // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
-        PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
-        
-        // INSERT/UPDATE 쿼리인 경우 정책 확인 결과 로그 출력 (디버깅용)
-        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.trace("{}: Policy check: {}.{} -> policyName={}", methodName, tableName, columnName, policyName);
-        }
-        
-        if (policyName == null) {
-            log.trace("{}: Not an encryption target: {}.{}", methodName, tableName, columnName);
+        if (plan.policyName == null) {
+            log.trace("{}: Not an encryption target: {}.{}", methodName, plan.tableName, plan.columnName);
             return new EncryptionResult(value, false);
         }
-        
+
         // 암호화 대상: 직접 암복호화 어댑터 사용 (Engine/Gateway 직접 연결)
         DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
         if (adapter == null) {
             log.warn("{}: Direct crypto adapter not initialized: {}.{} (policy: {})",
-                    methodName, tableName, columnName, policyName);
+                    methodName, plan.tableName, plan.columnName, plan.policyName);
             if (proxyConnection.getConfig().isFailOpen()) {
                 return new EncryptionResult(value, false);
             } else {
@@ -473,20 +445,20 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         
         try {
-            String encrypted = adapter.encrypt(value, policyName);
+            String encrypted = adapter.encrypt(value, plan.policyName);
             
             // 원본 데이터 저장 (Data truncation 시 평문으로 재시도하기 위해)
             originalDataMap.put(parameterIndex, value);
             
-            log.trace("{} encryption completed: {}.{} -> {} (policy: {})", methodName, tableName, columnName,
+            log.trace("{} encryption completed: {}.{} -> {} (policy: {})", methodName, plan.tableName, plan.columnName,
                      encrypted != null && encrypted.length() > 50 ? encrypted.substring(0, 50) + "..." : encrypted,
-                     policyName);
+                     plan.policyName);
             return new EncryptionResult(encrypted, false);
         } catch (Exception e) {
             // 암호화 실패 시 경고 레벨로 간략하게 출력하고 평문으로 저장
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("{} encryption failed: {}.{} (policy: {}), saving as plaintext - {}",
-                     methodName, tableName, columnName, policyName, errorMsg);
+                     methodName, plan.tableName, plan.columnName, plan.policyName, errorMsg);
             
             // 암복호화 실패 알림은 엔진에서 전송하므로 Wrapper에서는 제거
             
@@ -497,6 +469,80 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 throw new RuntimeException(new SQLException("Encryption failed: " + errorMsg, e));
             }
         }
+    }
+
+    private ParameterEncryptionPlan resolveParameterEncryptionPlan(int parameterIndex, String methodName) {
+        String columnName = parameterToColumnMap.get(parameterIndex);
+        String tableName = sqlParseResult.getTableName();
+
+        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
+            log.trace("{} called: parameterIndex={}, columnName={}, tableName={}, sqlType={}",
+                    methodName, parameterIndex, columnName, tableName, sqlParseResult.getSqlType());
+        }
+
+        if (columnName == null || tableName == null) {
+            return new ParameterEncryptionPlan(null, tableName, columnName, null, false, false, null);
+        }
+
+        PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
+        Long currentPolicyVersion = policyResolver != null ? policyResolver.getCurrentVersion() : null;
+        String schemaName = resolveSchemaNameForLookup();
+
+        ParameterEncryptionPlan cached = parameterPlanCacheByIndex.get(parameterIndex);
+        if (cached != null
+                && Objects.equals(cached.policyVersion, currentPolicyVersion)
+                && Objects.equals(cached.schemaName, schemaName)) {
+            return cached;
+        }
+
+        boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
+                ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
+
+        String datasourceId = proxyConnection.getDatasourceId();
+        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+        String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
+
+        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
+            log.trace("{}: Policy lookup params: datasourceId={}, schemaName={}->{}, tableName={}->{}, columnName={}->{}",
+                    methodName, datasourceId, schemaName, normalizedSchemaName,
+                    tableName, normalizedTableName, columnName, normalizedColumnName);
+        }
+
+        String policyName = policyResolver != null
+                ? policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName)
+                : null;
+
+        boolean searchEncryptionNeeded = false;
+        if (isSearchContext && policyName != null && policyResolver != null) {
+            searchEncryptionNeeded = policyResolver.isSearchEncryptionNeeded(policyName);
+        }
+
+        if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
+            log.trace("{}: Policy check: {}.{} -> policyName={}", methodName, tableName, columnName, policyName);
+        }
+
+        ParameterEncryptionPlan plan = new ParameterEncryptionPlan(
+                schemaName,
+                tableName,
+                columnName,
+                policyName,
+                isSearchContext,
+                searchEncryptionNeeded,
+                currentPolicyVersion);
+        parameterPlanCacheByIndex.put(parameterIndex, plan);
+        return plan;
+    }
+
+    private String resolveSchemaNameForLookup() {
+        String schemaName = sqlParseResult.getSchemaName();
+        if (schemaName == null || schemaName.trim().isEmpty()) {
+            schemaName = proxyConnection.getCurrentSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentDatabaseName();
+            }
+        }
+        return schemaName;
     }
     
     @Override

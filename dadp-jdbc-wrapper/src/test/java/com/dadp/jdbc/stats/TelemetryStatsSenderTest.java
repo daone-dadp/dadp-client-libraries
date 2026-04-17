@@ -3,6 +3,10 @@ package com.dadp.jdbc.stats;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.config.EndpointStorage;
 import com.sun.net.httpserver.HttpServer;
@@ -62,6 +66,40 @@ class TelemetryStatsSenderTest {
         } finally {
             shutdownScheduler(sender);
             server.stop(0);
+        }
+    }
+
+    @Test
+    void sendSqlEventReusesCachedEndpointSnapshotUntilRefreshWindow() throws Exception {
+        EndpointStorage storage = mock(EndpointStorage.class);
+        EndpointStorage.EndpointData endpointData = new EndpointStorage.EndpointData();
+        endpointData.setStatsAggregatorEnabled(true);
+        endpointData.setStatsAggregatorUrl("http://127.0.0.1:9010");
+        endpointData.setStatsAggregatorMode("DIRECT");
+        endpointData.setSlowThresholdMs(500);
+        endpointData.setBufferMaxEvents(10_000);
+        endpointData.setFlushMaxEvents(200);
+        endpointData.setFlushIntervalMillis(5_000);
+        endpointData.setMaxBatchSize(500);
+        endpointData.setMaxPayloadBytes(1_000_000);
+        endpointData.setSamplingRate(1.0d);
+        endpointData.setIncludeSqlNormalized(false);
+        endpointData.setIncludeParams(false);
+        endpointData.setNormalizeSqlEnabled(true);
+        endpointData.setHttpConnectTimeoutMillis(200);
+        endpointData.setHttpReadTimeoutMillis(800);
+        endpointData.setRetryOnFailure(0);
+
+        when(storage.loadEndpoints()).thenReturn(endpointData);
+
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper", 60_000);
+        try {
+            sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);
+            sender.sendSqlEvent("SELECT 2", "SELECT", 11L, false);
+
+            verify(storage, times(1)).loadEndpoints();
+        } finally {
+            shutdownScheduler(sender);
         }
     }
 

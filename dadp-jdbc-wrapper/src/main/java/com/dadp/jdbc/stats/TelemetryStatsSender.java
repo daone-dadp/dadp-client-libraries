@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 public class TelemetryStatsSender {
 
     private static final DadpLogger log = DadpLoggerFactory.getLogger(TelemetryStatsSender.class);
+    private static final int DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS = 1000;
 
     private final EndpointStorage endpointStorage;
     private final ObjectMapper objectMapper;
@@ -53,8 +54,16 @@ public class TelemetryStatsSender {
     private final int httpConnectTimeoutMillis;
     private final int httpReadTimeoutMillis;
     private final int retryOnFailure;
+    private final int endpointSnapshotRefreshMillis;
+    private final Object endpointSnapshotLock = new Object();
+    private volatile EndpointSnapshot endpointSnapshot;
+    private volatile long endpointSnapshotLoadedAtMillis;
 
     public TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String datasourceId) {
+        this(endpointStorage, appId, datasourceId, DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS);
+    }
+
+    TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String datasourceId, int endpointSnapshotRefreshMillis) {
         this.endpointStorage = endpointStorage;
         // appId(hubId)가 null이면 통계 전송 비활성화 (X-DADP-TENANT 헤더 필수)
         this.appId = appId != null && !appId.trim().isEmpty() ? appId : null;
@@ -77,6 +86,11 @@ public class TelemetryStatsSender {
         this.httpConnectTimeoutMillis = getOrDefault(data != null ? data.getHttpConnectTimeoutMillis() : null, 200);
         this.httpReadTimeoutMillis = getOrDefault(data != null ? data.getHttpReadTimeoutMillis() : null, 800);
         this.retryOnFailure = getOrDefault(data != null ? data.getRetryOnFailure() : null, 0);
+        this.endpointSnapshotRefreshMillis = endpointSnapshotRefreshMillis > 0
+                ? endpointSnapshotRefreshMillis
+                : DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS;
+        this.endpointSnapshot = buildEndpointSnapshot(data);
+        this.endpointSnapshotLoadedAtMillis = data != null ? System.currentTimeMillis() : 0L;
 
         this.buffer = new LinkedBlockingQueue<>(this.bufferMaxEvents);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -104,14 +118,14 @@ public class TelemetryStatsSender {
                 return;
             }
             
-            EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-            if (endpointData == null) {
+            EndpointSnapshot snapshot = getEndpointSnapshot(false);
+            if (snapshot == null || snapshot.endpointData == null) {
                 log.debug("Skipping stats event: endpoint storage is empty");
                 return;
             }
 
-            Boolean enabled = endpointData.getStatsAggregatorEnabled();
-            String aggregatorUrl = endpointData.getStatsAggregatorUrl();
+            Boolean enabled = snapshot.enabled;
+            String aggregatorUrl = snapshot.aggregatorUrl;
             if (enabled == null || !enabled || aggregatorUrl == null || aggregatorUrl.trim().isEmpty()) {
                 log.debug("Skipping stats event: stats aggregator disabled or url missing (enabled={}, url={})",
                         enabled, aggregatorUrl);
@@ -206,23 +220,22 @@ public class TelemetryStatsSender {
                 return;
             }
 
-            EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-            if (endpointData == null) {
+            EndpointSnapshot snapshot = getEndpointSnapshot(false);
+            if (snapshot == null || snapshot.endpointData == null) {
                 log.debug("Dropping telemetry buffer: endpoint storage is empty");
                 buffer.clear();
                 return;
             }
 
-            Boolean enabled = endpointData.getStatsAggregatorEnabled();
-            String aggregatorUrl = endpointData.getStatsAggregatorUrl();
+            EndpointStorage.EndpointData endpointData = snapshot.endpointData;
+            Boolean enabled = snapshot.enabled;
+            String aggregatorUrl = snapshot.aggregatorUrl;
             if (enabled == null || !enabled || aggregatorUrl == null || aggregatorUrl.trim().isEmpty()) {
                 log.debug("Dropping telemetry buffer: stats aggregator disabled or url missing (enabled={}, url={})",
                         enabled, aggregatorUrl);
                 buffer.clear();
                 return;
             }
-            
-            aggregatorUrl = aggregatorUrl.trim();
 
             List<SqlEvent> batch = new ArrayList<>();
             int payloadBytes = 0;
@@ -324,6 +337,7 @@ public class TelemetryStatsSender {
                     String actualRequestUrl = uri.toString();
                     log.warn("Stats send failed: status={}, url={}, body={}",
                             status, actualRequestUrl, response.getBody());
+                    invalidateEndpointSnapshot();
                 }
             } catch (Exception e) {
                 // WARN 로그: uri.toString()을 직접 사용하여 실제 요청 URL과 동일하게
@@ -331,6 +345,7 @@ public class TelemetryStatsSender {
                 String actualRequestUrl = uri.toString();
                 log.warn("Stats send IO failed (DROP): url={}, error={}",
                         actualRequestUrl, e.toString());
+                invalidateEndpointSnapshot();
             }
             
             // 재시도 로직 제거: Best-effort 정책에 따라 실패 시 즉시 DROP
@@ -369,6 +384,50 @@ public class TelemetryStatsSender {
         return v != null ? v : def;
     }
 
+    private EndpointSnapshot getEndpointSnapshot(boolean forceRefresh) {
+        EndpointSnapshot cached = endpointSnapshot;
+        long now = System.currentTimeMillis();
+        boolean stale = forceRefresh
+                || cached == null
+                || endpointSnapshotLoadedAtMillis <= 0L
+                || now - endpointSnapshotLoadedAtMillis >= endpointSnapshotRefreshMillis;
+        if (!stale) {
+            return cached;
+        }
+
+        synchronized (endpointSnapshotLock) {
+            cached = endpointSnapshot;
+            now = System.currentTimeMillis();
+            stale = forceRefresh
+                    || cached == null
+                    || endpointSnapshotLoadedAtMillis <= 0L
+                    || now - endpointSnapshotLoadedAtMillis >= endpointSnapshotRefreshMillis;
+            if (!stale) {
+                return cached;
+            }
+
+            EndpointStorage.EndpointData reloaded = endpointStorage.loadEndpoints();
+            endpointSnapshot = buildEndpointSnapshot(reloaded);
+            endpointSnapshotLoadedAtMillis = reloaded != null ? now : 0L;
+            return endpointSnapshot;
+        }
+    }
+
+    private EndpointSnapshot buildEndpointSnapshot(EndpointStorage.EndpointData endpointData) {
+        if (endpointData == null) {
+            return null;
+        }
+        String aggregatorUrl = endpointData.getStatsAggregatorUrl();
+        if (aggregatorUrl != null) {
+            aggregatorUrl = aggregatorUrl.trim();
+        }
+        return new EndpointSnapshot(endpointData, endpointData.getStatsAggregatorEnabled(), aggregatorUrl);
+    }
+
+    private void invalidateEndpointSnapshot() {
+        endpointSnapshotLoadedAtMillis = 0L;
+    }
+
     private static class SqlEvent {
         String batchId;
         String eventId;
@@ -379,5 +438,17 @@ public class TelemetryStatsSender {
         boolean errorFlag;
         String sqlNormalized;
         String sql;
+    }
+
+    private static class EndpointSnapshot {
+        final EndpointStorage.EndpointData endpointData;
+        final Boolean enabled;
+        final String aggregatorUrl;
+
+        EndpointSnapshot(EndpointStorage.EndpointData endpointData, Boolean enabled, String aggregatorUrl) {
+            this.endpointData = endpointData;
+            this.enabled = enabled;
+            this.aggregatorUrl = aggregatorUrl;
+        }
     }
 }

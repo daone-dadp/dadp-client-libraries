@@ -37,6 +37,10 @@ public class DadpProxyResultSet implements ResultSet {
     private Map<Integer, FallbackDecryptCacheEntry> fallbackCacheByIndex;
     /** 레이블 → 컬럼 인덱스 매핑 캐시 (폴백 경로에서 레이블로 반복 검색 방지) */
     private Map<String, Integer> fallbackLabelToIndex;
+    /** sqlParseResult != null 일 때 사용. parsed path의 컬럼별 decrypt plan 캐시 */
+    private Map<Integer, ParsedDecryptPlanEntry> parsedCacheByIndex;
+    /** parsed path의 레이블 → 컬럼 인덱스 캐시 */
+    private Map<String, Integer> parsedLabelToIndex;
     
     /** 폴백 경로용 캐시 엔트리: 정규화된 테이블/컬럼, 조회한 정책명, 조회 시점의 정책 버전(갱신 시 무효화용) */
     private static final class FallbackDecryptCacheEntry {
@@ -45,6 +49,21 @@ public class DadpProxyResultSet implements ResultSet {
         final String policyName; // null 이면 복호화 비대상
         final Long policyVersion; // PolicyResolver.getCurrentVersion() 조회 시점 값
         FallbackDecryptCacheEntry(String tableName, String columnName, String policyName, Long policyVersion) {
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.policyName = policyName;
+            this.policyVersion = policyVersion;
+        }
+    }
+
+    /** parsed path용 캐시 엔트리: 별칭 해석과 정책 조회 결과를 컬럼 단위로 재사용 */
+    private static final class ParsedDecryptPlanEntry {
+        final String tableName;
+        final String columnName;
+        final String policyName; // null 이면 복호화 비대상
+        final Long policyVersion;
+
+        ParsedDecryptPlanEntry(String tableName, String columnName, String policyName, Long policyVersion) {
             this.tableName = tableName;
             this.columnName = columnName;
             this.policyName = policyName;
@@ -115,94 +134,12 @@ public class DadpProxyResultSet implements ResultSet {
         }
 
         try {
-            // ResultSetMetaData로 컬럼명 조회
-            ResultSetMetaData metaData = actualResultSet.getMetaData();
-            String columnName = metaData.getColumnName(columnIndex);
-            String columnLabel = metaData.getColumnLabel(columnIndex);
-            String tableName = sqlParseResult.getTableName();
-            
-            log.trace("Decryption check: tableName={}, columnName={}, columnLabel={}, columnIndex={}",
-                     tableName, columnName, columnLabel, columnIndex);
-            
-            if (columnName != null && tableName != null) {
-                // 컬럼명에서 테이블 별칭 제거 (u1_0.email -> email)
-                if (columnName.contains(".")) {
-                    columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
-                }
-                
-                // Hibernate alias 매핑 확인 (email3_0_ → email)
-                // columnLabel이 alias인 경우 원본 컬럼명으로 변환
-                String originalColumnName = sqlParseResult.getOriginalColumnName(columnLabel);
-                if (!originalColumnName.equals(columnLabel)) {
-                    log.trace("Alias resolved: {} -> {}", columnLabel, originalColumnName);
-                    columnName = originalColumnName;
-                } else if (!columnName.equalsIgnoreCase(columnLabel)) {
-                    // columnName과 columnLabel이 다르면 alias일 수 있음
-                    // 추가로 columnName 기반으로도 매핑 시도
-                    String mappedName = sqlParseResult.getOriginalColumnName(columnName);
-                    if (!mappedName.equals(columnName)) {
-                        log.trace("Alias resolved (columnName): {} -> {}", columnName, mappedName);
-                        columnName = mappedName;
-                    }
-                }
-                
-                // datasourceId와 schemaName 결정
-                String datasourceId = proxyConnection.getDatasourceId();
-                String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
-                if (schemaName == null || schemaName.trim().isEmpty()) {
-                    schemaName = proxyConnection.getCurrentSchemaName();
-                    if (schemaName == null || schemaName.trim().isEmpty()) {
-                        schemaName = proxyConnection.getCurrentDatabaseName();
-                    }
-                }
-                
-                // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
-                String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
-                String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
-                String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
-                
-                // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
-                PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-                String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
-                
-                log.trace("Policy check: {}.{}.{} -> {}", schemaName != null ? schemaName + "." : "", tableName, columnName, policyName);
-                
-                if (policyName != null) {
-                    // 복호화 대상: Hub를 통해 복호화
-                    // 직접 암복호화 어댑터 사용 (Engine/Gateway 직접 연결)
-                    DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
-                    if (adapter != null) {
-                        // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
-                        long t0 = System.currentTimeMillis();
-                        String decrypted = adapter.decrypt(value, policyName);
-                        long t1 = System.currentTimeMillis();
-                        long engineTime = t1 - t0;
+            return decryptUsingParsedPlan(columnIndex, value);
+        } catch (SQLException e) {
+            log.warn("Column metadata lookup failed, returning original data: {}", e.getMessage());
+        }
 
-                        log.trace("[Wrapper Decrypt] engine={} ms, table={}, column={}", engineTime, tableName, columnName);
-
-                        // decrypted는 null이거나 원본 데이터 (DirectCryptoAdapter에서 처리)
-                        if (decrypted != null) {
-                            log.trace("Decryption completed: {}.{} -> {} (policy: {})", tableName, columnName,
-                                     decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
-                                     policyName);
-                            return decrypted;
-                        }
-                        // value가 null인 경우 원본 반환
-                    } else {
-                        log.warn("Crypto adapter not initialized. Returning encrypted data: {}.{} (policy: {})",
-                                tableName, columnName, policyName);
-                    }
-                } else {
-                    log.trace("Not a decryption target: {}.{}", tableName, columnName);
-                }
-            } else {
-                    log.debug("Missing table or column name: cannot determine decryption target, tableName={}, columnName={}", tableName, columnName);
-                }
-            } catch (SQLException e) {
-                log.warn("Column metadata lookup failed, returning original data: {}", e.getMessage());
-            }
-            
-            log.trace("getString called: columnIndex={}", columnIndex);
+        log.trace("getString called: columnIndex={}", columnIndex);
         return value;
     }
     
@@ -214,61 +151,9 @@ public class DadpProxyResultSet implements ResultSet {
         
         if (value != null && sqlParseResult != null) {
             try {
-                String tableName = sqlParseResult.getTableName();
-                
-                // Hibernate alias 매핑: email3_0_ → email
-                String originalColumnName = sqlParseResult.getOriginalColumnName(columnLabel);
-                String columnName = (originalColumnName != null && !originalColumnName.equals(columnLabel)) 
-                    ? originalColumnName : columnLabel;
-                
-                if (!columnName.equals(columnLabel)) {
-                    log.trace("Alias resolved: {} -> {}", columnLabel, columnName);
-                }
-
-                if (tableName == null) {
-                    log.debug("Missing table name: cannot determine decryption target, columnLabel={}", columnLabel);
-                } else {
-                    // datasourceId와 schemaName 결정
-                    String datasourceId = proxyConnection.getDatasourceId();
-                    String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
-                    if (schemaName == null || schemaName.trim().isEmpty()) {
-                        schemaName = proxyConnection.getCurrentSchemaName();
-                        if (schemaName == null || schemaName.trim().isEmpty()) {
-                            schemaName = proxyConnection.getCurrentDatabaseName();
-                        }
-                    }
-                    
-                    // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
-                    String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
-                    String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
-                    String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
-                    
-                    // PolicyResolver에서 정책 확인 (메모리 캐시에서 조회)
-                    PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-                    String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
-                    
-                    if (policyName != null) {
-                        // 복호화 대상: Hub를 통해 복호화
-                        // 직접 암복호화 어댑터 사용 (Engine/Gateway 직접 연결)
-                        DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
-                        if (adapter != null) {
-                            // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
-                            String decrypted = adapter.decrypt(value, policyName);
-                            // decrypted는 null이거나 원본 데이터 (DirectCryptoAdapter에서 처리)
-                            if (decrypted != null) {
-                                log.trace("Decryption completed: {}.{} -> {} (policy: {})", tableName, columnName,
-                                         decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
-                                         policyName);
-                                return decrypted;
-                            }
-                            // value가 null인 경우 원본 반환
-                        } else {
-                            log.warn("Hub adapter not initialized: {}.{} (policy: {}), returning original data",
-                                    tableName, columnName, policyName);
-                        }
-                    } else {
-                        log.trace("Not a decryption target: {}.{}", tableName, columnName);
-                    }
+                Integer columnIndex = resolveParsedColumnIndex(columnLabel);
+                if (columnIndex != null) {
+                    return decryptUsingParsedPlan(columnIndex, value);
                 }
             } catch (Exception e) {
                 // 복호화 처리 중 오류 발생 시 경고 레벨로 간략하게 출력하고 평문 반환
@@ -286,6 +171,177 @@ public class DadpProxyResultSet implements ResultSet {
         
         log.trace("getString called: columnLabel={}", columnLabel);
         return value;
+    }
+
+    private String decryptUsingParsedPlan(int columnIndex, String value) throws SQLException {
+        ParsedDecryptPlanEntry plan = resolveParsedDecryptPlan(columnIndex);
+        if (plan == null || plan.tableName == null || plan.columnName == null) {
+            log.debug("Missing parsed decrypt plan: columnIndex={}", columnIndex);
+            return value;
+        }
+
+        if (plan.policyName == null) {
+            log.trace("Not a decryption target: {}.{}", plan.tableName, plan.columnName);
+            return value;
+        }
+
+        DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
+        if (adapter == null) {
+            log.warn("Crypto adapter not initialized. Returning encrypted data: {}.{} (policy: {})",
+                    plan.tableName, plan.columnName, plan.policyName);
+            return value;
+        }
+
+        long t0 = System.currentTimeMillis();
+        String decrypted = adapter.decrypt(value, plan.policyName);
+        long t1 = System.currentTimeMillis();
+        long engineTime = t1 - t0;
+
+        log.trace("[Wrapper Decrypt] engine={} ms, table={}, column={}", engineTime, plan.tableName, plan.columnName);
+
+        if (decrypted != null) {
+            log.trace("Decryption completed: {}.{} -> {} (policy: {})", plan.tableName, plan.columnName,
+                    decrypted.length() > 20 ? decrypted.substring(0, 20) + "..." : decrypted,
+                    plan.policyName);
+            return decrypted;
+        }
+
+        return value;
+    }
+
+    private ParsedDecryptPlanEntry resolveParsedDecryptPlan(int columnIndex) throws SQLException {
+        if (parsedCacheByIndex == null) {
+            parsedCacheByIndex = new HashMap<>();
+        }
+
+        PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
+        Long currentPolicyVersion = policyResolver != null ? policyResolver.getCurrentVersion() : null;
+        ParsedDecryptPlanEntry cached = parsedCacheByIndex.get(columnIndex);
+        if (cached != null && Objects.equals(cached.policyVersion, currentPolicyVersion)) {
+            return cached;
+        }
+
+        ResultSetMetaData metaData = actualResultSet.getMetaData();
+        String rawColumnName = metaData.getColumnName(columnIndex);
+        String columnLabel = metaData.getColumnLabel(columnIndex);
+        String tableName = sqlParseResult.getTableName();
+
+        log.trace("Decryption check: tableName={}, columnName={}, columnLabel={}, columnIndex={}",
+                tableName, rawColumnName, columnLabel, columnIndex);
+
+        String columnName = resolveParsedColumnName(rawColumnName, columnLabel);
+        if (tableName == null || columnName == null) {
+            ParsedDecryptPlanEntry emptyPlan = new ParsedDecryptPlanEntry(tableName, columnName, null, currentPolicyVersion);
+            parsedCacheByIndex.put(columnIndex, emptyPlan);
+            cacheParsedLabel(columnLabel, columnIndex);
+            cacheParsedLabel(rawColumnName, columnIndex);
+            return emptyPlan;
+        }
+
+        String schemaName = resolveParsedSchemaName();
+        String datasourceId = proxyConnection.getDatasourceId();
+        String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
+        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+        String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
+        String policyName = policyResolver != null
+                ? policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName)
+                : null;
+
+        log.trace("Policy check: {}.{}.{} -> {}",
+                schemaName != null ? schemaName + "." : "", tableName, columnName, policyName);
+
+        ParsedDecryptPlanEntry plan = new ParsedDecryptPlanEntry(tableName, columnName, policyName, currentPolicyVersion);
+        parsedCacheByIndex.put(columnIndex, plan);
+        cacheParsedLabel(columnLabel, columnIndex);
+        cacheParsedLabel(rawColumnName, columnIndex);
+        cacheParsedLabel(columnName, columnIndex);
+        return plan;
+    }
+
+    private String resolveParsedColumnName(String rawColumnName, String columnLabel) {
+        if (rawColumnName == null) {
+            return null;
+        }
+
+        String columnName = rawColumnName;
+        if (columnName.contains(".")) {
+            columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
+        }
+
+        if (columnLabel != null) {
+            String originalColumnName = sqlParseResult.getOriginalColumnName(columnLabel);
+            if (!originalColumnName.equals(columnLabel)) {
+                log.trace("Alias resolved: {} -> {}", columnLabel, originalColumnName);
+                columnName = originalColumnName;
+            } else if (!columnName.equalsIgnoreCase(columnLabel)) {
+                String mappedName = sqlParseResult.getOriginalColumnName(columnName);
+                if (!mappedName.equals(columnName)) {
+                    log.trace("Alias resolved (columnName): {} -> {}", columnName, mappedName);
+                    columnName = mappedName;
+                }
+            }
+        }
+
+        return columnName;
+    }
+
+    private String resolveParsedSchemaName() {
+        String schemaName = sqlParseResult.getSchemaName();
+        if (schemaName == null || schemaName.trim().isEmpty()) {
+            schemaName = proxyConnection.getCurrentSchemaName();
+            if (schemaName == null || schemaName.trim().isEmpty()) {
+                schemaName = proxyConnection.getCurrentDatabaseName();
+            }
+        }
+        return schemaName;
+    }
+
+    private Integer resolveParsedColumnIndex(String columnLabel) throws SQLException {
+        if (columnLabel == null || columnLabel.trim().isEmpty()) {
+            return null;
+        }
+
+        if (parsedLabelToIndex == null) {
+            parsedLabelToIndex = new HashMap<>();
+        }
+
+        Integer cached = parsedLabelToIndex.get(columnLabel);
+        if (cached != null) {
+            return cached;
+        }
+
+        cached = parsedLabelToIndex.get(columnLabel.toLowerCase());
+        if (cached != null) {
+            return cached;
+        }
+
+        int columnCount = actualResultSet.getMetaData().getColumnCount();
+        for (int i = 1; i <= columnCount; i++) {
+            String label = actualResultSet.getMetaData().getColumnLabel(i);
+            cacheParsedLabel(label, i);
+            if (columnLabel.equals(label) || columnLabel.equalsIgnoreCase(label)) {
+                return i;
+            }
+        }
+
+        try {
+            int foundIndex = actualResultSet.findColumn(columnLabel);
+            cacheParsedLabel(columnLabel, foundIndex);
+            return foundIndex;
+        } catch (SQLException e) {
+            return null;
+        }
+    }
+
+    private void cacheParsedLabel(String label, int columnIndex) {
+        if (label == null || label.trim().isEmpty()) {
+            return;
+        }
+        if (parsedLabelToIndex == null) {
+            parsedLabelToIndex = new HashMap<>();
+        }
+        parsedLabelToIndex.put(label, columnIndex);
+        parsedLabelToIndex.put(label.toLowerCase(), columnIndex);
     }
     
     @Override
@@ -1471,4 +1527,3 @@ public class DadpProxyResultSet implements ResultSet {
         return iface.isInstance(this) || actualResultSet.isWrapperFor(iface);
     }
 }
-

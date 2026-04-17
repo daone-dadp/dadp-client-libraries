@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.7] - 2026-04-17
+
+### Changed
+
+- **Parsed ResultSet decrypt planning is now cached per column**
+  - repeated parsed-path metadata lookup, alias resolution, identifier normalization, and policy resolution are reused by column index
+  - repeated `getString(int)` / `getString(String)` access on the same parsed result set avoids rebuilding the same decrypt plan
+
+- **PreparedStatement parameter encryption planning is now cached per parameter**
+  - repeated binds reuse schema/table/column normalization and policy lookup decisions
+  - search-encryption routing also reuses the cached per-parameter plan and avoids repeated `isSearchEncryptionNeeded(...)` checks
+
+- **SQL Insight telemetry sender now keeps a cached endpoint snapshot**
+  - per-event stats config file reloads were removed from the steady-state SQL path
+  - the sender refreshes endpoint config on a controlled interval and invalidates the snapshot after send failures
+
+### Added
+
+- **Hot-path cache tests for wrapper read/bind flows**
+  - parsed ResultSet decrypt-plan cache coverage
+  - PreparedStatement encryption-plan cache coverage
+  - telemetry endpoint snapshot cache coverage
+
 ## [5.8.6] - 2026-04-16
 
 ### Fixed
