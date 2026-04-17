@@ -48,7 +48,6 @@ public class TelemetryStatsSender {
     private final int maxBatchSize;
     private final int maxPayloadBytes;
     private final double samplingRate;
-    private final boolean includeSqlNormalized;
     private final boolean includeParams;
     private final boolean normalizeSqlEnabled;
     private final int httpConnectTimeoutMillis;
@@ -80,7 +79,6 @@ public class TelemetryStatsSender {
         this.maxBatchSize = getOrDefault(data != null ? data.getMaxBatchSize() : null, 500);
         this.maxPayloadBytes = getOrDefault(data != null ? data.getMaxPayloadBytes() : null, 1_000_000);
         this.samplingRate = getOrDefault(data != null ? data.getSamplingRate() : null, 1.0d);
-        this.includeSqlNormalized = getOrDefault(data != null ? data.getIncludeSqlNormalized() : null, false);
         this.includeParams = getOrDefault(data != null ? data.getIncludeParams() : null, false);
         this.normalizeSqlEnabled = getOrDefault(data != null ? data.getNormalizeSqlEnabled() : null, true);
         this.httpConnectTimeoutMillis = getOrDefault(data != null ? data.getHttpConnectTimeoutMillis() : null, 200);
@@ -138,7 +136,7 @@ public class TelemetryStatsSender {
                 return;
             }
 
-            SqlEvent event = buildEvent(sql, sqlType, durationMs, errorFlag);
+            SqlEvent event = buildEvent(snapshot, sql, sqlType, durationMs, errorFlag);
             if (!buffer.offer(event)) {
                 // overflow -> DROP
                 log.warn("Dropping stats event: telemetry buffer full (bufferMaxEvents={})", bufferMaxEvents);
@@ -159,11 +157,12 @@ public class TelemetryStatsSender {
         }
     }
 
-    private SqlEvent buildEvent(String sql, String sqlType, long durationMs, boolean errorFlag) {
+    private SqlEvent buildEvent(EndpointSnapshot snapshot, String sql, String sqlType, long durationMs, boolean errorFlag) {
         String batchId = UUID.randomUUID().toString();
         String eventId = UUID.randomUUID().toString();
         String normalizedSqlType = normalizeSqlType(sqlType);
         String sqlHash = sha256(sql != null ? sql : "");
+        boolean includeSqlNormalized = snapshot != null && snapshot.includeSqlNormalized;
 
         SqlEvent event = new SqlEvent();
         event.batchId = batchId;
@@ -278,7 +277,7 @@ public class TelemetryStatsSender {
                 e.put("errorFlag", ev.errorFlag);
                 e.put("errorCode", null);
                 e.put("slowThresholdMs", slowThresholdMs);
-                if (includeSqlNormalized && ev.sql != null) {
+                if (snapshot.includeSqlNormalized && ev.sql != null) {
                     e.put("sqlNormalized", normalizeSqlEnabled ? ev.sql : ev.sql);
                 } else {
                     e.put("sqlNormalized", null);
@@ -421,7 +420,11 @@ public class TelemetryStatsSender {
         if (aggregatorUrl != null) {
             aggregatorUrl = aggregatorUrl.trim();
         }
-        return new EndpointSnapshot(endpointData, endpointData.getStatsAggregatorEnabled(), aggregatorUrl);
+        return new EndpointSnapshot(
+                endpointData,
+                endpointData.getStatsAggregatorEnabled(),
+                aggregatorUrl,
+                getOrDefault(endpointData.getIncludeSqlNormalized(), false));
     }
 
     private void invalidateEndpointSnapshot() {
@@ -444,11 +447,17 @@ public class TelemetryStatsSender {
         final EndpointStorage.EndpointData endpointData;
         final Boolean enabled;
         final String aggregatorUrl;
+        final boolean includeSqlNormalized;
 
-        EndpointSnapshot(EndpointStorage.EndpointData endpointData, Boolean enabled, String aggregatorUrl) {
+        EndpointSnapshot(
+                EndpointStorage.EndpointData endpointData,
+                Boolean enabled,
+                String aggregatorUrl,
+                boolean includeSqlNormalized) {
             this.endpointData = endpointData;
             this.enabled = enabled;
             this.aggregatorUrl = aggregatorUrl;
+            this.includeSqlNormalized = includeSqlNormalized;
         }
     }
 }

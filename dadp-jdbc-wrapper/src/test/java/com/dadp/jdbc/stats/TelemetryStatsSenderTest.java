@@ -73,23 +73,7 @@ class TelemetryStatsSenderTest {
     @Test
     void sendSqlEventReusesCachedEndpointSnapshotUntilRefreshWindow() throws Exception {
         EndpointStorage storage = mock(EndpointStorage.class);
-        EndpointStorage.EndpointData endpointData = new EndpointStorage.EndpointData();
-        endpointData.setStatsAggregatorEnabled(true);
-        endpointData.setStatsAggregatorUrl("http://127.0.0.1:9010");
-        endpointData.setStatsAggregatorMode("DIRECT");
-        endpointData.setSlowThresholdMs(500);
-        endpointData.setBufferMaxEvents(10_000);
-        endpointData.setFlushMaxEvents(200);
-        endpointData.setFlushIntervalMillis(5_000);
-        endpointData.setMaxBatchSize(500);
-        endpointData.setMaxPayloadBytes(1_000_000);
-        endpointData.setSamplingRate(1.0d);
-        endpointData.setIncludeSqlNormalized(false);
-        endpointData.setIncludeParams(false);
-        endpointData.setNormalizeSqlEnabled(true);
-        endpointData.setHttpConnectTimeoutMillis(200);
-        endpointData.setHttpReadTimeoutMillis(800);
-        endpointData.setRetryOnFailure(0);
+        EndpointStorage.EndpointData endpointData = createEndpointData("http://127.0.0.1:9010", false);
 
         when(storage.loadEndpoints()).thenReturn(endpointData);
 
@@ -101,6 +85,40 @@ class TelemetryStatsSenderTest {
             verify(storage, times(1)).loadEndpoints();
         } finally {
             shutdownScheduler(sender);
+        }
+    }
+
+    @Test
+    void sendSqlEventRefreshesIncludeSqlNormalizedFromEndpointSnapshot() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server.createContext("/aggregator/api/v1/events/batch", exchange -> {
+            requestBody.set(readBody(exchange.getRequestBody()));
+            byte[] response = "{\"acceptedCount\":1}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        String aggregatorUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        EndpointStorage storage = mock(EndpointStorage.class);
+        EndpointStorage.EndpointData disabledNormalized = createEndpointData(aggregatorUrl, false);
+        EndpointStorage.EndpointData enabledNormalized = createEndpointData(aggregatorUrl, true);
+        when(storage.loadEndpoints()).thenReturn(disabledNormalized, enabledNormalized, enabledNormalized);
+
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper", 1);
+        try {
+            Thread.sleep(10L);
+            sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);
+            invokeFlush(sender);
+
+            assertNotNull(requestBody.get());
+            assertTrue(requestBody.get().contains("\"sqlNormalized\":\"SELECT 1\""));
+        } finally {
+            shutdownScheduler(sender);
+            server.stop(0);
         }
     }
 
@@ -125,5 +143,26 @@ class TelemetryStatsSenderTest {
         schedulerField.setAccessible(true);
         ScheduledExecutorService scheduler = (ScheduledExecutorService) schedulerField.get(sender);
         scheduler.shutdownNow();
+    }
+
+    private EndpointStorage.EndpointData createEndpointData(String aggregatorUrl, boolean includeSqlNormalized) {
+        EndpointStorage.EndpointData endpointData = new EndpointStorage.EndpointData();
+        endpointData.setStatsAggregatorEnabled(true);
+        endpointData.setStatsAggregatorUrl(aggregatorUrl);
+        endpointData.setStatsAggregatorMode("DIRECT");
+        endpointData.setSlowThresholdMs(500);
+        endpointData.setBufferMaxEvents(10_000);
+        endpointData.setFlushMaxEvents(200);
+        endpointData.setFlushIntervalMillis(5_000);
+        endpointData.setMaxBatchSize(500);
+        endpointData.setMaxPayloadBytes(1_000_000);
+        endpointData.setSamplingRate(1.0d);
+        endpointData.setIncludeSqlNormalized(includeSqlNormalized);
+        endpointData.setIncludeParams(false);
+        endpointData.setNormalizeSqlEnabled(true);
+        endpointData.setHttpConnectTimeoutMillis(200);
+        endpointData.setHttpReadTimeoutMillis(800);
+        endpointData.setRetryOnFailure(0);
+        return endpointData;
     }
 }

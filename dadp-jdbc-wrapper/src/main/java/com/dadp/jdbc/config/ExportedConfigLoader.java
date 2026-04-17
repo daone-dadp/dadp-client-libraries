@@ -136,17 +136,8 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            // Wrapper 활성화 설정은 policyVersion과 무관하게 항상 적용
-            if (proxyConfig != null) {
-                Map<String, Object> wrapperConfig = (Map<String, Object>) config.get("wrapperConfig");
-                if (wrapperConfig != null) {
-                    Object enabledObj = wrapperConfig.get("enabled");
-                    if (enabledObj instanceof Boolean && !((Boolean) enabledObj)) {
-                        proxyConfig.setEnabled(false);
-                        log.info("Exported config: Wrapper DISABLED (passthrough mode) by Hub config");
-                    }
-                }
-            }
+            applyWrapperConfig(config, proxyConfig);
+            applyLogConfig(config, policyResolver);
 
             // Version comparison: skip if current version is same or newer
             Object policyVersionObj = config.get("policyVersion");
@@ -319,5 +310,52 @@ public class ExportedConfigLoader {
         }
         Object value = map.get(key);
         return value instanceof Number ? ((Number) value).intValue() : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void applyWrapperConfig(Map<String, Object> config, ProxyConfig proxyConfig) {
+        if (proxyConfig == null || config == null) {
+            return;
+        }
+
+        Map<String, Object> wrapperConfig = (Map<String, Object>) config.get("wrapperConfig");
+        Boolean enabled = getBooleanValue(wrapperConfig, "enabled");
+        if (enabled == null) {
+            return;
+        }
+
+        proxyConfig.setEnabled(enabled);
+        log.info("Exported config: Wrapper {} by Hub config",
+                enabled ? "ENABLED" : "DISABLED (passthrough mode)");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void applyLogConfig(Map<String, Object> config, PolicyResolver policyResolver) {
+        if (config == null || policyResolver == null) {
+            return;
+        }
+
+        Map<String, Object> logConfig = (Map<String, Object>) config.get("logConfig");
+        if (logConfig == null) {
+            return;
+        }
+
+        Boolean enabled = getBooleanValue(logConfig, "enabled");
+        String level = getStringValue(logConfig, "level");
+        if (enabled == null && level == null) {
+            return;
+        }
+
+        if (enabled != null) {
+            DadpLoggerFactory.setFromHub(enabled, level);
+            policyResolver.updateStoredLogConfig(enabled, level);
+            log.info("Exported config: log config applied: enabled={}, level={}", enabled, level);
+            return;
+        }
+
+        boolean currentEnabled = DadpLoggerFactory.isLoggingEnabled();
+        DadpLoggerFactory.setFromHub(currentEnabled, level);
+        policyResolver.updateStoredLogConfig(currentEnabled, level);
+        log.info("Exported config: log level applied: level={}", level);
     }
 }
