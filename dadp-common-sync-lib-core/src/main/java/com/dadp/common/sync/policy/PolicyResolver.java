@@ -1,7 +1,10 @@
 package com.dadp.common.sync.policy;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
@@ -35,6 +38,8 @@ public class PolicyResolver {
 
     
     private volatile StoredLogConfig storedLogConfig = null;
+
+    private volatile ProtectedColumnIndex protectedColumnIndex = null;
     
     
     private final PolicyMappingStorage storage;
@@ -244,6 +249,7 @@ public class PolicyResolver {
         log.trace("Policy mapping cache refresh started: {} mappings, version={}", mappings.size(), version);
         policyCache.clear();
         policyCache.putAll(mappings);
+        protectedColumnIndex = null;
         
         
         
@@ -355,6 +361,7 @@ public class PolicyResolver {
     
     public void clearCache() {
         policyCache.clear();
+        protectedColumnIndex = null;
         log.trace("Policy mapping cache cleared");
     }
     
@@ -364,6 +371,7 @@ public class PolicyResolver {
         if (!storedMappings.isEmpty()) {
             policyCache.clear();
             policyCache.putAll(storedMappings);
+            protectedColumnIndex = null;
             Long storedVersion = storage.loadVersion();
             if (storedVersion != null) {
                 this.currentVersion = storedVersion;
@@ -384,6 +392,29 @@ public class PolicyResolver {
     
     public Map<String, String> getAllMappings() {
         return new HashMap<>(policyCache);
+    }
+
+    public ProtectedColumnIndex getProtectedColumnIndex() {
+        Map<String, String> mappingsSnapshot = getAllMappings();
+        Long versionSnapshot = currentVersion;
+        int mappingCount = mappingsSnapshot.size();
+        int mappingHash = mappingsSnapshot.hashCode();
+
+        ProtectedColumnIndex local = protectedColumnIndex;
+        if (local != null && local.matches(versionSnapshot, mappingCount, mappingHash)) {
+            return local;
+        }
+
+        synchronized (this) {
+            local = protectedColumnIndex;
+            if (local != null && local.matches(versionSnapshot, mappingCount, mappingHash)) {
+                return local;
+            }
+
+            ProtectedColumnIndex rebuilt = ProtectedColumnIndex.fromMappings(mappingsSnapshot, versionSnapshot);
+            protectedColumnIndex = rebuilt;
+            return rebuilt;
+        }
     }
 
     public void updateStoredLogConfig(Boolean enabled, String level) {
@@ -456,6 +487,98 @@ public class PolicyResolver {
 
         public void setLevel(String level) {
             this.level = level;
+        }
+    }
+
+    public static class ProtectedColumnIndex {
+        private final Long policyVersion;
+        private final int mappingCount;
+        private final int mappingHash;
+        private final Map<String, String> normalizedMappings;
+
+        private ProtectedColumnIndex(Long policyVersion, int mappingCount, int mappingHash, Map<String, String> normalizedMappings) {
+            this.policyVersion = policyVersion;
+            this.mappingCount = mappingCount;
+            this.mappingHash = mappingHash;
+            this.normalizedMappings = normalizedMappings;
+        }
+
+        public static ProtectedColumnIndex fromMappings(Map<String, String> mappings, Long policyVersion) {
+            Map<String, String> normalized = new HashMap<>();
+            if (mappings != null) {
+                for (Map.Entry<String, String> entry : mappings.entrySet()) {
+                    String key = normalizeKey(entry.getKey());
+                    if (key != null && entry.getValue() != null) {
+                        normalized.put(key, entry.getValue());
+                    }
+                }
+            }
+            return new ProtectedColumnIndex(
+                    policyVersion,
+                    mappings != null ? mappings.size() : 0,
+                    mappings != null ? mappings.hashCode() : 0,
+                    Collections.unmodifiableMap(normalized));
+        }
+
+        public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
+            String normalizedDatasourceId = normalizeSegment(datasourceId);
+            String normalizedSchemaName = normalizeSegment(schemaName);
+            String normalizedTableName = normalizeSegment(tableName);
+            String normalizedColumnName = normalizeSegment(columnName);
+
+            if (normalizedTableName == null || normalizedColumnName == null) {
+                return null;
+            }
+
+            if (normalizedDatasourceId != null) {
+                return normalizedMappings.get(buildDatasourceScopedKey(
+                        normalizedDatasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName));
+            }
+
+            if (normalizedSchemaName != null) {
+                String schemaScopedPolicy = normalizedMappings.get(
+                        buildSchemaScopedKey(normalizedSchemaName, normalizedTableName, normalizedColumnName));
+                if (schemaScopedPolicy != null) {
+                    return schemaScopedPolicy;
+                }
+            }
+
+            return normalizedMappings.get(buildTableScopedKey(normalizedTableName, normalizedColumnName));
+        }
+
+        boolean matches(Long expectedVersion, int expectedMappingCount, int expectedMappingHash) {
+            return Objects.equals(policyVersion, expectedVersion)
+                    && mappingCount == expectedMappingCount
+                    && mappingHash == expectedMappingHash;
+        }
+
+        private static String normalizeKey(String key) {
+            if (key == null) {
+                return null;
+            }
+            return key.trim().toLowerCase(Locale.ROOT);
+        }
+
+        private static String normalizeSegment(String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            return value.trim().toLowerCase(Locale.ROOT);
+        }
+
+        private static String buildDatasourceScopedKey(String datasourceId, String schemaName, String tableName, String columnName) {
+            if (schemaName == null) {
+                return datasourceId + ":" + tableName + "." + columnName;
+            }
+            return datasourceId + ":" + schemaName + "." + tableName + "." + columnName;
+        }
+
+        private static String buildSchemaScopedKey(String schemaName, String tableName, String columnName) {
+            return schemaName + "." + tableName + "." + columnName;
+        }
+
+        private static String buildTableScopedKey(String tableName, String columnName) {
+            return tableName + "." + columnName;
         }
     }
 }

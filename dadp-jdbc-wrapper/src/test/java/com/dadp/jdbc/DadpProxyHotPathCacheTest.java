@@ -13,8 +13,10 @@ import com.dadp.common.sync.policy.PolicyResolver;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -220,6 +222,122 @@ class DadpProxyHotPathCacheTest {
         verify(actualPreparedStatement1).setString(2, "plain-1");
         verify(actualPreparedStatement2).setString(1, "run-2");
         verify(actualPreparedStatement2).setString(2, "plain-2");
+    }
+
+    @Test
+    void preparedStatementUsesProtectedColumnIndexForPrepareTimePlaintextClassification() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(23L);
+        when(policyResolver.getProtectedColumnIndex()).thenReturn(
+                PolicyResolver.ProtectedColumnIndex.fromMappings(
+                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        23L));
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO DADP_UDF_BENCH_TEXT (RUN_ID, PLAIN_TEXT) VALUES (?, ?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "run-1");
+        proxyPreparedStatement.setString(2, "plain-1");
+
+        verify(policyResolver, never()).resolvePolicy(anyString(), anyString(), anyString(), anyString());
+        verify(adapter, never()).encrypt(anyString(), anyString());
+        verify(actualPreparedStatement).setString(1, "run-1");
+        verify(actualPreparedStatement).setString(2, "plain-1");
+    }
+
+    @Test
+    void preparedStatementUsesProtectedColumnIndexForPrepareTimeEncryptedClassification() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(24L);
+        when(policyResolver.getProtectedColumnIndex()).thenReturn(
+                PolicyResolver.ProtectedColumnIndex.fromMappings(
+                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        24L));
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "alice@example.com");
+
+        verify(policyResolver, never()).resolvePolicy(anyString(), anyString(), anyString(), anyString());
+        verify(actualPreparedStatement).setString(1, "enc-alice");
+    }
+
+    @Test
+    void preparedStatementReclassifiesWhenProtectedColumnIndexChangesForNewStatements() throws Exception {
+        PreparedStatement encryptedPreparedStatement = mock(PreparedStatement.class);
+        PreparedStatement passthroughPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        AtomicLong policyVersion = new AtomicLong(25L);
+        AtomicReference<PolicyResolver.ProtectedColumnIndex> indexRef = new AtomicReference<>(
+                PolicyResolver.ProtectedColumnIndex.fromMappings(
+                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        25L));
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenAnswer(invocation -> policyVersion.get());
+        when(policyResolver.getProtectedColumnIndex()).thenAnswer(invocation -> indexRef.get());
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
+
+        DadpProxyPreparedStatement encryptedStatement = new DadpProxyPreparedStatement(
+                encryptedPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+        encryptedStatement.setString(1, "alice@example.com");
+
+        policyVersion.set(26L);
+        indexRef.set(PolicyResolver.ProtectedColumnIndex.fromMappings(Collections.emptyMap(), 26L));
+
+        DadpProxyPreparedStatement passthroughStatement = new DadpProxyPreparedStatement(
+                passthroughPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+        passthroughStatement.setString(1, "bob@example.com");
+
+        verify(policyResolver, never()).resolvePolicy(anyString(), anyString(), anyString(), anyString());
+        verify(encryptedPreparedStatement).setString(1, "enc-alice");
+        verify(passthroughPreparedStatement).setString(1, "bob@example.com");
     }
 
     @Test

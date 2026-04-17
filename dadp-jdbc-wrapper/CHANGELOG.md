@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.10] - 2026-04-17
+
+### Changed
+
+- **PreparedStatement now classifies one statement at creation time**
+  - the wrapper now classifies parsed statements up front as all-plaintext, encrypted-write, search-sensitive, or mixed
+  - the classification stays fixed for the statement lifetime instead of being rediscovered on the bind path
+
+- **Protected-column lookup now uses a policy-snapshot index**
+  - `PolicyResolver` now exposes a protected-column index rebuilt from the current mapping snapshot and policy version
+  - statement classification and compiled-plan resolution now reuse the same snapshot-backed index instead of repeated resolver lookups
+
+- **Fully plaintext statements now take a true passthrough bind path**
+  - `setString`, `setObject`, and `setNString` now bypass wrapper string-processing entirely when the statement is classified as fully plaintext
+  - newly created statements are reclassified against the current snapshot, so updated policy versions change behavior on new statements without reusing stale decisions
+
+### Added
+
+- **Regression coverage for prepare-time classification**
+  - verifies prepare-time plaintext classification via the protected-column index
+  - verifies prepare-time encrypted classification via the protected-column index
+  - verifies new-statement reclassification after policy version and snapshot change
+
 ## [5.8.9] - 2026-04-17
 
 ### Changed
