@@ -271,6 +271,7 @@ public class JdbcPolicyMappingSyncService {
             String statsUrl = statsAggregator != null ? statsAggregator.getUrl() : null;
             String statsMode = statsAggregator != null ? statsAggregator.getMode() : null;
             Integer slowThresholdMs = statsAggregator != null ? statsAggregator.getSlowThresholdMs() : null;
+            Boolean includeSqlNormalized = statsAggregator != null ? statsAggregator.getIncludeSqlNormalized() : null;
             
             
             boolean saved = endpointStorage.saveEndpoints(
@@ -280,7 +281,8 @@ public class JdbcPolicyMappingSyncService {
                 statsEnabled,
                 statsUrl,
                 statsMode,
-                slowThresholdMs
+                slowThresholdMs,
+                includeSqlNormalized
             );
             
             if (saved) {
@@ -447,4 +449,3 @@ public class JdbcPolicyMappingSyncService {
         }
     }
 }
-

@@ -117,6 +117,7 @@ public class EndpointSyncService {
                 String statsAggregatorUrl = null;
                 String statsAggregatorMode = null;
                 Integer slowThresholdMs = null;
+                Boolean includeSqlNormalized = null;
                 if (!statsNode.isMissingNode()) {
                     statsAggregatorEnabled = statsNode.path("enabled").asBoolean(false);
                     statsAggregatorUrl = statsNode.path("url").asText(null);
@@ -124,6 +125,10 @@ public class EndpointSyncService {
                     JsonNode slowThresholdNode = statsNode.path("slowThresholdMs");
                     if (!slowThresholdNode.isMissingNode() && !slowThresholdNode.isNull()) {
                         slowThresholdMs = slowThresholdNode.asInt(500);
+                    }
+                    JsonNode includeSqlNormalizedNode = statsNode.path("includeSqlNormalized");
+                    if (!includeSqlNormalizedNode.isMissingNode() && !includeSqlNormalizedNode.isNull()) {
+                        includeSqlNormalized = includeSqlNormalizedNode.asBoolean(false);
                     }
                 }
                 
@@ -149,7 +154,8 @@ public class EndpointSyncService {
                         statsAggregatorEnabled,
                         statsAggregatorUrl,
                         statsAggregatorMode,
-                        slowThresholdMs);
+                        slowThresholdMs,
+                        includeSqlNormalized);
                 
                 if (saved) {
                     log.debug("Endpoint info synced from Hub: cryptoUrl={}, hubId={}, version={}, statsEnabled={}",

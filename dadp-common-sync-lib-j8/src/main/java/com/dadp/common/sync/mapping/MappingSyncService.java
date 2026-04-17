@@ -762,6 +762,7 @@ public class MappingSyncService {
         private String url;
         private String mode;
         private Integer slowThresholdMs;
+        private Boolean includeSqlNormalized;
 
         public Boolean getEnabled() {
             return enabled;
@@ -793,6 +794,14 @@ public class MappingSyncService {
 
         public void setSlowThresholdMs(Integer slowThresholdMs) {
             this.slowThresholdMs = slowThresholdMs;
+        }
+
+        public Boolean getIncludeSqlNormalized() {
+            return includeSqlNormalized;
+        }
+
+        public void setIncludeSqlNormalized(Boolean includeSqlNormalized) {
+            this.includeSqlNormalized = includeSqlNormalized;
         }
     }
     

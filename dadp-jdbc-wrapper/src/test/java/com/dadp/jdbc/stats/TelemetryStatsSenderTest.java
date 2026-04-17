@@ -51,7 +51,8 @@ class TelemetryStatsSenderTest {
                 true,
                 aggregatorUrl,
                 "DIRECT",
-                500);
+                500,
+                false);
 
         TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper");
         try {

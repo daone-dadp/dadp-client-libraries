@@ -82,11 +82,12 @@ public class EndpointStorage {
      * @param statsAggregatorEnabled 통계 앱 사용 여부
      * @param statsAggregatorUrl 통계 앱 URL
      * @param statsAggregatorMode 전송 모드 (DIRECT/GATEWAY)
+     * @param includeSqlNormalized Whether normalized SQL text should be sent with telemetry
      * @return 저장 성공 여부
      */
     public boolean saveEndpoints(String cryptoUrl, String hubId, Long version,
                                   Boolean statsAggregatorEnabled, String statsAggregatorUrl, String statsAggregatorMode,
-                                  Integer slowThresholdMs) {
+                                  Integer slowThresholdMs, Boolean includeSqlNormalized) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save endpoint info");
             return false;
@@ -102,6 +103,7 @@ public class EndpointStorage {
             data.setStatsAggregatorUrl(statsAggregatorUrl);
             data.setStatsAggregatorMode(statsAggregatorMode);
             data.setSlowThresholdMs(slowThresholdMs);
+            data.setIncludeSqlNormalized(includeSqlNormalized);
             
             // 파일에 저장
             File storageFile = new File(storagePath);
@@ -458,4 +460,3 @@ public class EndpointStorage {
         }
     }
 }
-

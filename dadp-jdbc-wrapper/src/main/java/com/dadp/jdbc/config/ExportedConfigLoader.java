@@ -206,6 +206,7 @@ public class ExportedConfigLoader {
             String statsAggregatorUrl = null;
             String statsAggregatorMode = null;
             Integer slowThresholdMs = null;
+            Boolean includeSqlNormalized = null;
 
             statsAggregatorEnabled = getBooleanValue(statsConfig, "enabled");
             if (statsAggregatorEnabled == null) {
@@ -230,9 +231,17 @@ public class ExportedConfigLoader {
                 slowThresholdMs = getIntegerValue(config, "slowThresholdMs");
             }
 
+            includeSqlNormalized = getBooleanValue(statsConfig, "includeSqlNormalized");
+            if (includeSqlNormalized == null) {
+                includeSqlNormalized = getBooleanValue(config, "statsAggregatorIncludeSqlNormalized");
+            }
+            if (includeSqlNormalized == null) {
+                includeSqlNormalized = getBooleanValue(config, "includeSqlNormalized");
+            }
+
             endpointStorage.saveEndpoints(cryptoUrl, hubId, filePolicyVersion,
                     statsAggregatorEnabled, statsAggregatorUrl, statsAggregatorMode,
-                    slowThresholdMs);
+                    slowThresholdMs, includeSqlNormalized);
             log.info("Exported config: endpoint info applied: cryptoUrl={}", cryptoUrl);
 
             // 6. Save datasourceId via DatasourceStorage (requires DB metadata, skip if not available)
