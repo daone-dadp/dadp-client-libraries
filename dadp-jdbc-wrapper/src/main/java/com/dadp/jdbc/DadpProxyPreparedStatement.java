@@ -34,6 +34,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DadpProxyPreparedStatement.class);
     private static final int STATEMENT_STRUCTURE_CACHE_MAX_ENTRIES = 512;
     private static final int COMPILED_PLAN_CACHE_MAX_ENTRIES = 1024;
+    private static final int NEGATIVE_POLICY_CACHE_MAX_ENTRIES = 2048;
     private static final Object STATEMENT_CACHE_LOCK = new Object();
     private static final Map<String, StatementStructureCacheEntry> STATEMENT_STRUCTURE_CACHE =
             new LinkedHashMap<String, StatementStructureCacheEntry>(16, 0.75f, true) {
@@ -49,6 +50,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     return size() > COMPILED_PLAN_CACHE_MAX_ENTRIES;
                 }
             };
+    private static final Map<NegativePolicyCacheKey, Boolean> NEGATIVE_POLICY_CACHE =
+            new LinkedHashMap<NegativePolicyCacheKey, Boolean>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<NegativePolicyCacheKey, Boolean> eldest) {
+                    return size() > NEGATIVE_POLICY_CACHE_MAX_ENTRIES;
+                }
+            };
     
     private final PreparedStatement actualPreparedStatement;
     private final String sql;
@@ -60,6 +68,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
     private String lastResultSetSql;
     private volatile CompiledStatementPlan compiledStatementPlan;
+    private volatile CompiledStatementPlan pinnedStatementPlan;
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
         this.actualPreparedStatement = actualPs;
@@ -92,6 +101,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         synchronized (STATEMENT_CACHE_LOCK) {
             STATEMENT_STRUCTURE_CACHE.clear();
             COMPILED_PLAN_CACHE.clear();
+            NEGATIVE_POLICY_CACHE.clear();
         }
     }
 
@@ -111,7 +121,9 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             StatementStructureCacheEntry created = new StatementStructureCacheEntry(
                     parseResult,
                     Collections.unmodifiableMap(new HashMap<>(parameterMapping)),
-                    Collections.unmodifiableSet(new HashSet<>(whereClauseParamIndices)));
+                    Collections.unmodifiableSet(new HashSet<>(whereClauseParamIndices)),
+                    buildParameterColumnArray(parameterMapping),
+                    buildWhereClauseParameterArray(whereClauseParamIndices));
             STATEMENT_STRUCTURE_CACHE.put(cacheKey, created);
             return created;
         }
@@ -229,6 +241,39 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         return count;
     }
+
+    private static String[] buildParameterColumnArray(Map<Integer, String> parameterMapping) {
+        int maxIndex = 0;
+        for (Integer parameterIndex : parameterMapping.keySet()) {
+            if (parameterIndex != null && parameterIndex > maxIndex) {
+                maxIndex = parameterIndex;
+            }
+        }
+        String[] columnsByIndex = new String[maxIndex + 1];
+        for (Map.Entry<Integer, String> entry : parameterMapping.entrySet()) {
+            Integer parameterIndex = entry.getKey();
+            if (parameterIndex != null && parameterIndex >= 0 && parameterIndex < columnsByIndex.length) {
+                columnsByIndex[parameterIndex] = entry.getValue();
+            }
+        }
+        return columnsByIndex;
+    }
+
+    private static boolean[] buildWhereClauseParameterArray(Set<Integer> whereClauseParamIndices) {
+        int maxIndex = 0;
+        for (Integer parameterIndex : whereClauseParamIndices) {
+            if (parameterIndex != null && parameterIndex > maxIndex) {
+                maxIndex = parameterIndex;
+            }
+        }
+        boolean[] whereClauseByIndex = new boolean[maxIndex + 1];
+        for (Integer parameterIndex : whereClauseParamIndices) {
+            if (parameterIndex != null && parameterIndex >= 0 && parameterIndex < whereClauseByIndex.length) {
+                whereClauseByIndex[parameterIndex] = true;
+            }
+        }
+        return whereClauseByIndex;
+    }
     
     @Override
     public ResultSet executeQuery() throws SQLException {
@@ -278,7 +323,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     restoredCount++;
                     
                     // 해당 파라미터의 컬럼명 찾기
-                    String paramColumnName = parameterToColumnMap.get(paramIndex);
+                    String paramColumnName = statementStructure.getParameterColumnName(paramIndex);
                     if (paramColumnName != null) {
                         // datasourceId와 schemaName 결정
                         String datasourceId = proxyConnection.getDatasourceId();
@@ -537,16 +582,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private ParameterEncryptionPlan resolveParameterEncryptionPlan(int parameterIndex, String methodName,
                                                                   CompiledStatementPlan statementPlan) {
         if (statementPlan == null) {
-            statementPlan = getCompiledStatementPlan();
+            statementPlan = getPinnedStatementPlan();
         }
         if (statementPlan != null) {
-            ParameterEncryptionPlan cachedPlan = statementPlan.parameterPlansByIndex.get(parameterIndex);
+            ParameterEncryptionPlan cachedPlan = statementPlan.getParameterPlan(parameterIndex);
             if (cachedPlan != null) {
                 return cachedPlan;
             }
         }
 
-        String columnName = parameterToColumnMap.get(parameterIndex);
+        String columnName = statementStructure.getParameterColumnName(parameterIndex);
         String tableName = sqlParseResult.getTableName();
 
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
@@ -563,7 +608,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         String schemaName = resolveSchemaNameForLookup();
 
         boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
-                ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
+                ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
 
         String datasourceId = proxyConnection.getDatasourceId();
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
@@ -576,9 +621,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     tableName, normalizedTableName, columnName, normalizedColumnName);
         }
 
-        String policyName = policyResolver != null
-                ? policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName)
-                : null;
+        String policyName = resolvePolicyName(policyResolver, datasourceId, normalizedSchemaName, normalizedTableName,
+                normalizedColumnName, currentPolicyVersion);
 
         boolean searchEncryptionNeeded = false;
         if (isSearchContext && policyName != null && policyResolver != null) {
@@ -598,6 +642,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 searchEncryptionNeeded,
                 currentPolicyVersion);
         return plan;
+    }
+
+    private CompiledStatementPlan getPinnedStatementPlan() {
+        CompiledStatementPlan local = pinnedStatementPlan;
+        if (local != null) {
+            return local;
+        }
+        local = getCompiledStatementPlan();
+        pinnedStatementPlan = local;
+        return local;
     }
 
     private CompiledStatementPlan getCompiledStatementPlan() {
@@ -637,28 +691,29 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     }
 
     private CompiledStatementPlan compileStatementPlan(StatementPlanCacheKey cacheKey) {
-        Map<Integer, ParameterEncryptionPlan> plans = new HashMap<>();
+        ParameterEncryptionPlan[] plansByIndex = new ParameterEncryptionPlan[statementStructure.parameterColumnsByIndex.length];
         boolean allPassthrough = true;
         String tableName = sqlParseResult.getTableName();
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
-        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+        String normalizedTableName = tableName != null ? proxyConnection.normalizeIdentifier(tableName) : null;
 
-        for (Map.Entry<Integer, String> entry : parameterToColumnMap.entrySet()) {
-            Integer parameterIndex = entry.getKey();
-            String columnName = entry.getValue();
+        for (int parameterIndex = 1; parameterIndex < statementStructure.parameterColumnsByIndex.length; parameterIndex++) {
+            String columnName = statementStructure.parameterColumnsByIndex[parameterIndex];
+            if (columnName == null) {
+                continue;
+            }
 
-            if (columnName == null || tableName == null) {
-                plans.put(parameterIndex, new ParameterEncryptionPlan(
-                        cacheKey.schemaName, tableName, columnName, null, false, false, cacheKey.policyVersion));
+            if (tableName == null) {
+                plansByIndex[parameterIndex] = new ParameterEncryptionPlan(
+                        cacheKey.schemaName, tableName, columnName, null, false, false, cacheKey.policyVersion);
                 continue;
             }
 
             boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType())
-                    || ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
+                    || ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
-            String policyName = policyResolver != null
-                    ? policyResolver.resolvePolicy(cacheKey.datasourceId, cacheKey.schemaName, normalizedTableName, normalizedColumnName)
-                    : null;
+            String policyName = resolvePolicyName(policyResolver, cacheKey.datasourceId, cacheKey.schemaName,
+                    normalizedTableName, normalizedColumnName, cacheKey.policyVersion);
             boolean searchEncryptionNeeded = false;
             if (isSearchContext && policyName != null && policyResolver != null) {
                 searchEncryptionNeeded = policyResolver.isSearchEncryptionNeeded(policyName);
@@ -672,13 +727,37 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     isSearchContext,
                     searchEncryptionNeeded,
                     cacheKey.policyVersion);
-            plans.put(parameterIndex, plan);
+            plansByIndex[parameterIndex] = plan;
             if (!plan.isDirectPassthrough()) {
                 allPassthrough = false;
             }
         }
 
-        return new CompiledStatementPlan(cacheKey, Collections.unmodifiableMap(plans), allPassthrough);
+        return new CompiledStatementPlan(cacheKey, plansByIndex, allPassthrough);
+    }
+
+    private String resolvePolicyName(PolicyResolver policyResolver, String datasourceId, String normalizedSchemaName,
+                                     String normalizedTableName, String normalizedColumnName, Long policyVersion) {
+        if (policyResolver == null) {
+            return null;
+        }
+
+        NegativePolicyCacheKey negativeCacheKey = new NegativePolicyCacheKey(
+                datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName, policyVersion,
+                proxyConnection.getDbVendor());
+        synchronized (STATEMENT_CACHE_LOCK) {
+            if (NEGATIVE_POLICY_CACHE.containsKey(negativeCacheKey)) {
+                return null;
+            }
+        }
+
+        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
+        if (policyName == null) {
+            synchronized (STATEMENT_CACHE_LOCK) {
+                NEGATIVE_POLICY_CACHE.put(negativeCacheKey, Boolean.TRUE);
+            }
+        }
+        return policyName;
     }
 
     private boolean shouldBypassAllStringProcessing(CompiledStatementPlan statementPlan) {
@@ -700,13 +779,33 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         final SqlParser.SqlParseResult sqlParseResult;
         final Map<Integer, String> parameterToColumnMap;
         final Set<Integer> whereClauseParamIndices;
+        final String[] parameterColumnsByIndex;
+        final boolean[] whereClauseParamByIndex;
 
         StatementStructureCacheEntry(SqlParser.SqlParseResult sqlParseResult,
                                      Map<Integer, String> parameterToColumnMap,
-                                     Set<Integer> whereClauseParamIndices) {
+                                     Set<Integer> whereClauseParamIndices,
+                                     String[] parameterColumnsByIndex,
+                                     boolean[] whereClauseParamByIndex) {
             this.sqlParseResult = sqlParseResult;
             this.parameterToColumnMap = parameterToColumnMap;
             this.whereClauseParamIndices = whereClauseParamIndices;
+            this.parameterColumnsByIndex = parameterColumnsByIndex;
+            this.whereClauseParamByIndex = whereClauseParamByIndex;
+        }
+
+        String getParameterColumnName(int parameterIndex) {
+            if (parameterIndex >= 0 && parameterIndex < parameterColumnsByIndex.length) {
+                return parameterColumnsByIndex[parameterIndex];
+            }
+            return parameterToColumnMap.get(parameterIndex);
+        }
+
+        boolean isWhereClauseParameter(int parameterIndex) {
+            if (parameterIndex >= 0 && parameterIndex < whereClauseParamByIndex.length) {
+                return whereClauseParamByIndex[parameterIndex];
+            }
+            return whereClauseParamIndices.contains(parameterIndex);
         }
     }
 
@@ -747,24 +846,76 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
     }
 
+    private static class NegativePolicyCacheKey {
+        final String datasourceId;
+        final String schemaName;
+        final String tableName;
+        final String columnName;
+        final Long policyVersion;
+        final String dbVendor;
+
+        NegativePolicyCacheKey(String datasourceId,
+                               String schemaName,
+                               String tableName,
+                               String columnName,
+                               Long policyVersion,
+                               String dbVendor) {
+            this.datasourceId = datasourceId;
+            this.schemaName = schemaName;
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.policyVersion = policyVersion;
+            this.dbVendor = dbVendor;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof NegativePolicyCacheKey)) {
+                return false;
+            }
+            NegativePolicyCacheKey that = (NegativePolicyCacheKey) o;
+            return Objects.equals(datasourceId, that.datasourceId)
+                    && Objects.equals(schemaName, that.schemaName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(columnName, that.columnName)
+                    && Objects.equals(policyVersion, that.policyVersion)
+                    && Objects.equals(dbVendor, that.dbVendor);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(datasourceId, schemaName, tableName, columnName, policyVersion, dbVendor);
+        }
+    }
+
     private static class CompiledStatementPlan {
         final StatementPlanCacheKey cacheKey;
-        final Map<Integer, ParameterEncryptionPlan> parameterPlansByIndex;
+        final ParameterEncryptionPlan[] parameterPlansByIndex;
         final boolean allPassthrough;
 
         CompiledStatementPlan(StatementPlanCacheKey cacheKey,
-                              Map<Integer, ParameterEncryptionPlan> parameterPlansByIndex,
+                              ParameterEncryptionPlan[] parameterPlansByIndex,
                               boolean allPassthrough) {
             this.cacheKey = cacheKey;
             this.parameterPlansByIndex = parameterPlansByIndex;
             this.allPassthrough = allPassthrough;
+        }
+
+        ParameterEncryptionPlan getParameterPlan(int parameterIndex) {
+            if (parameterIndex >= 0 && parameterIndex < parameterPlansByIndex.length) {
+                return parameterPlansByIndex[parameterIndex];
+            }
+            return null;
         }
     }
     
     @Override
     public void setString(int parameterIndex, String x) throws SQLException {
         try {
-            CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+            CompiledStatementPlan statementPlan = getPinnedStatementPlan();
             if (shouldBypassAllStringProcessing(statementPlan)) {
                 actualPreparedStatement.setString(parameterIndex, x);
                 return;
@@ -838,7 +989,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                CompiledStatementPlan statementPlan = getPinnedStatementPlan();
                 if (shouldBypassAllStringProcessing(statementPlan)) {
                     actualPreparedStatement.setObject(parameterIndex, x, targetSqlType);
                     return;
@@ -891,7 +1042,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                CompiledStatementPlan statementPlan = getPinnedStatementPlan();
                 if (shouldBypassAllStringProcessing(statementPlan)) {
                     actualPreparedStatement.setObject(parameterIndex, x);
                     return;
@@ -1016,7 +1167,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     @Override
     public void setNString(int parameterIndex, String value) throws SQLException {
         try {
-            CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+            CompiledStatementPlan statementPlan = getPinnedStatementPlan();
             if (shouldBypassAllStringProcessing(statementPlan)) {
                 actualPreparedStatement.setNString(parameterIndex, value);
                 return;
@@ -1079,7 +1230,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                CompiledStatementPlan statementPlan = getPinnedStatementPlan();
                 if (shouldBypassAllStringProcessing(statementPlan)) {
                     actualPreparedStatement.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
                     return;

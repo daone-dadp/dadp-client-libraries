@@ -14,6 +14,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +96,7 @@ class DadpProxyHotPathCacheTest {
         proxyPreparedStatement.setString(1, "alice@example.com");
         proxyPreparedStatement.setString(1, "bob@example.com");
 
+        verify(policyResolver, times(1)).getCurrentVersion();
         verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "users", "email");
         verify(actualPreparedStatement).setString(1, "enc-alice");
         verify(actualPreparedStatement).setString(1, "enc-bob");
@@ -218,5 +220,55 @@ class DadpProxyHotPathCacheTest {
         verify(actualPreparedStatement1).setString(2, "plain-1");
         verify(actualPreparedStatement2).setString(1, "run-2");
         verify(actualPreparedStatement2).setString(2, "plain-2");
+    }
+
+    @Test
+    void preparedStatementCachesNegativePolicyAcrossSqlShapesUntilPolicyVersionChanges() throws Exception {
+        PreparedStatement actualPreparedStatement1 = mock(PreparedStatement.class);
+        PreparedStatement actualPreparedStatement2 = mock(PreparedStatement.class);
+        PreparedStatement actualPreparedStatement3 = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        AtomicLong policyVersion = new AtomicLong(30L);
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenAnswer(invocation -> policyVersion.get());
+        when(policyResolver.resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id")).thenReturn(null);
+
+        DadpProxyPreparedStatement insertStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement1,
+                "INSERT INTO DADP_UDF_BENCH_TEXT (RUN_ID) VALUES (?)",
+                proxyConnection);
+        DadpProxyPreparedStatement updateStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement2,
+                "UPDATE DADP_UDF_BENCH_TEXT SET RUN_ID = ?",
+                proxyConnection);
+
+        insertStatement.setString(1, "run-1");
+        updateStatement.setString(1, "run-2");
+
+        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id");
+        verify(actualPreparedStatement1).setString(1, "run-1");
+        verify(actualPreparedStatement2).setString(1, "run-2");
+
+        policyVersion.set(31L);
+
+        DadpProxyPreparedStatement refreshedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement3,
+                "INSERT INTO DADP_UDF_BENCH_TEXT (RUN_ID) VALUES (?)",
+                proxyConnection);
+        refreshedStatement.setString(1, "run-3");
+
+        verify(policyResolver, times(2)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id");
+        verify(actualPreparedStatement3).setString(1, "run-3");
     }
 }

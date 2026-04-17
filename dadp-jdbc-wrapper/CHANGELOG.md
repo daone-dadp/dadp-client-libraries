@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.9] - 2026-04-17
+
+### Changed
+
+- **PreparedStatement compiled plans are now pinned for one statement lifetime**
+  - repeated binds on the same `PreparedStatement` reuse the already selected compiled plan directly
+  - repeated cache-key assembly and shared-cache lookups are removed from the hottest seed insert path
+
+- **PreparedStatement parameter lookups now use array-backed access on the bind hot path**
+  - mapped parameter metadata is stored as dense index-based arrays alongside the existing fallback maps
+  - repeated bind-path column and WHERE-clause checks avoid boxed `Map<Integer, ...>` lookups
+
+- **Stable no-policy results are now cached across SQL shapes**
+  - repeated wrapper writes against the same non-sensitive table columns can reuse negative policy decisions
+  - the cache key keeps datasource, schema, table, column, policy version, and DB vendor to avoid stale reuse
+
+### Added
+
+- **Hot-path regression coverage for statement pinning and negative cache invalidation**
+  - verifies statement-lifetime compiled-plan pinning on repeated binds
+  - verifies negative policy cache reuse across SQL shapes and invalidation on policy-version change
+
 ## [5.8.8] - 2026-04-17
 
 ### Changed
