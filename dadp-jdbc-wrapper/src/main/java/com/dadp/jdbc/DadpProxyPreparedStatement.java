@@ -9,8 +9,10 @@ import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.*;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -30,16 +32,34 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
 public class DadpProxyPreparedStatement implements PreparedStatement {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DadpProxyPreparedStatement.class);
+    private static final int STATEMENT_STRUCTURE_CACHE_MAX_ENTRIES = 512;
+    private static final int COMPILED_PLAN_CACHE_MAX_ENTRIES = 1024;
+    private static final Object STATEMENT_CACHE_LOCK = new Object();
+    private static final Map<String, StatementStructureCacheEntry> STATEMENT_STRUCTURE_CACHE =
+            new LinkedHashMap<String, StatementStructureCacheEntry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, StatementStructureCacheEntry> eldest) {
+                    return size() > STATEMENT_STRUCTURE_CACHE_MAX_ENTRIES;
+                }
+            };
+    private static final Map<StatementPlanCacheKey, CompiledStatementPlan> COMPILED_PLAN_CACHE =
+            new LinkedHashMap<StatementPlanCacheKey, CompiledStatementPlan>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<StatementPlanCacheKey, CompiledStatementPlan> eldest) {
+                    return size() > COMPILED_PLAN_CACHE_MAX_ENTRIES;
+                }
+            };
     
     private final PreparedStatement actualPreparedStatement;
     private final String sql;
     private final DadpProxyConnection proxyConnection;
+    private final StatementStructureCacheEntry statementStructure;
     private final SqlParser.SqlParseResult sqlParseResult;
     private final Map<Integer, String> parameterToColumnMap; // parameterIndex -> columnName
     private final Set<Integer> whereClauseParamIndices; // UPDATE WHERE clause parameter indices (for search encryption routing)
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
-    private final Map<Integer, ParameterEncryptionPlan> parameterPlanCacheByIndex; // parameterIndex -> cached encryption plan
     private String lastResultSetSql;
+    private volatile CompiledStatementPlan compiledStatementPlan;
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
         this.actualPreparedStatement = actualPs;
@@ -47,17 +67,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         this.proxyConnection = proxyConnection;
         this.lastResultSetSql = sql;
         
-        // SQL 파싱
-        SqlParser sqlParser = new SqlParser();
-        this.sqlParseResult = sqlParser.parse(sql);
-        
-        // 파라미터 인덱스와 컬럼명 매핑 생성
-        this.whereClauseParamIndices = new HashSet<>();
-        this.parameterToColumnMap = buildParameterMapping(sqlParseResult);
+        this.statementStructure = getOrCreateStatementStructure(sql);
+        this.sqlParseResult = statementStructure.sqlParseResult;
+        this.whereClauseParamIndices = statementStructure.whereClauseParamIndices;
+        this.parameterToColumnMap = statementStructure.parameterToColumnMap;
         
         // 원본 데이터 저장용 맵 초기화 (Data truncation 시 평문으로 재시도)
         this.originalDataMap = new HashMap<>();
-        this.parameterPlanCacheByIndex = new HashMap<>();
         
         // INSERT/UPDATE 쿼리인 경우 상세 로그 출력 (디버깅용)
         if (sqlParseResult != null && ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType()))) {
@@ -71,13 +87,47 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             log.trace("DADP Proxy PreparedStatement created: {}", sql);
         }
     }
+
+    static void clearHotPathCachesForTest() {
+        synchronized (STATEMENT_CACHE_LOCK) {
+            STATEMENT_STRUCTURE_CACHE.clear();
+            COMPILED_PLAN_CACHE.clear();
+        }
+    }
+
+    private static StatementStructureCacheEntry getOrCreateStatementStructure(String sql) {
+        String cacheKey = normalizeSqlCacheKey(sql);
+        synchronized (STATEMENT_CACHE_LOCK) {
+            StatementStructureCacheEntry cached = STATEMENT_STRUCTURE_CACHE.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+
+            SqlParser sqlParser = new SqlParser();
+            SqlParser.SqlParseResult parseResult = sqlParser.parse(sql);
+            Set<Integer> whereClauseParamIndices = new HashSet<>();
+            Map<Integer, String> parameterMapping = buildParameterMapping(sql, parseResult, whereClauseParamIndices);
+
+            StatementStructureCacheEntry created = new StatementStructureCacheEntry(
+                    parseResult,
+                    Collections.unmodifiableMap(new HashMap<>(parameterMapping)),
+                    Collections.unmodifiableSet(new HashSet<>(whereClauseParamIndices)));
+            STATEMENT_STRUCTURE_CACHE.put(cacheKey, created);
+            return created;
+        }
+    }
+
+    private static String normalizeSqlCacheKey(String sql) {
+        return sql == null ? "" : sql.trim();
+    }
     
     /**
      * SQL 파싱 결과로부터 파라미터 인덱스와 컬럼명 매핑 생성
      * INSERT/UPDATE: SET 절의 컬럼만 매핑
      * SELECT: WHERE 절의 파라미터도 매핑
      */
-    private Map<Integer, String> buildParameterMapping(SqlParser.SqlParseResult parseResult) {
+    private static Map<Integer, String> buildParameterMapping(String sql, SqlParser.SqlParseResult parseResult,
+                                                              Set<Integer> whereClauseParamIndices) {
         Map<Integer, String> mapping = new HashMap<>();
         
         if (parseResult == null) {
@@ -102,7 +152,9 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 parseWhereClauseParameters(sql, parseResult.getTableName(), mapping);
                 for (Integer key : mapping.keySet()) {
                     if (!beforeKeys.contains(key)) {
-                        whereClauseParamIndices.add(key);
+                        if (whereClauseParamIndices != null) {
+                            whereClauseParamIndices.add(key);
+                        }
                     }
                 }
             }
@@ -120,7 +172,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
      * WHERE 절에서 파라미터와 컬럼명 매핑 추출
      * 예: WHERE u1_0.phone like ? -> parameterIndex 1 -> phone
      */
-    private void parseWhereClauseParameters(String sql, String tableName, Map<Integer, String> mapping) {
+    private static void parseWhereClauseParameters(String sql, String tableName, Map<Integer, String> mapping) {
         if (sql == null || tableName == null) {
             return;
         }
@@ -165,7 +217,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     /**
      * SQL 문자열에서 ? 파라미터 개수 계산
      */
-    private int countParameters(String sql) {
+    private static int countParameters(String sql) {
         if (sql == null) {
             return 0;
         }
@@ -358,6 +410,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             this.searchEncryptionNeeded = searchEncryptionNeeded;
             this.policyVersion = policyVersion;
         }
+
+        boolean isDirectPassthrough() {
+            if (columnName == null || tableName == null) {
+                return true;
+            }
+            if (searchContext) {
+                return policyName == null || !searchEncryptionNeeded;
+            }
+            return policyName == null;
+        }
     }
     
     /**
@@ -368,7 +430,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
      * @param methodName 메서드 이름 (로깅용: "setString", "setNString", "setObject")
      * @return EncryptionResult 암호화 처리 결과
      */
-    private EncryptionResult processStringEncryption(int parameterIndex, String value, String methodName) {
+    private EncryptionResult processStringEncryption(int parameterIndex, String value, String methodName,
+                                                     CompiledStatementPlan statementPlan) {
         // null/빈 문자열 체크 및 SQL 파싱 결과 확인
         if (value == null || value.isEmpty() || sqlParseResult == null) {
             if (value != null && sqlParseResult == null) {
@@ -377,7 +440,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             return new EncryptionResult(value, false);
         }
 
-        ParameterEncryptionPlan plan = resolveParameterEncryptionPlan(parameterIndex, methodName);
+        ParameterEncryptionPlan plan = resolveParameterEncryptionPlan(parameterIndex, methodName, statementPlan);
         if (plan == null || plan.columnName == null || plan.tableName == null) {
             log.debug("{}: Missing parameter encryption plan: parameterIndex={}", methodName, parameterIndex);
             return new EncryptionResult(value, false);
@@ -471,7 +534,18 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
     }
 
-    private ParameterEncryptionPlan resolveParameterEncryptionPlan(int parameterIndex, String methodName) {
+    private ParameterEncryptionPlan resolveParameterEncryptionPlan(int parameterIndex, String methodName,
+                                                                  CompiledStatementPlan statementPlan) {
+        if (statementPlan == null) {
+            statementPlan = getCompiledStatementPlan();
+        }
+        if (statementPlan != null) {
+            ParameterEncryptionPlan cachedPlan = statementPlan.parameterPlansByIndex.get(parameterIndex);
+            if (cachedPlan != null) {
+                return cachedPlan;
+            }
+        }
+
         String columnName = parameterToColumnMap.get(parameterIndex);
         String tableName = sqlParseResult.getTableName();
 
@@ -487,13 +561,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
         Long currentPolicyVersion = policyResolver != null ? policyResolver.getCurrentVersion() : null;
         String schemaName = resolveSchemaNameForLookup();
-
-        ParameterEncryptionPlan cached = parameterPlanCacheByIndex.get(parameterIndex);
-        if (cached != null
-                && Objects.equals(cached.policyVersion, currentPolicyVersion)
-                && Objects.equals(cached.schemaName, schemaName)) {
-            return cached;
-        }
 
         boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
                 ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
@@ -530,8 +597,92 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 isSearchContext,
                 searchEncryptionNeeded,
                 currentPolicyVersion);
-        parameterPlanCacheByIndex.put(parameterIndex, plan);
         return plan;
+    }
+
+    private CompiledStatementPlan getCompiledStatementPlan() {
+        if (sqlParseResult == null) {
+            return null;
+        }
+
+        StatementPlanCacheKey cacheKey = createStatementPlanCacheKey();
+        if (cacheKey == null) {
+            return null;
+        }
+
+        CompiledStatementPlan local = compiledStatementPlan;
+        if (local != null && local.cacheKey.equals(cacheKey)) {
+            return local;
+        }
+
+        synchronized (STATEMENT_CACHE_LOCK) {
+            CompiledStatementPlan shared = COMPILED_PLAN_CACHE.get(cacheKey);
+            if (shared == null) {
+                shared = compileStatementPlan(cacheKey);
+                COMPILED_PLAN_CACHE.put(cacheKey, shared);
+            }
+            compiledStatementPlan = shared;
+            return shared;
+        }
+    }
+
+    private StatementPlanCacheKey createStatementPlanCacheKey() {
+        String schemaName = resolveSchemaNameForLookup();
+        return new StatementPlanCacheKey(
+                normalizeSqlCacheKey(sql),
+                proxyConnection.getDatasourceId(),
+                proxyConnection.normalizeIdentifier(schemaName),
+                proxyConnection.getPolicyResolver() != null ? proxyConnection.getPolicyResolver().getCurrentVersion() : null,
+                proxyConnection.getDbVendor());
+    }
+
+    private CompiledStatementPlan compileStatementPlan(StatementPlanCacheKey cacheKey) {
+        Map<Integer, ParameterEncryptionPlan> plans = new HashMap<>();
+        boolean allPassthrough = true;
+        String tableName = sqlParseResult.getTableName();
+        PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
+        String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
+
+        for (Map.Entry<Integer, String> entry : parameterToColumnMap.entrySet()) {
+            Integer parameterIndex = entry.getKey();
+            String columnName = entry.getValue();
+
+            if (columnName == null || tableName == null) {
+                plans.put(parameterIndex, new ParameterEncryptionPlan(
+                        cacheKey.schemaName, tableName, columnName, null, false, false, cacheKey.policyVersion));
+                continue;
+            }
+
+            boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType())
+                    || ("UPDATE".equals(sqlParseResult.getSqlType()) && whereClauseParamIndices.contains(parameterIndex));
+            String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
+            String policyName = policyResolver != null
+                    ? policyResolver.resolvePolicy(cacheKey.datasourceId, cacheKey.schemaName, normalizedTableName, normalizedColumnName)
+                    : null;
+            boolean searchEncryptionNeeded = false;
+            if (isSearchContext && policyName != null && policyResolver != null) {
+                searchEncryptionNeeded = policyResolver.isSearchEncryptionNeeded(policyName);
+            }
+
+            ParameterEncryptionPlan plan = new ParameterEncryptionPlan(
+                    cacheKey.schemaName,
+                    tableName,
+                    columnName,
+                    policyName,
+                    isSearchContext,
+                    searchEncryptionNeeded,
+                    cacheKey.policyVersion);
+            plans.put(parameterIndex, plan);
+            if (!plan.isDirectPassthrough()) {
+                allPassthrough = false;
+            }
+        }
+
+        return new CompiledStatementPlan(cacheKey, Collections.unmodifiableMap(plans), allPassthrough);
+    }
+
+    private boolean shouldBypassAllStringProcessing(CompiledStatementPlan statementPlan) {
+        return statementPlan != null && statementPlan.allPassthrough;
     }
 
     private String resolveSchemaNameForLookup() {
@@ -544,11 +695,82 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         return schemaName;
     }
+
+    private static class StatementStructureCacheEntry {
+        final SqlParser.SqlParseResult sqlParseResult;
+        final Map<Integer, String> parameterToColumnMap;
+        final Set<Integer> whereClauseParamIndices;
+
+        StatementStructureCacheEntry(SqlParser.SqlParseResult sqlParseResult,
+                                     Map<Integer, String> parameterToColumnMap,
+                                     Set<Integer> whereClauseParamIndices) {
+            this.sqlParseResult = sqlParseResult;
+            this.parameterToColumnMap = parameterToColumnMap;
+            this.whereClauseParamIndices = whereClauseParamIndices;
+        }
+    }
+
+    private static class StatementPlanCacheKey {
+        final String normalizedSql;
+        final String datasourceId;
+        final String schemaName;
+        final Long policyVersion;
+        final String dbVendor;
+
+        StatementPlanCacheKey(String normalizedSql, String datasourceId, String schemaName, Long policyVersion, String dbVendor) {
+            this.normalizedSql = normalizedSql;
+            this.datasourceId = datasourceId;
+            this.schemaName = schemaName;
+            this.policyVersion = policyVersion;
+            this.dbVendor = dbVendor;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof StatementPlanCacheKey)) {
+                return false;
+            }
+            StatementPlanCacheKey that = (StatementPlanCacheKey) o;
+            return Objects.equals(normalizedSql, that.normalizedSql)
+                    && Objects.equals(datasourceId, that.datasourceId)
+                    && Objects.equals(schemaName, that.schemaName)
+                    && Objects.equals(policyVersion, that.policyVersion)
+                    && Objects.equals(dbVendor, that.dbVendor);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(normalizedSql, datasourceId, schemaName, policyVersion, dbVendor);
+        }
+    }
+
+    private static class CompiledStatementPlan {
+        final StatementPlanCacheKey cacheKey;
+        final Map<Integer, ParameterEncryptionPlan> parameterPlansByIndex;
+        final boolean allPassthrough;
+
+        CompiledStatementPlan(StatementPlanCacheKey cacheKey,
+                              Map<Integer, ParameterEncryptionPlan> parameterPlansByIndex,
+                              boolean allPassthrough) {
+            this.cacheKey = cacheKey;
+            this.parameterPlansByIndex = parameterPlansByIndex;
+            this.allPassthrough = allPassthrough;
+        }
+    }
     
     @Override
     public void setString(int parameterIndex, String x) throws SQLException {
         try {
-            EncryptionResult result = processStringEncryption(parameterIndex, x, "setString");
+            CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+            if (shouldBypassAllStringProcessing(statementPlan)) {
+                actualPreparedStatement.setString(parameterIndex, x);
+                return;
+            }
+
+            EncryptionResult result = processStringEncryption(parameterIndex, x, "setString", statementPlan);
             
             if (result.shouldSkip) {
                 actualPreparedStatement.setString(parameterIndex, result.value);
@@ -616,7 +838,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(type)");
+                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                if (shouldBypassAllStringProcessing(statementPlan)) {
+                    actualPreparedStatement.setObject(parameterIndex, x, targetSqlType);
+                    return;
+                }
+
+                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(type)", statementPlan);
                 
                 log.trace("setObject(type) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
@@ -663,7 +891,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject");
+                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                if (shouldBypassAllStringProcessing(statementPlan)) {
+                    actualPreparedStatement.setObject(parameterIndex, x);
+                    return;
+                }
+
+                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject", statementPlan);
                 
                 log.trace("setObject encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
@@ -782,7 +1016,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     @Override
     public void setNString(int parameterIndex, String value) throws SQLException {
         try {
-            EncryptionResult result = processStringEncryption(parameterIndex, value, "setNString");
+            CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+            if (shouldBypassAllStringProcessing(statementPlan)) {
+                actualPreparedStatement.setNString(parameterIndex, value);
+                return;
+            }
+
+            EncryptionResult result = processStringEncryption(parameterIndex, value, "setNString", statementPlan);
             
             if (result.shouldSkip) {
                 actualPreparedStatement.setNString(parameterIndex, result.value);
@@ -839,7 +1079,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (x instanceof String) {
             String stringValue = (String) x;
             try {
-                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(scale)");
+                CompiledStatementPlan statementPlan = getCompiledStatementPlan();
+                if (shouldBypassAllStringProcessing(statementPlan)) {
+                    actualPreparedStatement.setObject(parameterIndex, x, targetSqlType, scaleOrLength);
+                    return;
+                }
+
+                EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(scale)", statementPlan);
                 
                 log.trace("setObject(scale) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);

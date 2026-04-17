@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [5.8.8] - 2026-04-17
+
+### Changed
+
+- **PreparedStatement SQL structure is now cached across statement instances**
+  - repeated parse and parameter-to-column mapping work is reused for the same SQL text
+  - repeated statement creation no longer rebuilds the same wrapper-side SQL structure
+
+- **PreparedStatement compiled policy plans are now cached by SQL shape**
+  - the wrapper now reuses compiled parameter plans by SQL, datasource, schema, policy version, and DB vendor
+  - repeated statement creation no longer repeats the same policy lookup and search-encryption planning work
+
+- **All-passthrough statements now skip per-bind string processing**
+  - when every mapped string parameter is a non-target column, `setString`, `setObject`, and `setNString` delegate directly
+  - this reduces wrapper overhead on benchmark seed inserts and other non-sensitive batch write paths
+
+### Added
+
+- **SQL-level hot-path cache coverage for PreparedStatement**
+  - cross-instance compiled-plan reuse coverage
+  - all-passthrough statement fast-path coverage
+  - existing per-instance cache coverage kept
+
 ## [5.8.7] - 2026-04-17
 
 ### Changed
