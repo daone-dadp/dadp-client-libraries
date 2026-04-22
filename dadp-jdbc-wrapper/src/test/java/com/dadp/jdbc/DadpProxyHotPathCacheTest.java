@@ -437,4 +437,37 @@ class DadpProxyHotPathCacheTest {
         verify(actualPreparedStatement1).setString(1, "enc-alice");
         verify(actualPreparedStatement2).setString(1, "enc-bob");
     }
+
+    @Test
+    void preparedStatementTreatsLikeConcatPrefixPatternAsPlaintextSearch() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(33L);
+        when(policyResolver.resolvePolicy(null, "testdb", "customers", "cust_first_name")).thenReturn("policy-name");
+        when(policyResolver.isSearchEncryptionNeeded("policy-name")).thenReturn(true);
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "SELECT * FROM customers WHERE CUST_FIRST_NAME LIKE CONCAT(?, '%')",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "AL");
+
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "customers", "cust_first_name");
+        verify(policyResolver, times(1)).isSearchEncryptionNeeded("policy-name");
+        verify(adapter, never()).encryptForSearch(anyString(), anyString());
+        verify(actualPreparedStatement).setString(1, "AL");
+    }
 }

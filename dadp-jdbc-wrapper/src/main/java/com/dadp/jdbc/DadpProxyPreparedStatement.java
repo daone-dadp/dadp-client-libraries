@@ -65,6 +65,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private final SqlParser.SqlParseResult sqlParseResult;
     private final Map<Integer, String> parameterToColumnMap; // parameterIndex -> columnName
     private final Set<Integer> whereClauseParamIndices; // UPDATE WHERE clause parameter indices (for search encryption routing)
+    private final Set<Integer> sqlWildcardParamIndices; // WHERE LIKE CONCAT(..., ?, ...) patterns that add wildcard in SQL
     private final Map<Integer, String> originalDataMap; // parameterIndex -> original plaintext data (for fail-open on truncation)
     private final StatementClassification statementClassification;
     private final boolean allPlaintextStatement;
@@ -81,6 +82,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         this.statementStructure = getOrCreateStatementStructure(sql);
         this.sqlParseResult = statementStructure.sqlParseResult;
         this.whereClauseParamIndices = statementStructure.whereClauseParamIndices;
+        this.sqlWildcardParamIndices = statementStructure.sqlWildcardParamIndices;
         this.parameterToColumnMap = statementStructure.parameterToColumnMap;
         
         // 원본 데이터 저장용 맵 초기화 (Data truncation 시 평문으로 재시도)
@@ -130,14 +132,18 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             SqlParser sqlParser = new SqlParser();
             SqlParser.SqlParseResult parseResult = sqlParser.parse(sql);
             Set<Integer> whereClauseParamIndices = new HashSet<>();
-            Map<Integer, String> parameterMapping = buildParameterMapping(sql, parseResult, whereClauseParamIndices);
+            Set<Integer> sqlWildcardParamIndices = new HashSet<>();
+            Map<Integer, String> parameterMapping = buildParameterMapping(
+                    sql, parseResult, whereClauseParamIndices, sqlWildcardParamIndices);
 
             StatementStructureCacheEntry created = new StatementStructureCacheEntry(
                     parseResult,
                     Collections.unmodifiableMap(new HashMap<>(parameterMapping)),
                     Collections.unmodifiableSet(new HashSet<>(whereClauseParamIndices)),
+                    Collections.unmodifiableSet(new HashSet<>(sqlWildcardParamIndices)),
                     buildParameterColumnArray(parameterMapping),
-                    buildWhereClauseParameterArray(whereClauseParamIndices));
+                    buildWhereClauseParameterArray(whereClauseParamIndices),
+                    buildWhereClauseParameterArray(sqlWildcardParamIndices));
             STATEMENT_STRUCTURE_CACHE.put(cacheKey, created);
             return created;
         }
@@ -153,7 +159,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
      * SELECT: WHERE 절의 파라미터도 매핑
      */
     private static Map<Integer, String> buildParameterMapping(String sql, SqlParser.SqlParseResult parseResult,
-                                                              Set<Integer> whereClauseParamIndices) {
+                                                              Set<Integer> whereClauseParamIndices,
+                                                              Set<Integer> sqlWildcardParamIndices) {
         Map<Integer, String> mapping = new HashMap<>();
         
         if (parseResult == null) {
@@ -175,7 +182,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             // UPDATE: WHERE 절 파라미터도 매핑 (ECB 검색용 암호화 지원)
             if ("UPDATE".equals(parseResult.getSqlType())) {
                 Set<Integer> beforeKeys = new HashSet<>(mapping.keySet());
-                parseWhereClauseParameters(sql, parseResult.getTableName(), mapping);
+                parseWhereClauseParameters(sql, parseResult.getTableName(), mapping, sqlWildcardParamIndices);
                 for (Integer key : mapping.keySet()) {
                     if (!beforeKeys.contains(key)) {
                         if (whereClauseParamIndices != null) {
@@ -188,7 +195,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         // SELECT: WHERE 절의 파라미터 매핑
         else if ("SELECT".equals(parseResult.getSqlType())) {
             // WHERE 절에서 파라미터와 컬럼 매핑 추출
-            parseWhereClauseParameters(sql, parseResult.getTableName(), mapping);
+            parseWhereClauseParameters(sql, parseResult.getTableName(), mapping, sqlWildcardParamIndices);
         }
         
         return mapping;
@@ -198,7 +205,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
      * WHERE 절에서 파라미터와 컬럼명 매핑 추출
      * 예: WHERE u1_0.phone like ? -> parameterIndex 1 -> phone
      */
-    private static void parseWhereClauseParameters(String sql, String tableName, Map<Integer, String> mapping) {
+    private static void parseWhereClauseParameters(String sql, String tableName, Map<Integer, String> mapping,
+                                                   Set<Integer> sqlWildcardParamIndices) {
         if (sql == null || tableName == null) {
             return;
         }
@@ -237,7 +245,67 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 mapping.put(globalParamIndex, columnName);
                 log.trace("WHERE clause parameter mapping: parameterIndex={} -> column={}", globalParamIndex, columnName);
             }
+            if (sqlWildcardParamIndices != null && isSqlWildcardSearchPattern(whereClause, questionMarkIndex)) {
+                sqlWildcardParamIndices.add(globalParamIndex);
+                log.trace("WHERE clause SQL wildcard mapping: parameterIndex={} -> column={}", globalParamIndex, columnName);
+            }
         }
+    }
+
+    private static boolean isSqlWildcardSearchPattern(String whereClause, int questionMarkIndex) {
+        if (whereClause == null || questionMarkIndex < 0 || questionMarkIndex >= whereClause.length()) {
+            return false;
+        }
+
+        int concatIndex = whereClause.lastIndexOf("concat", questionMarkIndex);
+        if (concatIndex < 0) {
+            return false;
+        }
+
+        int openParenIndex = whereClause.indexOf('(', concatIndex);
+        if (openParenIndex < 0 || openParenIndex > questionMarkIndex) {
+            return false;
+        }
+
+        int closeParenIndex = findMatchingParen(whereClause, openParenIndex);
+        if (closeParenIndex < 0 || closeParenIndex <= questionMarkIndex) {
+            return false;
+        }
+
+        String concatExpression = whereClause.substring(concatIndex, closeParenIndex + 1).toLowerCase(Locale.ROOT);
+        if (concatExpression.indexOf('?') != concatExpression.lastIndexOf('?')) {
+            return false;
+        }
+
+        if (!concatExpression.matches("concat\\s*\\(\\s*(?:'[%_]'\\s*,\\s*)?\\?\\s*(?:,\\s*'[%_]')?\\s*\\)")) {
+            return false;
+        }
+
+        return concatExpression.contains("'%") || concatExpression.contains("'_");
+    }
+
+    private static int findMatchingParen(String text, int openParenIndex) {
+        int depth = 0;
+        boolean inSingleQuote = false;
+        for (int i = openParenIndex; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\'') {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+            if (inSingleQuote) {
+                continue;
+            }
+            if (ch == '(') {
+                depth++;
+            } else if (ch == ')') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
     
     /**
@@ -451,6 +519,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         final String policyName;
         final boolean searchContext;
         final boolean searchEncryptionNeeded;
+        final boolean sqlWildcardSearch;
         final Long policyVersion;
 
         ParameterEncryptionPlan(String schemaName,
@@ -459,6 +528,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                                 String policyName,
                                 boolean searchContext,
                                 boolean searchEncryptionNeeded,
+                                boolean sqlWildcardSearch,
                                 Long policyVersion) {
             this.schemaName = schemaName;
             this.tableName = tableName;
@@ -466,6 +536,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             this.policyName = policyName;
             this.searchContext = searchContext;
             this.searchEncryptionNeeded = searchEncryptionNeeded;
+            this.sqlWildcardSearch = sqlWildcardSearch;
             this.policyVersion = policyVersion;
         }
 
@@ -512,6 +583,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
             if (!plan.searchEncryptionNeeded) {
                 log.trace("{}: SELECT WHERE clause: search encryption not needed (useIv=true or usePlain=true), {}.{} (policy: {})",
+                        methodName, plan.tableName, plan.columnName, plan.policyName);
+                return new EncryptionResult(value, true);
+            }
+
+            if (plan.sqlWildcardSearch) {
+                log.trace("{}: SELECT WHERE clause: SQL wildcard pattern detected, plaintext search, {}.{} (policy: {})",
                         methodName, plan.tableName, plan.columnName, plan.policyName);
                 return new EncryptionResult(value, true);
             }
@@ -613,7 +690,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
 
         if (columnName == null || tableName == null) {
-            return new ParameterEncryptionPlan(null, tableName, columnName, null, false, false, null);
+            return new ParameterEncryptionPlan(null, tableName, columnName, null, false, false, false, null);
         }
 
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
@@ -624,6 +701,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
         boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
                 ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
+        boolean sqlWildcardSearch = statementStructure.isSqlWildcardParameter(parameterIndex);
 
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
@@ -654,6 +732,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 policyName,
                 isSearchContext,
                 searchEncryptionNeeded,
+                sqlWildcardSearch,
                 currentPolicyVersion);
         return plan;
     }
@@ -722,12 +801,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
             if (tableName == null) {
                 plansByIndex[parameterIndex] = new ParameterEncryptionPlan(
-                        cacheKey.schemaName, tableName, columnName, null, false, false, cacheKey.policyVersion);
+                        cacheKey.schemaName, tableName, columnName, null, false, false, false, cacheKey.policyVersion);
                 continue;
             }
 
             boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType())
                     || ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
+            boolean sqlWildcardSearch = statementStructure.isSqlWildcardParameter(parameterIndex);
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
             String policyName = resolvePolicyName(policyResolver, protectedColumnIndex,
                     cacheKey.schemaName, normalizedTableName, normalizedColumnName, cacheKey.policyVersion);
@@ -743,6 +823,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     policyName,
                     isSearchContext,
                     searchEncryptionNeeded,
+                    sqlWildcardSearch,
                     cacheKey.policyVersion);
             plansByIndex[parameterIndex] = plan;
             if (!plan.isDirectPassthrough()) {
@@ -901,19 +982,25 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         final SqlParser.SqlParseResult sqlParseResult;
         final Map<Integer, String> parameterToColumnMap;
         final Set<Integer> whereClauseParamIndices;
+        final Set<Integer> sqlWildcardParamIndices;
         final String[] parameterColumnsByIndex;
         final boolean[] whereClauseParamByIndex;
+        final boolean[] sqlWildcardParamByIndex;
 
         StatementStructureCacheEntry(SqlParser.SqlParseResult sqlParseResult,
                                      Map<Integer, String> parameterToColumnMap,
                                      Set<Integer> whereClauseParamIndices,
+                                     Set<Integer> sqlWildcardParamIndices,
                                      String[] parameterColumnsByIndex,
-                                     boolean[] whereClauseParamByIndex) {
+                                     boolean[] whereClauseParamByIndex,
+                                     boolean[] sqlWildcardParamByIndex) {
             this.sqlParseResult = sqlParseResult;
             this.parameterToColumnMap = parameterToColumnMap;
             this.whereClauseParamIndices = whereClauseParamIndices;
+            this.sqlWildcardParamIndices = sqlWildcardParamIndices;
             this.parameterColumnsByIndex = parameterColumnsByIndex;
             this.whereClauseParamByIndex = whereClauseParamByIndex;
+            this.sqlWildcardParamByIndex = sqlWildcardParamByIndex;
         }
 
         String getParameterColumnName(int parameterIndex) {
@@ -928,6 +1015,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 return whereClauseParamByIndex[parameterIndex];
             }
             return whereClauseParamIndices.contains(parameterIndex);
+        }
+
+        boolean isSqlWildcardParameter(int parameterIndex) {
+            if (parameterIndex >= 0 && parameterIndex < sqlWildcardParamByIndex.length) {
+                return sqlWildcardParamByIndex[parameterIndex];
+            }
+            return sqlWildcardParamIndices.contains(parameterIndex);
         }
     }
 
