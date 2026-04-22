@@ -46,6 +46,9 @@ public class DatasourceRegistrationService {
 
     /**
      * Reuse the supplied hubId when this wrapper already owns one.
+     *
+     * hubUrl must be the Hub base URL without /hub.
+     * This service appends /hub/api/v1/... internally.
      */
     public DatasourceInfo registerOrGetDatasource(
             String dbVendor, String host, int port,

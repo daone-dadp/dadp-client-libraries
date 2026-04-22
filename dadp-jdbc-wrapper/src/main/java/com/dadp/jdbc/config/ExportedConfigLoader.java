@@ -31,13 +31,16 @@ import java.util.Map;
  *   "datasourceId": "ds_xxxxxxxxxxxx",
  *   "failOpen": true,
  *   "cryptoUrl": "http://engine:9003",
- *   "hubUrl": "http://hub:9004/hub",
+ *   "hubUrl": "http://192.168.0.21:9004",
  *   "policyVersion": 8,
  *   "mappings": { "ds_xxx:schema.table.column": "policy-name" },
  *   "policyAttributes": { "policy-name": { "useIv": true, "usePlain": false } },
  *   "statsConfig": { ... }
  * }
  * </pre>
+ *
+ * The exported `hubUrl` must be the Hub base URL without `/hub`.
+ * Wrapper components append `/hub/api/...` internally when calling Hub APIs.
  *
  * @author DADP Development Team
  * @version 5.5.8

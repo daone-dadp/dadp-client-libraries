@@ -52,7 +52,7 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenReturn(7L);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "users", "email")).thenReturn("policy-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
         when(adapter.decrypt("enc-index-1", "policy-email")).thenReturn("plain-index-1");
         when(adapter.decrypt("enc-label-1", "policy-email")).thenReturn("plain-label-1");
 
@@ -64,7 +64,7 @@ class DadpProxyHotPathCacheTest {
         assertEquals("plain-index-1", proxyResultSet.getString(1));
         assertEquals("plain-label-1", proxyResultSet.getString("email3_0_"));
 
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "users", "email");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(metaData, times(1)).getColumnName(1);
         verify(metaData, times(1)).getColumnLabel(1);
     }
@@ -86,7 +86,7 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenReturn(11L);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "users", "email")).thenReturn("policy-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
         when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
         when(adapter.encrypt("bob@example.com", "policy-email")).thenReturn("enc-bob");
 
@@ -99,7 +99,7 @@ class DadpProxyHotPathCacheTest {
         proxyPreparedStatement.setString(1, "bob@example.com");
 
         verify(policyResolver, times(1)).getCurrentVersion();
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "users", "email");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(actualPreparedStatement).setString(1, "enc-alice");
         verify(actualPreparedStatement).setString(1, "enc-bob");
     }
@@ -121,7 +121,7 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenReturn(13L);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "users", "email")).thenReturn("policy-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
         when(policyResolver.isSearchEncryptionNeeded("policy-email")).thenReturn(true);
         when(adapter.isEndpointAvailable()).thenReturn(true);
         when(adapter.encryptForSearch("alice@example.com", "policy-email")).thenReturn("search-alice");
@@ -135,7 +135,7 @@ class DadpProxyHotPathCacheTest {
         proxyPreparedStatement.setString(1, "alice@example.com");
         proxyPreparedStatement.setString(1, "bob@example.com");
 
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "users", "email");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(policyResolver, times(1)).isSearchEncryptionNeeded("policy-email");
         verify(actualPreparedStatement).setString(1, "search-alice");
         verify(actualPreparedStatement).setString(1, "search-bob");
@@ -159,7 +159,7 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenReturn(21L);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "users", "email")).thenReturn("policy-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
         when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
         when(adapter.encrypt("bob@example.com", "policy-email")).thenReturn("enc-bob");
 
@@ -175,7 +175,7 @@ class DadpProxyHotPathCacheTest {
         first.setString(1, "alice@example.com");
         second.setString(1, "bob@example.com");
 
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "users", "email");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(actualPreparedStatement1).setString(1, "enc-alice");
         verify(actualPreparedStatement2).setString(1, "enc-bob");
     }
@@ -198,8 +198,8 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenReturn(22L);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id")).thenReturn(null);
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "plain_text")).thenReturn(null);
+        when(policyResolver.resolvePolicy(null, "testdb", "dadp_udf_bench_text", "run_id")).thenReturn(null);
+        when(policyResolver.resolvePolicy(null, "testdb", "dadp_udf_bench_text", "plain_text")).thenReturn(null);
 
         DadpProxyPreparedStatement first = new DadpProxyPreparedStatement(
                 actualPreparedStatement1,
@@ -215,8 +215,8 @@ class DadpProxyHotPathCacheTest {
         second.setString(1, "run-2");
         second.setString(2, "plain-2");
 
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id");
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "plain_text");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "dadp_udf_bench_text", "run_id");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "dadp_udf_bench_text", "plain_text");
         verify(adapter, never()).encrypt(anyString(), anyString());
         verify(actualPreparedStatement1).setString(1, "run-1");
         verify(actualPreparedStatement1).setString(2, "plain-1");
@@ -243,7 +243,7 @@ class DadpProxyHotPathCacheTest {
         when(policyResolver.getCurrentVersion()).thenReturn(23L);
         when(policyResolver.getProtectedColumnIndex()).thenReturn(
                 PolicyResolver.ProtectedColumnIndex.fromMappings(
-                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        Collections.singletonMap("testdb.users.email", "policy-email"),
                         23L));
 
         DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
@@ -279,7 +279,7 @@ class DadpProxyHotPathCacheTest {
         when(policyResolver.getCurrentVersion()).thenReturn(24L);
         when(policyResolver.getProtectedColumnIndex()).thenReturn(
                 PolicyResolver.ProtectedColumnIndex.fromMappings(
-                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        Collections.singletonMap("testdb.users.email", "policy-email"),
                         24L));
         when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
 
@@ -304,7 +304,7 @@ class DadpProxyHotPathCacheTest {
         AtomicLong policyVersion = new AtomicLong(25L);
         AtomicReference<PolicyResolver.ProtectedColumnIndex> indexRef = new AtomicReference<>(
                 PolicyResolver.ProtectedColumnIndex.fromMappings(
-                        Collections.singletonMap("ds_test:testdb.users.email", "policy-email"),
+                        Collections.singletonMap("testdb.users.email", "policy-email"),
                         25L));
 
         when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
@@ -360,7 +360,7 @@ class DadpProxyHotPathCacheTest {
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
         when(policyResolver.getCurrentVersion()).thenAnswer(invocation -> policyVersion.get());
-        when(policyResolver.resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id")).thenReturn(null);
+        when(policyResolver.resolvePolicy(null, "testdb", "dadp_udf_bench_text", "run_id")).thenReturn(null);
 
         DadpProxyPreparedStatement insertStatement = new DadpProxyPreparedStatement(
                 actualPreparedStatement1,
@@ -374,7 +374,7 @@ class DadpProxyHotPathCacheTest {
         insertStatement.setString(1, "run-1");
         updateStatement.setString(1, "run-2");
 
-        verify(policyResolver, times(1)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id");
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "dadp_udf_bench_text", "run_id");
         verify(actualPreparedStatement1).setString(1, "run-1");
         verify(actualPreparedStatement2).setString(1, "run-2");
 
@@ -386,7 +386,55 @@ class DadpProxyHotPathCacheTest {
                 proxyConnection);
         refreshedStatement.setString(1, "run-3");
 
-        verify(policyResolver, times(2)).resolvePolicy("ds_test", "testdb", "dadp_udf_bench_text", "run_id");
+        verify(policyResolver, times(2)).resolvePolicy(null, "testdb", "dadp_udf_bench_text", "run_id");
         verify(actualPreparedStatement3).setString(1, "run-3");
+    }
+
+    @Test
+    void preparedStatementCompiledPlanCacheIgnoresDatasourceIdForSameDb() throws Exception {
+        PreparedStatement actualPreparedStatement1 = mock(PreparedStatement.class);
+        PreparedStatement actualPreparedStatement2 = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection1 = mock(DadpProxyConnection.class);
+        DadpProxyConnection proxyConnection2 = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection1.getDatasourceId()).thenReturn("ds_a");
+        when(proxyConnection2.getDatasourceId()).thenReturn("ds_b");
+        when(proxyConnection1.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection2.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection1.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection2.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection1.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection2.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection1.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection2.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection1.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection2.getDbVendor()).thenReturn("mysql");
+        when(proxyConnection1.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+        when(proxyConnection2.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(32L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
+        when(adapter.encrypt("bob@example.com", "policy-email")).thenReturn("enc-bob");
+
+        DadpProxyPreparedStatement first = new DadpProxyPreparedStatement(
+                actualPreparedStatement1,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection1);
+        DadpProxyPreparedStatement second = new DadpProxyPreparedStatement(
+                actualPreparedStatement2,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection2);
+
+        first.setString(1, "alice@example.com");
+        second.setString(1, "bob@example.com");
+
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
+        verify(actualPreparedStatement1).setString(1, "enc-alice");
+        verify(actualPreparedStatement2).setString(1, "enc-bob");
     }
 }

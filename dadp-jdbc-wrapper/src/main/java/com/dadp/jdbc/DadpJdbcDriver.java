@@ -97,8 +97,11 @@ public class DadpJdbcDriver implements Driver {
     
     /**
      * JDBC URL에서 Proxy 설정 파라미터 추출
-     * 예: jdbc:dadp:mysql://localhost:3306/db?hubUrl=http://localhost:9004&instanceId=sample-app-1
-     * → {hubUrl: "http://localhost:9004", instanceId: "sample-app-1"}
+     * 예: jdbc:dadp:mysql://localhost:3306/db?hubUrl=http://192.168.0.21:9004&instanceId=sample-app-1
+     * → {hubUrl: "http://192.168.0.21:9004", instanceId: "sample-app-1"}
+     *
+     * hubUrl is the Hub base URL without /hub.
+     * Wrapper HTTP clients append /hub/api/... internally.
      */
     private java.util.Map<String, String> extractProxyParams(String dadpUrl) {
         return DadpJdbcUrlSupport.extractProxyParams(dadpUrl);

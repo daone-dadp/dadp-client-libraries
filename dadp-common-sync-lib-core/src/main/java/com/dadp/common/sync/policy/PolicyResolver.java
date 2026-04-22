@@ -91,7 +91,7 @@ public class PolicyResolver {
     
     
     private void loadMappingsFromStorage() {
-        Map<String, String> storedMappings = storage.loadMappings();
+        Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
             policyCache.putAll(storedMappings);
             
@@ -125,78 +125,24 @@ public class PolicyResolver {
     
     
     public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
-        
-        String key;
-        if (datasourceId != null && !datasourceId.trim().isEmpty()) {
-            key = datasourceId + ":" + schemaName + "." + tableName + "." + columnName;
-        } else {
-            
-            if (schemaName != null && !schemaName.trim().isEmpty()) {
-                key = schemaName + "." + tableName + "." + columnName;
-            } else {
-                key = tableName + "." + columnName;
-            }
-        }
-        
-        
-        log.trace("Policy lookup: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}",
+        String key = buildSchemaOrTableKey(schemaName, tableName, columnName);
+
+        log.trace("Policy lookup: key={}, datasourceId(ignored)={}, schemaName={}, tableName={}, columnName={}",
                 key, datasourceId, schemaName, tableName, columnName);
-        
-        
-        String policy = policyCache.get(key);
-        
+
+        String policy = lookupPolicy(key);
         if (policy != null) {
-            log.trace("Policy cache hit: {} -> {}", key, policy);
             return policy;
         }
 
-        
-        String lowerKey = key.toLowerCase();
-        if (!lowerKey.equals(key)) {
-            policy = policyCache.get(lowerKey);
+        String fallbackKey = buildTableKey(tableName, columnName);
+        if (!Objects.equals(fallbackKey, key)) {
+            policy = lookupPolicy(fallbackKey);
             if (policy != null) {
-                log.trace("Policy cache hit (lowercase): {} -> {}", lowerKey, policy);
                 return policy;
             }
         }
-        
-        
-        if (datasourceId == null || datasourceId.trim().isEmpty()) {
-            if (schemaName != null && !schemaName.trim().isEmpty()) {
-                String fallbackKey = schemaName + "." + tableName + "." + columnName;
-                policy = policyCache.get(fallbackKey);
-                if (policy != null) {
-                    log.trace("Policy cache hit (fallback): {} -> {}", fallbackKey, policy);
-                    return policy;
-                }
-                
-                String fallbackLowerKey = fallbackKey.toLowerCase();
-                if (!fallbackLowerKey.equals(fallbackKey)) {
-                    policy = policyCache.get(fallbackLowerKey);
-                    if (policy != null) {
-                        log.trace("Policy cache hit (fallback lowercase): {} -> {}", fallbackLowerKey, policy);
-                        return policy;
-                    }
-                }
-            }
-            String fallbackKey2 = tableName + "." + columnName;
-            policy = policyCache.get(fallbackKey2);
-            if (policy != null) {
-                log.trace("Policy cache hit (fallback2): {} -> {}", fallbackKey2, policy);
-                return policy;
-            }
-            
-            String fallback2LowerKey = fallbackKey2.toLowerCase();
-            if (!fallback2LowerKey.equals(fallbackKey2)) {
-                policy = policyCache.get(fallback2LowerKey);
-                if (policy != null) {
-                    log.trace("Policy cache hit (fallback2 lowercase): {} -> {}", fallback2LowerKey, policy);
-                    return policy;
-                }
-            }
-        }
-        
-        
+
         return null;
     }
     
@@ -247,8 +193,9 @@ public class PolicyResolver {
     
     public void refreshMappings(Map<String, String> mappings, Long version) {
         log.trace("Policy mapping cache refresh started: {} mappings, version={}", mappings.size(), version);
+        Map<String, String> canonicalMappings = canonicalizeMappings(mappings);
         policyCache.clear();
-        policyCache.putAll(mappings);
+        policyCache.putAll(canonicalMappings);
         protectedColumnIndex = null;
         
         
@@ -264,9 +211,9 @@ public class PolicyResolver {
         
         
         
-        boolean saved = storage.saveMappings(mappings, null, storedLogConfig, version);
+        boolean saved = storage.saveMappings(canonicalMappings, null, storedLogConfig, version);
         if (saved) {
-            log.debug("Policy mappings persisted: {} mappings, version={}", mappings.size(), version);
+            log.debug("Policy mappings persisted: {} mappings, version={}", canonicalMappings.size(), version);
         } else {
             log.warn("Policy mappings persistence failed (using memory cache only)");
         }
@@ -285,7 +232,7 @@ public class PolicyResolver {
             log.debug("Policy attributes cache refreshed: {} policies", attributes.size());
 
             
-            storage.saveMappings(mappings, attributes, storedLogConfig, version);
+            storage.saveMappings(canonicalizeMappings(mappings), attributes, storedLogConfig, version);
         }
     }
 
@@ -324,12 +271,7 @@ public class PolicyResolver {
     
     
     public void addMapping(String databaseName, String tableName, String columnName, String policyName) {
-        String key;
-        if (databaseName != null && !databaseName.trim().isEmpty()) {
-            key = databaseName + "." + tableName + "." + columnName;
-        } else {
-            key = tableName + "." + columnName;
-        }
+        String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
         policyCache.put(key, policyName);
         log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
@@ -342,12 +284,7 @@ public class PolicyResolver {
     
     
     public void removeMapping(String databaseName, String tableName, String columnName) {
-        String key;
-        if (databaseName != null && !databaseName.trim().isEmpty()) {
-            key = databaseName + "." + tableName + "." + columnName;
-        } else {
-            key = tableName + "." + columnName;
-        }
+        String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
         policyCache.remove(key);
         log.trace("Policy mapping removed: {}", key);
     }
@@ -367,7 +304,7 @@ public class PolicyResolver {
     
     
     public void reloadFromStorage() {
-        Map<String, String> storedMappings = storage.loadMappings();
+        Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
             policyCache.clear();
             policyCache.putAll(storedMappings);
@@ -507,7 +444,7 @@ public class PolicyResolver {
             Map<String, String> normalized = new HashMap<>();
             if (mappings != null) {
                 for (Map.Entry<String, String> entry : mappings.entrySet()) {
-                    String key = normalizeKey(entry.getKey());
+                    String key = canonicalizeLookupKey(entry.getKey());
                     if (key != null && entry.getValue() != null) {
                         normalized.put(key, entry.getValue());
                     }
@@ -521,18 +458,12 @@ public class PolicyResolver {
         }
 
         public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
-            String normalizedDatasourceId = normalizeSegment(datasourceId);
             String normalizedSchemaName = normalizeSegment(schemaName);
             String normalizedTableName = normalizeSegment(tableName);
             String normalizedColumnName = normalizeSegment(columnName);
 
             if (normalizedTableName == null || normalizedColumnName == null) {
                 return null;
-            }
-
-            if (normalizedDatasourceId != null) {
-                return normalizedMappings.get(buildDatasourceScopedKey(
-                        normalizedDatasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName));
             }
 
             if (normalizedSchemaName != null) {
@@ -552,25 +483,11 @@ public class PolicyResolver {
                     && mappingHash == expectedMappingHash;
         }
 
-        private static String normalizeKey(String key) {
-            if (key == null) {
-                return null;
-            }
-            return key.trim().toLowerCase(Locale.ROOT);
-        }
-
         private static String normalizeSegment(String value) {
             if (value == null || value.trim().isEmpty()) {
                 return null;
             }
             return value.trim().toLowerCase(Locale.ROOT);
-        }
-
-        private static String buildDatasourceScopedKey(String datasourceId, String schemaName, String tableName, String columnName) {
-            if (schemaName == null) {
-                return datasourceId + ":" + tableName + "." + columnName;
-            }
-            return datasourceId + ":" + schemaName + "." + tableName + "." + columnName;
         }
 
         private static String buildSchemaScopedKey(String schemaName, String tableName, String columnName) {
@@ -580,5 +497,89 @@ public class PolicyResolver {
         private static String buildTableScopedKey(String tableName, String columnName) {
             return tableName + "." + columnName;
         }
+    }
+
+    private String lookupPolicy(String key) {
+        if (key == null) {
+            return null;
+        }
+
+        String policy = policyCache.get(key);
+        if (policy != null) {
+            log.trace("Policy cache hit: {} -> {}", key, policy);
+            return policy;
+        }
+
+        String lowerKey = key.toLowerCase(Locale.ROOT);
+        if (!lowerKey.equals(key)) {
+            policy = policyCache.get(lowerKey);
+            if (policy != null) {
+                log.trace("Policy cache hit (lowercase): {} -> {}", lowerKey, policy);
+                return policy;
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, String> canonicalizeMappings(Map<String, String> mappings) {
+        Map<String, String> canonicalMappings = new HashMap<>();
+        if (mappings == null || mappings.isEmpty()) {
+            return canonicalMappings;
+        }
+
+        for (Map.Entry<String, String> entry : mappings.entrySet()) {
+            String canonicalKey = canonicalizeLookupKey(entry.getKey());
+            if (canonicalKey != null && entry.getValue() != null) {
+                canonicalMappings.put(canonicalKey, entry.getValue());
+            }
+        }
+        return canonicalMappings;
+    }
+
+    private static String canonicalizeLookupKey(String key) {
+        if (key == null) {
+            return null;
+        }
+
+        String trimmed = key.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        int datasourceSeparator = trimmed.indexOf(':');
+        if (datasourceSeparator >= 0 && datasourceSeparator + 1 < trimmed.length()) {
+            trimmed = trimmed.substring(datasourceSeparator + 1);
+        }
+
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String buildSchemaOrTableKey(String schemaName, String tableName, String columnName) {
+        String normalizedSchema = normalizeLookupSegment(schemaName);
+        String normalizedTable = normalizeLookupSegment(tableName);
+        String normalizedColumn = normalizeLookupSegment(columnName);
+        if (normalizedTable == null || normalizedColumn == null) {
+            return null;
+        }
+        if (normalizedSchema != null) {
+            return normalizedSchema + "." + normalizedTable + "." + normalizedColumn;
+        }
+        return buildTableKey(normalizedTable, normalizedColumn);
+    }
+
+    private static String buildTableKey(String tableName, String columnName) {
+        String normalizedTable = normalizeLookupSegment(tableName);
+        String normalizedColumn = normalizeLookupSegment(columnName);
+        if (normalizedTable == null || normalizedColumn == null) {
+            return null;
+        }
+        return normalizedTable + "." + normalizedColumn;
+    }
+
+    private static String normalizeLookupSegment(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 }

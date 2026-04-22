@@ -1,5 +1,7 @@
 package com.dadp.jdbc.policy;
 
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import com.dadp.jdbc.logging.DadpLogger;
@@ -59,7 +61,7 @@ public class PolicyResolver {
      * 영구 저장소에서 매핑 정보 로드
      */
     private void loadMappingsFromStorage() {
-        Map<String, String> storedMappings = storage.loadMappings();
+        Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
             policyCache.putAll(storedMappings);
             log.info("Policy mappings loaded from persistent storage: {} mappings", storedMappings.size());
@@ -71,52 +73,30 @@ public class PolicyResolver {
     /**
      * 정책명 조회
      * 
-     * @param datasourceId 데이터소스 ID (NEW)
+     * @param datasourceId 데이터소스 ID (호환성 유지용, 조회에는 사용하지 않음)
      * @param schemaName 스키마명 (NEW)
      * @param tableName 테이블명
      * @param columnName 컬럼명
      * @return 정책명 (없으면 null)
      */
     public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
-        // 통일된 키 형식: datasourceId : schemaName.tableName.columnName
-        String key;
-        if (datasourceId != null && !datasourceId.trim().isEmpty()) {
-            key = datasourceId + ":" + schemaName + "." + tableName + "." + columnName;
-        } else {
-            // datasourceId가 없으면 schema.table.column 형식 (하위 호환성)
-            if (schemaName != null && !schemaName.trim().isEmpty()) {
-                key = schemaName + "." + tableName + "." + columnName;
-            } else {
-                key = tableName + "." + columnName;
-            }
-        }
+        String key = buildSchemaOrTableKey(schemaName, tableName, columnName);
         
         // 디버깅: 정책 조회 시도 키 로그 출력
-        log.trace("Policy lookup: key={}, datasourceId={}, schemaName={}, tableName={}, columnName={}",
+        log.trace("Policy lookup: key={}, datasourceId(ignored)={}, schemaName={}, tableName={}, columnName={}",
                 key, datasourceId, schemaName, tableName, columnName);
         
         // Hub에서 로드한 매핑 정보만 사용 (캐시에서 조회)
-        String policy = policyCache.get(key);
+        String policy = lookupPolicy(key);
         
         if (policy != null) {
-            log.trace("Policy cache hit: {} -> {}", key, policy);
             return policy;
         }
         
-        // 하위 호환성: datasourceId가 없으면 기존 형식 시도
-        if (datasourceId == null || datasourceId.trim().isEmpty()) {
-            if (schemaName != null && !schemaName.trim().isEmpty()) {
-                String fallbackKey = schemaName + "." + tableName + "." + columnName;
-                policy = policyCache.get(fallbackKey);
-                if (policy != null) {
-                    log.trace("Policy cache hit (fallback): {} -> {}", fallbackKey, policy);
-                    return policy;
-                }
-            }
-            String fallbackKey2 = tableName + "." + columnName;
-            policy = policyCache.get(fallbackKey2);
+        String fallbackKey = buildTableKey(tableName, columnName);
+        if (fallbackKey != null && !fallbackKey.equals(key)) {
+            policy = lookupPolicy(fallbackKey);
             if (policy != null) {
-                log.trace("Policy cache hit (fallback2): {} -> {}", fallbackKey2, policy);
                 return policy;
             }
         }
@@ -196,8 +176,9 @@ public class PolicyResolver {
      */
     public void refreshMappings(Map<String, String> mappings, Long version) {
         log.trace("Policy mapping cache refresh starting: {} mappings, version={}", mappings.size(), version);
+        Map<String, String> canonicalMappings = canonicalizeMappings(mappings);
         policyCache.clear();
-        policyCache.putAll(mappings);
+        policyCache.putAll(canonicalMappings);
         
         // 버전 정보 저장
         if (version != null) {
@@ -205,9 +186,9 @@ public class PolicyResolver {
         }
         
         // 영구 저장소에 저장 (Hub 다운 시에도 사용 가능하도록)
-        boolean saved = storage.saveMappings(mappings);
+        boolean saved = storage.saveMappings(canonicalMappings);
         if (saved) {
-            log.info("Policy mappings persisted: {} mappings, version={}", mappings.size(), version);
+            log.info("Policy mappings persisted: {} mappings, version={}", canonicalMappings.size(), version);
         } else {
             log.warn("Failed to persist policy mappings (using memory cache only)");
         }
@@ -253,12 +234,7 @@ public class PolicyResolver {
      * @param policyName 정책명
      */
     public void addMapping(String databaseName, String tableName, String columnName, String policyName) {
-        String key;
-        if (databaseName != null && !databaseName.trim().isEmpty()) {
-            key = databaseName + "." + tableName + "." + columnName;
-        } else {
-            key = tableName + "." + columnName;
-        }
+        String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
         policyCache.put(key, policyName);
         log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
@@ -281,12 +257,7 @@ public class PolicyResolver {
      * @param columnName 컬럼명
      */
     public void removeMapping(String databaseName, String tableName, String columnName) {
-        String key;
-        if (databaseName != null && !databaseName.trim().isEmpty()) {
-            key = databaseName + "." + tableName + "." + columnName;
-        } else {
-            key = tableName + "." + columnName;
-        }
+        String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
         policyCache.remove(key);
         log.trace("Policy mapping removed: {}", key);
     }
@@ -314,7 +285,7 @@ public class PolicyResolver {
      * Hub 연결 실패 시 호출하여 저장된 정보 사용
      */
     public void reloadFromStorage() {
-        Map<String, String> storedMappings = storage.loadMappings();
+        Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
             policyCache.clear();
             policyCache.putAll(storedMappings);
@@ -332,5 +303,88 @@ public class PolicyResolver {
     public String getStoragePath() {
         return storage.getStoragePath();
     }
-}
 
+    private String lookupPolicy(String key) {
+        if (key == null) {
+            return null;
+        }
+
+        String policy = policyCache.get(key);
+        if (policy != null) {
+            log.trace("Policy cache hit: {} -> {}", key, policy);
+            return policy;
+        }
+
+        String lowerKey = key.toLowerCase(Locale.ROOT);
+        if (!lowerKey.equals(key)) {
+            policy = policyCache.get(lowerKey);
+            if (policy != null) {
+                log.trace("Policy cache hit (lowercase): {} -> {}", lowerKey, policy);
+                return policy;
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, String> canonicalizeMappings(Map<String, String> mappings) {
+        Map<String, String> canonicalMappings = new HashMap<>();
+        if (mappings == null || mappings.isEmpty()) {
+            return canonicalMappings;
+        }
+
+        for (Map.Entry<String, String> entry : mappings.entrySet()) {
+            String canonicalKey = canonicalizeLookupKey(entry.getKey());
+            if (canonicalKey != null && entry.getValue() != null) {
+                canonicalMappings.put(canonicalKey, entry.getValue());
+            }
+        }
+        return canonicalMappings;
+    }
+
+    private static String canonicalizeLookupKey(String key) {
+        if (key == null) {
+            return null;
+        }
+
+        String trimmed = key.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        int datasourceSeparator = trimmed.indexOf(':');
+        if (datasourceSeparator >= 0 && datasourceSeparator + 1 < trimmed.length()) {
+            trimmed = trimmed.substring(datasourceSeparator + 1);
+        }
+
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String buildSchemaOrTableKey(String schemaName, String tableName, String columnName) {
+        String normalizedSchema = normalizeLookupSegment(schemaName);
+        String normalizedTable = normalizeLookupSegment(tableName);
+        String normalizedColumn = normalizeLookupSegment(columnName);
+        if (normalizedTable == null || normalizedColumn == null) {
+            return null;
+        }
+        if (normalizedSchema != null) {
+            return normalizedSchema + "." + normalizedTable + "." + normalizedColumn;
+        }
+        return buildTableKey(normalizedTable, normalizedColumn);
+    }
+
+    private static String buildTableKey(String tableName, String columnName) {
+        String normalizedTable = normalizeLookupSegment(tableName);
+        String normalizedColumn = normalizeLookupSegment(columnName);
+        if (normalizedTable == null || normalizedColumn == null) {
+            return null;
+        }
+        return normalizedTable + "." + normalizedColumn;
+    }
+
+    private static String normalizeLookupSegment(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+}

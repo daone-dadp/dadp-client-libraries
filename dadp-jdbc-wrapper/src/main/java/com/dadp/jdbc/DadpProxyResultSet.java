@@ -239,12 +239,11 @@ public class DadpProxyResultSet implements ResultSet {
         }
 
         String schemaName = resolveParsedSchemaName();
-        String datasourceId = proxyConnection.getDatasourceId();
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
         String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
         String policyName = policyResolver != null
-                ? policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName)
+                ? policyResolver.resolvePolicy(null, normalizedSchemaName, normalizedTableName, normalizedColumnName)
                 : null;
 
         log.trace("Policy check: {}.{}.{} -> {}",
@@ -697,8 +696,7 @@ public class DadpProxyResultSet implements ResultSet {
             columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
         }
 
-        // datasourceId와 schemaName 결정
-        String datasourceId = proxyConnection.getDatasourceId();
+        // schemaName 결정
         String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
         if (schemaName == null || schemaName.trim().isEmpty()) {
             schemaName = proxyConnection.getCurrentSchemaName();
@@ -715,7 +713,7 @@ public class DadpProxyResultSet implements ResultSet {
         // PolicyResolver에서 정책 확인
         PolicyResolver policyResolver = proxyConnection.getPolicyResolver();
         log.trace("Decryption policy lookup: {}.{}.{}", normalizedSchemaName != null ? normalizedSchemaName + "." : "", normalizedTableName, normalizedColumnName);
-        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
+        String policyName = policyResolver.resolvePolicy(null, normalizedSchemaName, normalizedTableName, normalizedColumnName);
         
         if (policyName != null) {
             log.trace("Decryption target: {}.{}, policy={}", tableName, columnName, policyName);

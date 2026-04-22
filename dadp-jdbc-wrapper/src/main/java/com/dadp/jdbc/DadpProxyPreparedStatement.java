@@ -339,8 +339,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     // 해당 파라미터의 컬럼명 찾기
                     String paramColumnName = statementStructure.getParameterColumnName(paramIndex);
                     if (paramColumnName != null) {
-                        // datasourceId와 schemaName 결정
-                        String datasourceId = proxyConnection.getDatasourceId();
+                        // schemaName 결정
                         String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
                         if (schemaName == null || schemaName.trim().isEmpty()) {
                             schemaName = proxyConnection.getCurrentSchemaName();
@@ -352,7 +351,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
                         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                         String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
-                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
+                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(null, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                         String errorMsg = "Encrypted data exceeds column size (original: " +
                                          (originalData != null ? originalData.length() : 0) + " chars)";
                         log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
@@ -626,18 +625,17 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType()) ||
                 ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
 
-        String datasourceId = proxyConnection.getDatasourceId();
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
         String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
 
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
-            log.trace("{}: Policy lookup params: datasourceId={}, schemaName={}->{}, tableName={}->{}, columnName={}->{}",
-                    methodName, datasourceId, schemaName, normalizedSchemaName,
+            log.trace("{}: Policy lookup params: schemaName={}->{}, tableName={}->{}, columnName={}->{}",
+                    methodName, schemaName, normalizedSchemaName,
                     tableName, normalizedTableName, columnName, normalizedColumnName);
         }
 
-        String policyName = resolvePolicyName(policyResolver, protectedColumnIndex, datasourceId, normalizedSchemaName,
+        String policyName = resolvePolicyName(policyResolver, protectedColumnIndex, normalizedSchemaName,
                 normalizedTableName, normalizedColumnName, currentPolicyVersion);
 
         boolean searchEncryptionNeeded = false;
@@ -700,7 +698,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         String schemaName = resolveSchemaNameForLookup();
         return new StatementPlanCacheKey(
                 normalizeSqlCacheKey(sql),
-                proxyConnection.getDatasourceId(),
                 proxyConnection.normalizeIdentifier(schemaName),
                 proxyConnection.getPolicyResolver() != null ? proxyConnection.getPolicyResolver().getCurrentVersion() : null,
                 proxyConnection.getDbVendor());
@@ -732,7 +729,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             boolean isSearchContext = "SELECT".equals(sqlParseResult.getSqlType())
                     || ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
-            String policyName = resolvePolicyName(policyResolver, protectedColumnIndex, cacheKey.datasourceId,
+            String policyName = resolvePolicyName(policyResolver, protectedColumnIndex,
                     cacheKey.schemaName, normalizedTableName, normalizedColumnName, cacheKey.policyVersion);
             boolean searchEncryptionNeeded = false;
             if (isSearchContext && policyName != null && policyResolver != null) {
@@ -771,7 +768,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
     private String resolvePolicyName(PolicyResolver policyResolver,
                                      PolicyResolver.ProtectedColumnIndex protectedColumnIndex,
-                                     String datasourceId,
                                      String normalizedSchemaName,
                                      String normalizedTableName,
                                      String normalizedColumnName,
@@ -782,11 +778,11 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
         if (protectedColumnIndex != null) {
             return protectedColumnIndex.resolvePolicy(
-                    datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
+                    null, normalizedSchemaName, normalizedTableName, normalizedColumnName);
         }
 
         NegativePolicyCacheKey negativeCacheKey = new NegativePolicyCacheKey(
-                datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName, policyVersion,
+                normalizedSchemaName, normalizedTableName, normalizedColumnName, policyVersion,
                 proxyConnection.getDbVendor());
         synchronized (STATEMENT_CACHE_LOCK) {
             if (NEGATIVE_POLICY_CACHE.containsKey(negativeCacheKey)) {
@@ -794,7 +790,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
         }
 
-        String policyName = policyResolver.resolvePolicy(datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
+        String policyName = policyResolver.resolvePolicy(null, normalizedSchemaName, normalizedTableName, normalizedColumnName);
         if (policyName == null) {
             synchronized (STATEMENT_CACHE_LOCK) {
                 NEGATIVE_POLICY_CACHE.put(negativeCacheKey, Boolean.TRUE);
@@ -827,7 +823,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             return StatementClassification.PLAN_REQUIRED;
         }
 
-        String datasourceId = proxyConnection.getDatasourceId();
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(resolveSchemaNameForLookup());
         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
         boolean hasEncryptedWrite = false;
@@ -844,7 +839,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     || ("UPDATE".equals(sqlParseResult.getSqlType()) && statementStructure.isWhereClauseParameter(parameterIndex));
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
             String policyName = protectedColumnIndex.resolvePolicy(
-                    datasourceId, normalizedSchemaName, normalizedTableName, normalizedColumnName);
+                    null, normalizedSchemaName, normalizedTableName, normalizedColumnName);
             if (policyName == null) {
                 continue;
             }
@@ -938,14 +933,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
     private static class StatementPlanCacheKey {
         final String normalizedSql;
-        final String datasourceId;
         final String schemaName;
         final Long policyVersion;
         final String dbVendor;
 
-        StatementPlanCacheKey(String normalizedSql, String datasourceId, String schemaName, Long policyVersion, String dbVendor) {
+        StatementPlanCacheKey(String normalizedSql, String schemaName, Long policyVersion, String dbVendor) {
             this.normalizedSql = normalizedSql;
-            this.datasourceId = datasourceId;
             this.schemaName = schemaName;
             this.policyVersion = policyVersion;
             this.dbVendor = dbVendor;
@@ -961,7 +954,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
             StatementPlanCacheKey that = (StatementPlanCacheKey) o;
             return Objects.equals(normalizedSql, that.normalizedSql)
-                    && Objects.equals(datasourceId, that.datasourceId)
                     && Objects.equals(schemaName, that.schemaName)
                     && Objects.equals(policyVersion, that.policyVersion)
                     && Objects.equals(dbVendor, that.dbVendor);
@@ -969,25 +961,22 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
         @Override
         public int hashCode() {
-            return Objects.hash(normalizedSql, datasourceId, schemaName, policyVersion, dbVendor);
+            return Objects.hash(normalizedSql, schemaName, policyVersion, dbVendor);
         }
     }
 
     private static class NegativePolicyCacheKey {
-        final String datasourceId;
         final String schemaName;
         final String tableName;
         final String columnName;
         final Long policyVersion;
         final String dbVendor;
 
-        NegativePolicyCacheKey(String datasourceId,
-                               String schemaName,
+        NegativePolicyCacheKey(String schemaName,
                                String tableName,
                                String columnName,
                                Long policyVersion,
                                String dbVendor) {
-            this.datasourceId = datasourceId;
             this.schemaName = schemaName;
             this.tableName = tableName;
             this.columnName = columnName;
@@ -1004,8 +993,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 return false;
             }
             NegativePolicyCacheKey that = (NegativePolicyCacheKey) o;
-            return Objects.equals(datasourceId, that.datasourceId)
-                    && Objects.equals(schemaName, that.schemaName)
+            return Objects.equals(schemaName, that.schemaName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(columnName, that.columnName)
                     && Objects.equals(policyVersion, that.policyVersion)
@@ -1014,7 +1002,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
         @Override
         public int hashCode() {
-            return Objects.hash(datasourceId, schemaName, tableName, columnName, policyVersion, dbVendor);
+            return Objects.hash(schemaName, tableName, columnName, policyVersion, dbVendor);
         }
     }
 
@@ -1815,8 +1803,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                             // 해당 파라미터의 컬럼명 찾기
                             String paramColumnName = parameterToColumnMap.get(paramIndex);
                             if (paramColumnName != null) {
-                                // datasourceId와 schemaName 결정
-                                String datasourceId = proxyConnection.getDatasourceId();
+                                // schemaName 결정
                                 String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
                                 if (schemaName == null || schemaName.trim().isEmpty()) {
                                     schemaName = proxyConnection.getCurrentSchemaName();
@@ -1829,7 +1816,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                                 String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                                 String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
                                 String policyName = proxyConnection.getPolicyResolver().resolvePolicy(
-                                        datasourceId, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
+                                        null, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                                 String errorMsg = "Encrypted data exceeds column size (original: " +
                                                  (originalData != null ? originalData.length() : 0) + " chars)";
                                 log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
