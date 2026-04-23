@@ -4,6 +4,8 @@ import com.dadp.hub.crypto.HubCryptoService;
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
+import com.dadp.wrapper.crypto.UnsupportedCryptoMaterialException;
+import com.dadp.wrapper.crypto.WrapperLocalCryptoService;
 
 /**
  * 직접 암복호화 어댑터 (공통 라이브러리)
@@ -33,6 +35,13 @@ public class DirectCryptoAdapter {
     private volatile String singleTransportMode = "json";
     private volatile String engineTransport = "http";
     private volatile Integer engineBinaryPort = 9104;
+    private volatile String cryptoMode = "remote";
+    private volatile boolean localFallbackRemote = true;
+    private volatile WrapperLocalCryptoService localCryptoService;
+    private volatile String localHubBaseUrl;
+    private volatile Integer localTimeoutMillis = 30000;
+    private volatile String localHubAuthId;
+    private volatile String localHubAuthSecret;
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -122,6 +131,44 @@ public class DirectCryptoAdapter {
         applyEngineTransport(this.currentCryptoService);
     }
 
+    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote, Integer timeoutMillis) {
+        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis, null, null);
+    }
+
+    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
+                              Integer timeoutMillis, String hubAuthId, String hubAuthSecret) {
+        String normalized = cryptoMode != null ? cryptoMode.trim().toLowerCase() : "remote";
+        if (!"local".equals(normalized)) {
+            normalized = "remote";
+        }
+        this.cryptoMode = normalized;
+        this.localFallbackRemote = localFallbackRemote;
+        int effectiveTimeout = timeoutMillis != null ? timeoutMillis : 30000;
+        if ("local".equals(normalized)) {
+            if (this.localCryptoService != null
+                    && equalsNullable(this.localHubBaseUrl, hubBaseUrl)
+                    && equalsNullable(this.localHubAuthId, hubAuthId)
+                    && equalsNullable(this.localHubAuthSecret, hubAuthSecret)
+                    && this.localTimeoutMillis != null
+                    && this.localTimeoutMillis == effectiveTimeout) {
+                return;
+            }
+            this.localCryptoService = new WrapperLocalCryptoService(hubBaseUrl, effectiveTimeout, hubAuthId, hubAuthSecret);
+            this.localHubBaseUrl = hubBaseUrl;
+            this.localTimeoutMillis = effectiveTimeout;
+            this.localHubAuthId = hubAuthId;
+            this.localHubAuthSecret = hubAuthSecret;
+            log.info("Wrapper local crypto mode enabled: fallbackRemote={}", localFallbackRemote);
+        } else {
+            this.localCryptoService = null;
+            this.localHubBaseUrl = null;
+            this.localTimeoutMillis = effectiveTimeout;
+            this.localHubAuthId = null;
+            this.localHubAuthSecret = null;
+            log.trace("Wrapper crypto mode set to remote");
+        }
+    }
+
     private void applySingleTransportMode(HubCryptoService cryptoService) {
         if (cryptoService == null) {
             return;
@@ -179,6 +226,20 @@ public class DirectCryptoAdapter {
         if (data == null) {
             return null;
         }
+
+        if (isLocalCryptoEnabled()) {
+            try {
+                log.trace("Local encryption request: policy={}, dataLength={}", policyName, data.length());
+                String encrypted = localCryptoService.encrypt(data, policyName);
+                log.trace("Local encryption completed");
+                endpointAvailable = true;
+                return encrypted;
+            } catch (UnsupportedCryptoMaterialException e) {
+                return handleLocalEncryptFallback(data, policyName, e);
+            } catch (Exception e) {
+                return handleLocalEncryptFallback(data, policyName, e);
+            }
+        }
         
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
@@ -222,6 +283,10 @@ public class DirectCryptoAdapter {
     public String encryptForSearch(String data, String policyName) {
         if (data == null) {
             return null;
+        }
+
+        if (isLocalCryptoEnabled()) {
+            log.trace("Search encryption uses remote path in local crypto mode: policy={}", policyName);
         }
 
         if (currentCryptoService == null) {
@@ -288,6 +353,25 @@ public class DirectCryptoAdapter {
     public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         if (encryptedData == null) {
             return null;
+        }
+
+        if (isLocalCryptoEnabled() && maskPolicyName == null && maskPolicyUid == null && !includeStats) {
+            try {
+                log.trace("Local decryption request: dataLength={}, policyName={}",
+                        encryptedData.length(), policyName);
+                if (!localCryptoService.isEncryptedData(encryptedData)) {
+                    log.trace("Data is not encrypted - returning original data");
+                    return encryptedData;
+                }
+                String decrypted = localCryptoService.decrypt(encryptedData, policyName);
+                log.trace("Local decryption completed");
+                endpointAvailable = true;
+                return decrypted;
+            } catch (UnsupportedCryptoMaterialException e) {
+                return handleLocalDecryptFallback(encryptedData, policyName, e);
+            } catch (Exception e) {
+                return handleLocalDecryptFallback(encryptedData, policyName, e);
+            }
         }
         
         if (currentCryptoService == null) {
@@ -418,9 +502,109 @@ public class DirectCryptoAdapter {
      * @return 암호화된 데이터인지 여부
      */
     public boolean isEncryptedData(String data) {
+        if (isLocalCryptoEnabled()) {
+            return localCryptoService.isEncryptedData(data)
+                    || (currentCryptoService != null && currentCryptoService.isEncryptedData(data));
+        }
         if (currentCryptoService == null) {
             return false;
         }
         return currentCryptoService.isEncryptedData(data);
+    }
+
+    private boolean isLocalCryptoEnabled() {
+        return "local".equals(cryptoMode) && localCryptoService != null;
+    }
+
+    private static boolean equalsNullable(String left, String right) {
+        if (left == null) {
+            return right == null;
+        }
+        return left.equals(right);
+    }
+
+    private String handleLocalEncryptFallback(String data, String policyName, Exception e) {
+        String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        if (localFallbackRemote) {
+            log.debug("Local encryption fallback to remote: policy={}, error={}", policyName, errorMsg);
+            return encryptRemote(data, policyName);
+        }
+        log.warn("Local encryption failed (policy: {}): {}", policyName, errorMsg);
+        if (failOpen) {
+            return data;
+        }
+        throw new RuntimeException("Local encryption failed (Fail-closed mode)", e);
+    }
+
+    private String handleLocalDecryptFallback(String encryptedData, String policyName, Exception e) {
+        String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        if (localFallbackRemote) {
+            log.debug("Local decryption fallback to remote: {}", errorMsg);
+            return decryptRemote(encryptedData, policyName, null, null, false);
+        }
+        log.warn("Local decryption failed: {}", errorMsg);
+        if (failOpen) {
+            return encryptedData;
+        }
+        throw new RuntimeException("Local decryption failed (Fail-closed mode)", e);
+    }
+
+    private String encryptRemote(String data, String policyName) {
+        if (currentCryptoService == null) {
+            log.warn("Crypto service not initialized");
+            if (failOpen) {
+                return data;
+            }
+            throw new RuntimeException("Crypto service not initialized");
+        }
+
+        try {
+            log.trace("Direct encryption request: policy={}, dataLength={}", policyName, data != null ? data.length() : 0);
+            String encrypted = currentCryptoService.encrypt(data, policyName);
+            log.trace("Direct encryption completed");
+            endpointAvailable = true;
+            return encrypted;
+        } catch (Exception e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("Direct encryption failed (policy: {}): {}", policyName, errorMsg);
+            endpointAvailable = false;
+            if (failOpen) {
+                log.debug("Fail-open mode: storing as plaintext");
+                return data;
+            }
+            throw new RuntimeException("Encryption failed (Fail-closed mode)", e);
+        }
+    }
+
+    private String decryptRemote(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
+        if (currentCryptoService == null) {
+            log.warn("Crypto service not initialized");
+            if (failOpen) {
+                return encryptedData;
+            }
+            throw new RuntimeException("Crypto service not initialized");
+        }
+
+        try {
+            log.trace("Direct decryption request: dataLength={}, policyName={}, maskPolicyName={}, maskPolicyUid={}",
+                    encryptedData != null ? encryptedData.length() : 0, policyName, maskPolicyName, maskPolicyUid);
+            String decrypted = currentCryptoService.decrypt(encryptedData, policyName, maskPolicyName, maskPolicyUid, includeStats);
+            if (decrypted == null) {
+                log.trace("Data is not encrypted - returning original data");
+                return encryptedData;
+            }
+            log.trace("Direct decryption completed");
+            endpointAvailable = true;
+            return decrypted;
+        } catch (Exception e) {
+            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("Direct decryption failed: {}", errorMessage);
+            endpointAvailable = false;
+            if (failOpen) {
+                log.debug("Fail-open mode: storing as plaintext");
+                return encryptedData;
+            }
+            throw new RuntimeException("Decryption failed (Fail-closed mode)", e);
+        }
     }
 }

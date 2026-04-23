@@ -41,6 +41,11 @@ public class ProxyConfig {
     private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
     private final String engineTransport;  // Engine transport mode (http | binary-tcp)
     private final int engineBinaryPort;  // Engine binary TCP port
+    private final String cryptoMode;  // Wrapper crypto execution mode (remote | local)
+    private final boolean cryptoLocalFallbackRemote;  // Local crypto failure fallback to remote Engine
+    private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
+    private final String cryptoLocalHubAuthId;  // Engine-compatible Hub internal auth id
+    private final String cryptoLocalHubAuthSecret;  // Engine-compatible Hub internal auth secret
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -179,6 +184,69 @@ public class ProxyConfig {
             engineBinaryPortProp = urlParams != null ? urlParams.get("engineBinaryPort") : null;
         }
         this.engineBinaryPort = parsePort(engineBinaryPortProp, 9104);
+
+        String cryptoModeProp = null;
+        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
+            cryptoModeProp = System.getProperty("dadp.wrapper.crypto-mode");
+        }
+        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
+            cryptoModeProp = System.getenv("DADP_WRAPPER_CRYPTO_MODE");
+        }
+        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
+            cryptoModeProp = urlParams != null ? urlParams.get("cryptoMode") : null;
+        }
+        this.cryptoMode = normalizeCryptoMode(cryptoModeProp);
+
+        String localFallbackProp = null;
+        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
+            localFallbackProp = System.getProperty("dadp.wrapper.crypto-local.fallback-remote");
+        }
+        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
+            localFallbackProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_FALLBACK_REMOTE");
+        }
+        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
+            localFallbackProp = urlParams != null ? urlParams.get("cryptoLocalFallbackRemote") : null;
+        }
+        this.cryptoLocalFallbackRemote = localFallbackProp == null
+                || localFallbackProp.trim().isEmpty()
+                || "true".equalsIgnoreCase(localFallbackProp)
+                || "1".equals(localFallbackProp);
+
+        String localTimeoutProp = null;
+        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
+            localTimeoutProp = System.getProperty("dadp.wrapper.crypto-local.timeout-ms");
+        }
+        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
+            localTimeoutProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_TIMEOUT_MS");
+        }
+        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
+            localTimeoutProp = urlParams != null ? urlParams.get("cryptoLocalTimeoutMs") : null;
+        }
+        this.cryptoLocalTimeoutMs = parsePositiveInt(localTimeoutProp, 30000, "crypto local timeout");
+
+        String localHubAuthIdProp = null;
+        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
+            localHubAuthIdProp = System.getProperty("dadp.wrapper.crypto-local.hub-auth-id");
+        }
+        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
+            localHubAuthIdProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_HUB_AUTH_ID");
+        }
+        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
+            localHubAuthIdProp = urlParams != null ? urlParams.get("cryptoLocalHubAuthId") : null;
+        }
+        this.cryptoLocalHubAuthId = trimToNull(localHubAuthIdProp);
+
+        String localHubAuthSecretProp = null;
+        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
+            localHubAuthSecretProp = System.getProperty("dadp.wrapper.crypto-local.hub-auth-secret");
+        }
+        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
+            localHubAuthSecretProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_HUB_AUTH_SECRET");
+        }
+        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
+            localHubAuthSecretProp = urlParams != null ? urlParams.get("cryptoLocalHubAuthSecret") : null;
+        }
+        this.cryptoLocalHubAuthSecret = trimToNull(localHubAuthSecretProp);
 
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
@@ -334,6 +402,10 @@ public class ProxyConfig {
         log.trace("   - Single transport mode: {}", this.singleTransportMode);
         log.trace("   - Engine transport: {}", this.engineTransport);
         log.trace("   - Engine binary port: {}", this.engineBinaryPort);
+        log.trace("   - Wrapper crypto mode: {}", this.cryptoMode);
+        log.trace("   - Wrapper local crypto fallback remote: {}", this.cryptoLocalFallbackRemote);
+        log.trace("   - Wrapper local crypto timeout: {}ms", this.cryptoLocalTimeoutMs);
+        log.trace("   - Wrapper local crypto hub auth configured: {}", this.cryptoLocalHubAuthSecret != null);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -444,6 +516,26 @@ public class ProxyConfig {
         return engineBinaryPort;
     }
 
+    public String getCryptoMode() {
+        return cryptoMode;
+    }
+
+    public boolean isCryptoLocalFallbackRemote() {
+        return cryptoLocalFallbackRemote;
+    }
+
+    public int getCryptoLocalTimeoutMs() {
+        return cryptoLocalTimeoutMs;
+    }
+
+    public String getCryptoLocalHubAuthId() {
+        return cryptoLocalHubAuthId;
+    }
+
+    public String getCryptoLocalHubAuthSecret() {
+        return cryptoLocalHubAuthSecret;
+    }
+
     /**
      * Wrapper 암복호화 stage profiling 활성화 여부 조회
      *
@@ -493,6 +585,20 @@ public class ProxyConfig {
         return "http";
     }
 
+    private static String normalizeCryptoMode(String mode) {
+        if (mode == null || mode.trim().isEmpty()) {
+            return "remote";
+        }
+
+        String normalized = mode.trim().toLowerCase();
+        if ("remote".equals(normalized) || "local".equals(normalized)) {
+            return normalized;
+        }
+
+        log.warn("Unsupported wrapper crypto mode: {} (falling back to remote)", mode);
+        return "remote";
+    }
+
     private static int parsePort(String value, int defaultValue) {
         if (value == null || value.trim().isEmpty()) {
             return defaultValue;
@@ -504,6 +610,23 @@ public class ProxyConfig {
             log.warn("Invalid engine binary port: {} (falling back to {})", value, defaultValue);
             return defaultValue;
         }
+    }
+
+    private static int parsePositiveInt(String value, int defaultValue, String label) {
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : defaultValue;
+        } catch (NumberFormatException e) {
+            log.warn("Invalid {}: {} (falling back to {})", label, value, defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static String trimToNull(String value) {
+        return value != null && !value.trim().isEmpty() ? value.trim() : null;
     }
     
     /**

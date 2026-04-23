@@ -875,6 +875,7 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
+        applyCryptoMode(this.directCryptoAdapter);
         
         
         EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
@@ -899,6 +900,18 @@ public class JdbcBootstrapOrchestrator {
                 log.warn("Hub notification service initialization failed (ignored): {}", e.getMessage());
                 this.notificationService = null;
             }
+        }
+    }
+
+    private void applyCryptoMode(DirectCryptoAdapter adapter) {
+        if (adapter != null) {
+            adapter.setCryptoMode(
+                    config.getCryptoMode(),
+                    config.getHubUrl(),
+                    config.isCryptoLocalFallbackRemote(),
+                    config.getCryptoLocalTimeoutMs(),
+                    config.getCryptoLocalHubAuthId(),
+                    config.getCryptoLocalHubAuthSecret());
         }
     }
     

@@ -104,7 +104,7 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-jdbc-wrapper</artifactId>
-                <version>5.8.14</version>
+                <version>5.8.15</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>

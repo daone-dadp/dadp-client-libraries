@@ -150,6 +150,7 @@ public class DadpProxyConnection implements Connection {
         this.directCryptoAdapter = this.orchestrator.getDirectCryptoAdapter();
         String hubId = this.orchestrator.getCachedHubId();
         this.datasourceId = this.orchestrator.getCachedDatasourceId();
+        applyCryptoMode(this.directCryptoAdapter);
         applySingleTransportMode(this.directCryptoAdapter);
         applyEngineTransport(this.directCryptoAdapter);
         
@@ -192,6 +193,18 @@ public class DadpProxyConnection implements Connection {
     private void applyCryptoProfileRecorder(DirectCryptoAdapter adapter) {
         if (adapter != null && cryptoProfileRecorder != null) {
             adapter.setProfileRecorder(cryptoProfileRecorder);
+        }
+    }
+
+    private void applyCryptoMode(DirectCryptoAdapter adapter) {
+        if (adapter != null) {
+            adapter.setCryptoMode(
+                    config.getCryptoMode(),
+                    config.getHubUrl(),
+                    config.isCryptoLocalFallbackRemote(),
+                    config.getCryptoLocalTimeoutMs(),
+                    config.getCryptoLocalHubAuthId(),
+                    config.getCryptoLocalHubAuthSecret());
         }
     }
 
@@ -720,6 +733,7 @@ public class DadpProxyConnection implements Connection {
                 // 오케스트레이터의 어댑터가 있으면 그것을 사용 (엔드포인트 정보가 설정되어 있을 수 있음)
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
+                    applyCryptoMode(this.directCryptoAdapter);
                     applySingleTransportMode(this.directCryptoAdapter);
                     applyEngineTransport(this.directCryptoAdapter);
                     applyCryptoProfileRecorder(this.directCryptoAdapter);
@@ -787,6 +801,7 @@ public class DadpProxyConnection implements Connection {
                 
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
+                    applyCryptoMode(this.directCryptoAdapter);
                     applySingleTransportMode(this.directCryptoAdapter);
                     applyEngineTransport(this.directCryptoAdapter);
                     applyCryptoProfileRecorder(this.directCryptoAdapter);

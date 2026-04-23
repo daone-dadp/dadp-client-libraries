@@ -18,6 +18,11 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.wrapper.single-transport-mode");
         System.clearProperty("dadp.wrapper.engine-transport");
         System.clearProperty("dadp.wrapper.engine-binary-port");
+        System.clearProperty("dadp.wrapper.crypto-mode");
+        System.clearProperty("dadp.wrapper.crypto-local.fallback-remote");
+        System.clearProperty("dadp.wrapper.crypto-local.timeout-ms");
+        System.clearProperty("dadp.wrapper.crypto-local.hub-auth-id");
+        System.clearProperty("dadp.wrapper.crypto-local.hub-auth-secret");
     }
 
     @Test
@@ -28,6 +33,9 @@ class ProxyConfigCryptoProfileTest {
         assertTrue("json".equals(config.getSingleTransportMode()));
         assertTrue("http".equals(config.getEngineTransport()));
         assertTrue(config.getEngineBinaryPort() == 9104);
+        assertTrue("remote".equals(config.getCryptoMode()));
+        assertTrue(config.isCryptoLocalFallbackRemote());
+        assertTrue(config.getCryptoLocalTimeoutMs() == 30000);
         assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
@@ -64,5 +72,23 @@ class ProxyConfigCryptoProfileTest {
 
         assertTrue("binary-tcp".equals(config.getEngineTransport()));
         assertTrue(config.getEngineBinaryPort() == 19104);
+    }
+
+    @Test
+    void localCryptoModeCanBeEnabledFromJdbcUrlParams() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("cryptoMode", "local");
+        urlParams.put("cryptoLocalFallbackRemote", "false");
+        urlParams.put("cryptoLocalTimeoutMs", "1234");
+        urlParams.put("cryptoLocalHubAuthId", "hub-default");
+        urlParams.put("cryptoLocalHubAuthSecret", "secret");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue("local".equals(config.getCryptoMode()));
+        assertFalse(config.isCryptoLocalFallbackRemote());
+        assertTrue(config.getCryptoLocalTimeoutMs() == 1234);
+        assertTrue("hub-default".equals(config.getCryptoLocalHubAuthId()));
+        assertTrue("secret".equals(config.getCryptoLocalHubAuthSecret()));
     }
 }
