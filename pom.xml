@@ -69,6 +69,7 @@
         <module>dadp-common-logging-lib</module>
         <module>dadp-common-sync-lib-core</module>
         <module>dadp-common-sync-lib-j8</module>
+        <module>dadp-wrapper-crypto</module>
         <module>dadp-jdbc-wrapper</module>
     </modules>
     
@@ -103,6 +104,11 @@
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-jdbc-wrapper</artifactId>
                 <version>5.8.13</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.daone-dadp</groupId>
+                <artifactId>dadp-wrapper-crypto</artifactId>
+                <version>5.8.14-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
