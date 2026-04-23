@@ -39,6 +39,8 @@ public class ProxyConfig {
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
     private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
+    private final String engineTransport;  // Engine transport mode (http | binary-tcp)
+    private final int engineBinaryPort;  // Engine binary TCP port
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -153,6 +155,30 @@ public class ProxyConfig {
             singleTransportModeProp = urlParams != null ? urlParams.get("singleTransportMode") : null;
         }
         this.singleTransportMode = normalizeSingleTransportMode(singleTransportModeProp);
+
+        String engineTransportProp = null;
+        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
+            engineTransportProp = System.getProperty("dadp.wrapper.engine-transport");
+        }
+        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
+            engineTransportProp = System.getenv("DADP_WRAPPER_ENGINE_TRANSPORT");
+        }
+        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
+            engineTransportProp = urlParams != null ? urlParams.get("engineTransport") : null;
+        }
+        this.engineTransport = normalizeEngineTransport(engineTransportProp);
+
+        String engineBinaryPortProp = null;
+        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
+            engineBinaryPortProp = System.getProperty("dadp.wrapper.engine-binary-port");
+        }
+        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
+            engineBinaryPortProp = System.getenv("DADP_WRAPPER_ENGINE_BINARY_PORT");
+        }
+        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
+            engineBinaryPortProp = urlParams != null ? urlParams.get("engineBinaryPort") : null;
+        }
+        this.engineBinaryPort = parsePort(engineBinaryPortProp, 9104);
 
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
@@ -306,6 +332,8 @@ public class ProxyConfig {
         log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
         log.trace("   - Single transport mode: {}", this.singleTransportMode);
+        log.trace("   - Engine transport: {}", this.engineTransport);
+        log.trace("   - Engine binary port: {}", this.engineBinaryPort);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -408,6 +436,14 @@ public class ProxyConfig {
         return singleTransportMode;
     }
 
+    public String getEngineTransport() {
+        return engineTransport;
+    }
+
+    public int getEngineBinaryPort() {
+        return engineBinaryPort;
+    }
+
     /**
      * Wrapper 암복호화 stage profiling 활성화 여부 조회
      *
@@ -438,6 +474,36 @@ public class ProxyConfig {
 
         log.warn("Unsupported single transport mode: {} (falling back to json)", mode);
         return "json";
+    }
+
+    private static String normalizeEngineTransport(String mode) {
+        if (mode == null || mode.trim().isEmpty()) {
+            return "http";
+        }
+
+        String normalized = mode.trim().toLowerCase();
+        if ("netty-binary".equals(normalized)) {
+            normalized = "binary-tcp";
+        }
+        if ("http".equals(normalized) || "binary-tcp".equals(normalized)) {
+            return normalized;
+        }
+
+        log.warn("Unsupported engine transport: {} (falling back to http)", mode);
+        return "http";
+    }
+
+    private static int parsePort(String value, int defaultValue) {
+        if (value == null || value.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 && parsed <= 65535 ? parsed : defaultValue;
+        } catch (NumberFormatException e) {
+            log.warn("Invalid engine binary port: {} (falling back to {})", value, defaultValue);
+            return defaultValue;
+        }
     }
     
     /**

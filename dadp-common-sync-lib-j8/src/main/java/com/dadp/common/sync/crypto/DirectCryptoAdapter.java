@@ -31,6 +31,8 @@ public class DirectCryptoAdapter {
     private volatile String currentCryptoUrl;
     private volatile CryptoProfileRecorder profileRecorder;
     private volatile String singleTransportMode = "json";
+    private volatile String engineTransport = "http";
+    private volatile Integer engineBinaryPort = 9104;
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -72,6 +74,7 @@ public class DirectCryptoAdapter {
             // cryptoUrl로 암복호화 서비스 초기화
             this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
             applySingleTransportMode(this.currentCryptoService);
+            applyEngineTransport(this.currentCryptoService);
             applyProfileRecorder(this.currentCryptoService);
             this.currentCryptoUrl = trimmedCryptoUrl;
             log.debug("Crypto service initialized: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
@@ -105,6 +108,20 @@ public class DirectCryptoAdapter {
         applySingleTransportMode(this.currentCryptoService);
     }
 
+    public void setEngineTransport(String engineTransport) {
+        if (engineTransport == null || engineTransport.trim().isEmpty()) {
+            this.engineTransport = "http";
+        } else {
+            this.engineTransport = engineTransport.trim().toLowerCase();
+        }
+        applyEngineTransport(this.currentCryptoService);
+    }
+
+    public void setEngineBinaryPort(Integer engineBinaryPort) {
+        this.engineBinaryPort = engineBinaryPort != null ? engineBinaryPort : 9104;
+        applyEngineTransport(this.currentCryptoService);
+    }
+
     private void applySingleTransportMode(HubCryptoService cryptoService) {
         if (cryptoService == null) {
             return;
@@ -115,6 +132,26 @@ public class DirectCryptoAdapter {
             method.invoke(cryptoService, singleTransportMode);
         } catch (ReflectiveOperationException ignored) {
             log.trace("HubCryptoService does not expose optional single transport mode hook");
+        }
+    }
+
+    private void applyEngineTransport(HubCryptoService cryptoService) {
+        if (cryptoService == null) {
+            return;
+        }
+
+        try {
+            java.lang.reflect.Method transportMethod = cryptoService.getClass().getMethod("setEngineTransport", String.class);
+            transportMethod.invoke(cryptoService, engineTransport);
+        } catch (ReflectiveOperationException ignored) {
+            log.trace("HubCryptoService does not expose optional engine transport hook");
+        }
+
+        try {
+            java.lang.reflect.Method portMethod = cryptoService.getClass().getMethod("setEngineBinaryPort", Integer.class);
+            portMethod.invoke(cryptoService, engineBinaryPort);
+        } catch (ReflectiveOperationException ignored) {
+            log.trace("HubCryptoService does not expose optional engine binary port hook");
         }
     }
 

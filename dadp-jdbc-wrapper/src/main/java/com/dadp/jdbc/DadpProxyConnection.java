@@ -151,6 +151,7 @@ public class DadpProxyConnection implements Connection {
         String hubId = this.orchestrator.getCachedHubId();
         this.datasourceId = this.orchestrator.getCachedDatasourceId();
         applySingleTransportMode(this.directCryptoAdapter);
+        applyEngineTransport(this.directCryptoAdapter);
         
         // hubId가 없으면 외부 요청 차단
         if (hubId == null || hubId.trim().isEmpty()) {
@@ -197,6 +198,13 @@ public class DadpProxyConnection implements Connection {
     private void applySingleTransportMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
             adapter.setSingleTransportMode(config.getSingleTransportMode());
+        }
+    }
+
+    private void applyEngineTransport(DirectCryptoAdapter adapter) {
+        if (adapter != null) {
+            adapter.setEngineTransport(config.getEngineTransport());
+            adapter.setEngineBinaryPort(config.getEngineBinaryPort());
         }
     }
     
@@ -713,6 +721,7 @@ public class DadpProxyConnection implements Connection {
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
                     applySingleTransportMode(this.directCryptoAdapter);
+                    applyEngineTransport(this.directCryptoAdapter);
                     applyCryptoProfileRecorder(this.directCryptoAdapter);
                     log.debug("Using orchestrator's direct crypto adapter");
                 }
@@ -779,6 +788,7 @@ public class DadpProxyConnection implements Connection {
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
                     applySingleTransportMode(this.directCryptoAdapter);
+                    applyEngineTransport(this.directCryptoAdapter);
                     applyCryptoProfileRecorder(this.directCryptoAdapter);
                     this.directCryptoAdapter.setEndpointData(endpointData);
                     log.debug("Direct crypto adapter lazy initialization completed: cryptoUrl={}", endpointData.getCryptoUrl());

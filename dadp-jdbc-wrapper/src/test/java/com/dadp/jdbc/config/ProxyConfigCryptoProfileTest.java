@@ -16,6 +16,8 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
         System.clearProperty("dadp.wrapper.single-transport-mode");
+        System.clearProperty("dadp.wrapper.engine-transport");
+        System.clearProperty("dadp.wrapper.engine-binary-port");
     }
 
     @Test
@@ -24,6 +26,8 @@ class ProxyConfigCryptoProfileTest {
 
         assertFalse(config.isCryptoProfileEnabled());
         assertTrue("json".equals(config.getSingleTransportMode()));
+        assertTrue("http".equals(config.getEngineTransport()));
+        assertTrue(config.getEngineBinaryPort() == 9104);
         assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
@@ -48,5 +52,17 @@ class ProxyConfigCryptoProfileTest {
         ProxyConfig config = new ProxyConfig(urlParams);
 
         assertTrue("binary-framed".equals(config.getSingleTransportMode()));
+    }
+
+    @Test
+    void engineTransportCanBeEnabledFromJdbcUrlParams() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("engineTransport", "binary-tcp");
+        urlParams.put("engineBinaryPort", "19104");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue("binary-tcp".equals(config.getEngineTransport()));
+        assertTrue(config.getEngineBinaryPort() == 19104);
     }
 }

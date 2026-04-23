@@ -48,8 +48,11 @@ public class HubCryptoService {
     private int timeout;
     private boolean enableLogging;
     private String singleTransportMode = "json";
+    private String engineTransport = "http";
+    private int engineBinaryPort = 9104;
     private boolean initialized = false;
     private volatile CryptoProfileRecorder profileRecorder;
+    private volatile BinaryTcpEngineClient binaryTcpClient;
 
     @Deprecated
     private static final String HUB_API_PATH = "/hub/api/v1";
@@ -316,6 +319,62 @@ public class HubCryptoService {
         return "binary-framed".equals(singleTransportMode);
     }
 
+    private boolean useBinaryTcpTransport() {
+        return "binary-tcp".equals(engineTransport);
+    }
+
+    public void setEngineTransport(String engineTransport) {
+        if (engineTransport == null || engineTransport.trim().isEmpty()) {
+            this.engineTransport = "http";
+            closeBinaryTcpClient();
+            return;
+        }
+
+        String normalized = engineTransport.trim().toLowerCase();
+        if ("netty-binary".equals(normalized)) {
+            normalized = "binary-tcp";
+        }
+        if (!"binary-tcp".equals(normalized) && !"http".equals(normalized)) {
+            log.warn("Unsupported wrapper engine transport: {} (falling back to http)", engineTransport);
+            normalized = "http";
+        }
+        if (!normalized.equals(this.engineTransport)) {
+            closeBinaryTcpClient();
+        }
+        this.engineTransport = normalized;
+    }
+
+    public void setEngineBinaryPort(Integer engineBinaryPort) {
+        if (engineBinaryPort == null || engineBinaryPort <= 0 || engineBinaryPort > 65535) {
+            this.engineBinaryPort = 9104;
+        } else {
+            this.engineBinaryPort = engineBinaryPort;
+        }
+        closeBinaryTcpClient();
+    }
+
+    private BinaryTcpEngineClient binaryTcpClient() {
+        BinaryTcpEngineClient client = binaryTcpClient;
+        if (client == null) {
+            synchronized (this) {
+                client = binaryTcpClient;
+                if (client == null) {
+                    client = new BinaryTcpEngineClient(hubUrl, engineBinaryPort, timeout, enableLogging);
+                    binaryTcpClient = client;
+                }
+            }
+        }
+        return client;
+    }
+
+    private void closeBinaryTcpClient() {
+        BinaryTcpEngineClient client = binaryTcpClient;
+        binaryTcpClient = null;
+        if (client != null) {
+            client.close();
+        }
+    }
+
     private static double elapsedMs(long startedNs, long finishedNs) {
         return (finishedNs - startedNs) / 1_000_000.0;
     }
@@ -348,6 +407,11 @@ public class HubCryptoService {
 
     private BinaryHttpResponse doPostBinary(String operation, String url, byte[] requestBody, String contentType, String acceptType) {
         return doPostBytes(operation, url, requestBody, contentType, acceptType, "binary-framed");
+    }
+
+    private BinaryHttpResponse doPostBinary(String operation, String url, byte[] requestBody,
+                                            String contentType, String acceptType, String wrapperTransportMode) {
+        return doPostBytes(operation, url, requestBody, contentType, acceptType, wrapperTransportMode);
     }
 
     private BinaryHttpResponse doPostBytes(String operation, String url, byte[] requestBody,
@@ -587,7 +651,59 @@ public class HubCryptoService {
             long requestBuildFinishedNs;
             long responseParseFinishedNs;
 
-            if (useBinaryFramed) {
+            if (useBinaryTcpTransport()) {
+                byte[] requestBody = SingleBinaryFramedCodec.writeEncryptRequest(request);
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                long tcpRequestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
+                try {
+                    BinaryTcpEngineClient.Response response = binaryTcpClient().send("encrypt", "/api/encrypt", requestBody);
+                    requestBytes = response.requestBytes;
+                    responseBytes = response.responseBytes;
+                    responseId = tcpRequestId;
+                    responseStatus = 200;
+                    responseEndpoint = response.endpoint;
+                    wrapperTransportMode = "binary-tcp";
+                    connectionOpenMs = response.connectionOpenMs;
+                    outputStreamOpenMs = 0.0;
+                    bodyWriteMs = response.writeMs;
+                    bodyFlushCloseMs = 0.0;
+                    responseWriteMs = response.writeMs;
+                    responseCodeMs = 0.0;
+                    responseReadMs = response.readMs;
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseEncryptResponse(SingleBinaryFramedCodec.readEncryptResponse(response.body, objectMapper), captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } catch (RuntimeException tcpFailure) {
+                    log.warn("Wrapper binary TCP encrypt failed, falling back to HTTP binary frame: {}", tcpFailure.getMessage());
+                    BinaryHttpResponse response = doPostBinary("encrypt", url, requestBody,
+                            SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE,
+                            "binary-tcp-fallback-http");
+                    requestBytes = response.requestBytes;
+                    responseBytes = response.responseBytes;
+                    responseId = response.requestId;
+                    responseStatus = response.statusCode;
+                    responseEndpoint = response.endpoint;
+                    wrapperTransportMode = response.wrapperTransportMode;
+                    connectionOpenMs = response.connectionOpenMs;
+                    outputStreamOpenMs = response.outputStreamOpenMs;
+                    bodyWriteMs = response.bodyWriteMs;
+                    bodyFlushCloseMs = response.bodyFlushCloseMs;
+                    responseWriteMs = response.writeMs;
+                    responseCodeMs = response.responseCodeMs;
+                    responseReadMs = response.readMs;
+                    if (response.is2xx()) {
+                        if (captureProfile) {
+                            responseParseStartedNs = System.nanoTime();
+                        }
+                        parsed = parseEncryptResponse(SingleBinaryFramedCodec.readEncryptResponse(response.body, objectMapper), captureProfile);
+                        responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                    } else {
+                        throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.bodyAsText());
+                    }
+                }
+            } else if (useBinaryFramed) {
                 byte[] requestBody = SingleBinaryFramedCodec.writeEncryptRequest(request);
                 requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
                 BinaryHttpResponse response = doPostBinary("encrypt", url, requestBody,
@@ -663,7 +779,8 @@ public class HubCryptoService {
             if (captureProfile) {
                 recordProfileEvent(recorder, "encrypt", null, null, null, false, policy, null,
                         null, null, null, null, null, null, null, null, null, null, null, e.getMessage(),
-                        useBinaryFramed ? "binary-framed" : "json", null, null, null, null);
+                        useBinaryTcpTransport() ? "binary-tcp" : (useBinaryFramed ? "binary-framed" : "json"),
+                        null, null, null, null);
             }
             if (enableLogging) log.debug("Engine encryption failed: {}", e.getMessage());
             if (e instanceof HubCryptoException) throw e;
@@ -790,7 +907,64 @@ public class HubCryptoService {
             long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
             long responseParseFinishedNs;
 
-            if (useBinaryFramed) {
+            if (useBinaryTcpTransport()) {
+                byte[] requestBody = SingleBinaryFramedCodec.writeDecryptRequest(request);
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                long tcpRequestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
+                try {
+                    BinaryTcpEngineClient.Response response = binaryTcpClient().send("decrypt", "/api/decrypt", requestBody);
+                    requestBytes = response.requestBytes;
+                    responseBytes = response.responseBytes;
+                    responseId = tcpRequestId;
+                    responseStatus = 200;
+                    responseEndpoint = response.endpoint;
+                    wrapperTransportMode = "binary-tcp";
+                    connectionOpenMs = response.connectionOpenMs;
+                    outputStreamOpenMs = 0.0;
+                    bodyWriteMs = response.writeMs;
+                    bodyFlushCloseMs = 0.0;
+                    responseWriteMs = response.writeMs;
+                    responseCodeMs = 0.0;
+                    responseReadMs = response.readMs;
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseDecryptResponse(SingleBinaryFramedCodec.readDecryptResponse(response.body, objectMapper), encryptedData, captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } catch (RuntimeException tcpFailure) {
+                    log.warn("Wrapper binary TCP decrypt failed, falling back to HTTP binary frame: {}", tcpFailure.getMessage());
+                    BinaryHttpResponse response = doPostBinary("decrypt", url, requestBody,
+                            SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE,
+                            "binary-tcp-fallback-http");
+                    requestBytes = response.requestBytes;
+                    responseBytes = response.responseBytes;
+                    responseId = response.requestId;
+                    responseStatus = response.statusCode;
+                    responseEndpoint = response.endpoint;
+                    wrapperTransportMode = response.wrapperTransportMode;
+                    connectionOpenMs = response.connectionOpenMs;
+                    outputStreamOpenMs = response.outputStreamOpenMs;
+                    bodyWriteMs = response.bodyWriteMs;
+                    bodyFlushCloseMs = response.bodyFlushCloseMs;
+                    responseWriteMs = response.writeMs;
+                    responseCodeMs = response.responseCodeMs;
+                    responseReadMs = response.readMs;
+                    if (response.is2xx()) {
+                        if (captureProfile) {
+                            responseParseStartedNs = System.nanoTime();
+                        }
+                        parsed = parseDecryptResponse(SingleBinaryFramedCodec.readDecryptResponse(response.body, objectMapper), encryptedData, captureProfile);
+                        responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                    } else {
+                        String errorBody = response.bodyAsText();
+                        if (errorBody.contains("Data is not encrypted")) {
+                            if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
+                            return null;
+                        }
+                        throw new HubConnectionException("Engine API call failed: " + response.statusCode + " " + errorBody);
+                    }
+                }
+            } else if (useBinaryFramed) {
                 byte[] requestBody = SingleBinaryFramedCodec.writeDecryptRequest(request);
                 requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
                 BinaryHttpResponse response = doPostBinary("decrypt", url, requestBody,
@@ -875,7 +1049,8 @@ public class HubCryptoService {
             if (captureProfile) {
                 recordProfileEvent(recorder, "decrypt", null, null, null, false, policyName, maskPolicyName,
                         null, null, null, null, null, null, null, null, null, null, null, e.getMessage(),
-                        useBinaryFramed ? "binary-framed" : "json", null, null, null, null);
+                        useBinaryTcpTransport() ? "binary-tcp" : (useBinaryFramed ? "binary-framed" : "json"),
+                        null, null, null, null);
             }
             String errorMessage = e.getMessage() != null ? e.getMessage() : "";
 
