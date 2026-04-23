@@ -25,8 +25,21 @@ class LocalAesGcmCryptoTest {
         String policyUid = "123e4567-e89b-12d3-a456-426614174000";
         String encrypted = crypto.encrypt("hello-wrapper-local-crypto", policyUid, material);
 
+        assertEquals(true, encrypted.startsWith("hub:" + policyUid + ":"));
         assertEquals(policyUid, LocalAesGcmCrypto.extractPolicyUid(encrypted));
         assertEquals("hello-wrapper-local-crypto", crypto.decrypt(encrypted, material));
+    }
+
+    @Test
+    void partialEncryptDecryptUsesSharedCoreFormat() {
+        KeyMaterial material = materialWithAlgorithm("A256GCM");
+        LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
+        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
+
+        String encrypted = crypto.encrypt("1234567812345678", policyUid, material, true, 0, 3);
+
+        assertEquals(true, encrypted.startsWith("123::ENC::hub:" + policyUid + ":"));
+        assertEquals("1234567812345678", crypto.decrypt(encrypted, material, 0, 3));
     }
 
     @Test

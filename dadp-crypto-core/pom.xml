@@ -13,12 +13,12 @@
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
-    <artifactId>dadp-wrapper-crypto</artifactId>
+    <artifactId>dadp-crypto-core</artifactId>
     <version>5.8.15-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>DADP Wrapper Local Crypto</name>
-    <description>DADP wrapper-side local crypto support module. This module is separate from dadp-jdbc-wrapper.</description>
+    <name>DADP Crypto Core</name>
+    <description>DADP engine-compatible local crypto primitives without Spring, HTTP, or DB dependencies.</description>
 
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -29,15 +29,6 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>io.github.daone-dadp</groupId>
-            <artifactId>dadp-crypto-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.13.5</version>
-        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
