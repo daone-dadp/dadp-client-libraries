@@ -141,6 +141,12 @@
             <artifactId>httpclient</artifactId>
             <version>4.5.14</version>
         </dependency>
+
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+            <version>1.2</version>
+        </dependency>
         
         <!-- 
         DB 드라이버는 pom.xml에 포함하지 않음
@@ -385,7 +391,7 @@
                                     </manifestEntries>
                                 </transformer>
                             </transformers>
-                            <minimizeJar>true</minimizeJar>
+                            <minimizeJar>false</minimizeJar>
                         </configuration>
                     </execution>
                 </executions>
