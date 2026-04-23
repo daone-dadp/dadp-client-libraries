@@ -7,28 +7,13 @@ import com.dadp.hub.crypto.exception.HubConnectionException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpHeaders;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.socket.ConnectionSocketFactory;
-import org.apache.http.conn.socket.PlainConnectionSocketFactory;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.entity.AbstractHttpEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.DefaultConnectionKeepAliveStrategy;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
-import org.apache.http.protocol.HTTP;
-import org.apache.http.util.EntityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.*;
 import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -44,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Wrapper-side Hub crypto service with no Spring dependency.
  *
- * This implementation talks directly to the Engine through a pooled HTTP client
+ * This implementation talks directly to the Engine over {@link HttpURLConnection}
  * and preserves the same public API surface as the hub-crypto-lib variant.
  *
  * @author DADP Development Team
@@ -58,7 +43,6 @@ public class HubCryptoService {
 
     private final ObjectMapper objectMapper;
     private final SSLContext sslContext;
-    private final CloseableHttpClient httpClient;
     private String hubUrl;
     private String apiBasePath = "/api";
     private int timeout;
@@ -209,7 +193,6 @@ public class HubCryptoService {
 
     public HubCryptoService() {
         this.sslContext = createDadpCaSSLContext();
-        this.httpClient = createPooledHttpClient(this.sslContext);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -253,48 +236,6 @@ public class HubCryptoService {
         }
 
         return instance;
-    }
-
-    private static CloseableHttpClient createPooledHttpClient(SSLContext sslContext) {
-        try {
-            RegistryBuilder<ConnectionSocketFactory> registryBuilder = RegistryBuilder.<ConnectionSocketFactory>create()
-                    .register("http", PlainConnectionSocketFactory.getSocketFactory());
-
-            if (sslContext != null) {
-                registryBuilder.register("https", new SSLConnectionSocketFactory(sslContext));
-            } else {
-                registryBuilder.register("https", SSLConnectionSocketFactory.getSocketFactory());
-            }
-
-            Registry<ConnectionSocketFactory> socketFactoryRegistry = registryBuilder.build();
-            PoolingHttpClientConnectionManager connectionManager =
-                    new PoolingHttpClientConnectionManager(socketFactoryRegistry);
-            connectionManager.setMaxTotal(200);
-            connectionManager.setDefaultMaxPerRoute(100);
-            connectionManager.setValidateAfterInactivity(1000);
-
-            return HttpClients.custom()
-                    .setConnectionManager(connectionManager)
-                    .setKeepAliveStrategy(new DefaultConnectionKeepAliveStrategy() {
-                        @Override
-                        public long getKeepAliveDuration(org.apache.http.HttpResponse response,
-                                                         org.apache.http.protocol.HttpContext context) {
-                            long duration = super.getKeepAliveDuration(response, context);
-                            return duration > 0 ? duration : 60000L;
-                        }
-                    })
-                    .disableAutomaticRetries()
-                    .evictExpiredConnections()
-                    .evictIdleConnections(60, java.util.concurrent.TimeUnit.SECONDS)
-                    .build();
-        } catch (Exception e) {
-            log.warn("Failed to create pooled HTTP client, using default pooled client: {}", e.getMessage());
-            return HttpClients.custom()
-                    .disableAutomaticRetries()
-                    .evictExpiredConnections()
-                    .evictIdleConnections(60, java.util.concurrent.TimeUnit.SECONDS)
-                    .build();
-        }
     }
 
     // Utility helpers
@@ -394,44 +335,42 @@ public class HubCryptoService {
     // HTTP execution
 
     private HttpResponse doPost(String operation, String url, String requestBody) {
-        byte[] body = requestBody.getBytes(StandardCharsets.UTF_8);
-        BinaryHttpResponse response = executePost(operation, url, body,
-                "application/json; charset=UTF-8", "application/json", "json");
-        return new HttpResponse(
-                response.requestId,
-                response.statusCode,
-                response.bodyAsText(),
-                response.endpoint,
-                response.requestBytes,
-                response.responseBytes,
-                response.wrapperTransportMode,
-                response.connectionOpenMs,
-                response.outputStreamOpenMs,
-                response.bodyWriteMs,
-                response.bodyFlushCloseMs,
-                response.writeMs,
-                response.responseCodeMs,
-                response.readMs,
-                response.totalMs);
+        BinaryHttpResponse response = doPostBytes(operation, url,
+                requestBody.getBytes(StandardCharsets.UTF_8),
+                "application/json; charset=UTF-8",
+                "application/json",
+                "json");
+        return new HttpResponse(response.requestId, response.statusCode, response.bodyAsText(), response.endpoint,
+                response.requestBytes, response.responseBytes, response.wrapperTransportMode,
+                response.connectionOpenMs, response.outputStreamOpenMs, response.bodyWriteMs, response.bodyFlushCloseMs,
+                response.writeMs, response.responseCodeMs, response.readMs, response.totalMs);
     }
 
     private BinaryHttpResponse doPostBinary(String operation, String url, byte[] requestBody, String contentType, String acceptType) {
-        return executePost(operation, url, requestBody, contentType, acceptType, "binary-framed");
+        return doPostBytes(operation, url, requestBody, contentType, acceptType, "binary-framed");
     }
 
-    private BinaryHttpResponse executePost(String operation, String url, byte[] requestBody,
+    private BinaryHttpResponse doPostBytes(String operation, String url, byte[] requestBody,
                                            String contentType, String acceptType, String wrapperTransportMode) {
+        HttpURLConnection conn = null;
+        boolean responseFullyConsumed = false;
         boolean captureTimings = profileRecorder != null || (enableLogging && log.isDebugEnabled());
         long requestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
         int requestBytes = requestBody != null ? requestBody.length : 0;
         String endpoint = summarizeEndpoint(url);
         long startedNs = captureTimings ? System.nanoTime() : 0L;
-        long executeStartedNs = startedNs;
-        long executeFinishedNs = startedNs;
+        long connectionOpenStartedNs = startedNs;
+        long connectionOpenFinishedNs = startedNs;
+        long outputStreamOpenStartedNs = startedNs;
+        long outputStreamOpenFinishedNs = startedNs;
+        long bodyWriteStartedNs = startedNs;
+        long bodyWriteFinishedNs = startedNs;
+        long flushCloseStartedNs = startedNs;
+        long flushCloseFinishedNs = startedNs;
+        long responseStartedNs = startedNs;
+        long responseFinishedNs = startedNs;
         long readStartedNs = startedNs;
         long readFinishedNs = startedNs;
-
-        TimedByteArrayEntity entity = new TimedByteArrayEntity(requestBody != null ? requestBody : new byte[0], contentType, captureTimings);
         try {
             if (enableLogging && log.isDebugEnabled()) {
                 log.debug(
@@ -439,82 +378,108 @@ public class HubCryptoService {
                     requestId, operation, endpoint, wrapperTransportMode, requestBytes, contentType);
             }
 
-            RequestConfig requestConfig = RequestConfig.custom()
-                    .setConnectTimeout(timeout)
-                    .setSocketTimeout(timeout)
-                    .setConnectionRequestTimeout(timeout)
-                    .build();
+            if (captureTimings) {
+                connectionOpenStartedNs = System.nanoTime();
+            }
+            URL urlObj = new URL(url);
+            conn = (HttpURLConnection) urlObj.openConnection();
+            if (captureTimings) {
+                connectionOpenFinishedNs = System.nanoTime();
+            }
+
+            if (conn instanceof HttpsURLConnection && sslContext != null) {
+                ((HttpsURLConnection) conn).setSSLSocketFactory(sslContext.getSocketFactory());
+            }
+
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", contentType);
+            conn.setRequestProperty("Accept", acceptType);
+            conn.setRequestProperty("Connection", "keep-alive");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(timeout);
+            conn.setReadTimeout(timeout);
+            conn.setFixedLengthStreamingMode(requestBytes);
 
             if (captureTimings) {
-                executeStartedNs = System.nanoTime();
+                outputStreamOpenStartedNs = System.nanoTime();
+            }
+            OutputStream os = conn.getOutputStream();
+            if (captureTimings) {
+                outputStreamOpenFinishedNs = System.nanoTime();
+                bodyWriteStartedNs = System.nanoTime();
+            }
+            os.write(requestBody != null ? requestBody : new byte[0]);
+            if (captureTimings) {
+                bodyWriteFinishedNs = System.nanoTime();
+                flushCloseStartedNs = System.nanoTime();
+            }
+            os.flush();
+            os.close();
+            if (captureTimings) {
+                flushCloseFinishedNs = System.nanoTime();
+                responseStartedNs = System.nanoTime();
             }
 
-            HttpPost post = new HttpPost(url);
-            post.setConfig(requestConfig);
-            post.setHeader(HttpHeaders.CONTENT_TYPE, contentType);
-            post.setHeader(HttpHeaders.ACCEPT, acceptType);
-            post.setHeader(HttpHeaders.CONNECTION, HTTP.CONN_KEEP_ALIVE);
-            post.setEntity(entity);
-
-            try (CloseableHttpResponse response = httpClient.execute(post)) {
-                if (captureTimings) {
-                    executeFinishedNs = System.nanoTime();
-                    readStartedNs = executeFinishedNs;
-                }
-
-                int code = response.getStatusLine().getStatusCode();
-                HttpEntity responseEntity = response.getEntity();
-                byte[] responseBody = responseEntity != null ? EntityUtils.toByteArray(responseEntity) : new byte[0];
-                if (captureTimings) {
-                    readFinishedNs = System.nanoTime();
-                }
-
-                if (enableLogging && log.isDebugEnabled()) {
-                    log.debug(
-                        "Wrapper HTTP request complete: requestId={}, operation={}, endpoint={}, transport={}, status={}, requestBytes={}, responseBytes={}, connectionOpenMs={}, bodyWriteMs={}, flushMs={}, responseCodeMs={}, readMs={}, totalMs={}",
-                        requestId,
-                        operation,
-                        endpoint,
-                        wrapperTransportMode,
-                        code,
-                        requestBytes,
-                        responseBody.length,
-                        captureTimings ? String.format("%.3f", entity.connectionOpenMs(executeStartedNs)) : "n/a",
-                        captureTimings ? String.format("%.3f", entity.bodyWriteMs()) : "n/a",
-                        captureTimings ? String.format("%.3f", entity.bodyFlushCloseMs()) : "n/a",
-                        captureTimings ? String.format("%.3f", responseCodeWaitMs(executeStartedNs, executeFinishedNs, entity)) : "n/a",
-                        captureTimings ? String.format("%.3f", elapsedMs(readStartedNs, readFinishedNs)) : "n/a",
-                        captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
-                }
-
-                if (code < 200 || code >= 300) {
-                    log.warn(
-                        "Wrapper HTTP request returned non-2xx: requestId={}, operation={}, endpoint={}, transport={}, status={}, totalMs={}",
-                        requestId,
-                        operation,
-                        endpoint,
-                        wrapperTransportMode,
-                        code,
-                        captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
-                }
-
-                return new BinaryHttpResponse(
-                        requestId,
-                        code,
-                        responseBody,
-                        endpoint,
-                        requestBytes,
-                        responseBody.length,
-                        wrapperTransportMode,
-                        captureTimings ? entity.connectionOpenMs(executeStartedNs) : 0.0,
-                        captureTimings ? entity.outputStreamOpenMs() : 0.0,
-                        captureTimings ? entity.bodyWriteMs() : 0.0,
-                        captureTimings ? entity.bodyFlushCloseMs() : 0.0,
-                        captureTimings ? entity.totalWriteMs() : 0.0,
-                        captureTimings ? responseCodeWaitMs(executeStartedNs, executeFinishedNs, entity) : 0.0,
-                        captureTimings ? elapsedMs(readStartedNs, readFinishedNs) : 0.0,
-                        captureTimings ? elapsedMs(startedNs, readFinishedNs) : 0.0);
+            int code = conn.getResponseCode();
+            if (captureTimings) {
+                responseFinishedNs = System.nanoTime();
+                readStartedNs = System.nanoTime();
             }
+            byte[] responseBody = readStreamBytes(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+            if (captureTimings) {
+                readFinishedNs = System.nanoTime();
+            }
+            responseFullyConsumed = true;
+
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug(
+                    "Wrapper HTTP request complete: requestId={}, operation={}, endpoint={}, transport={}, status={}, requestBytes={}, responseBytes={}, connectionOpenMs={}, outputStreamOpenMs={}, bodyWriteMs={}, flushCloseMs={}, responseCodeMs={}, readMs={}, totalMs={}",
+                    requestId,
+                    operation,
+                    endpoint,
+                    wrapperTransportMode,
+                    code,
+                    requestBytes,
+                    responseBody.length,
+                    captureTimings ? String.format("%.3f", elapsedMs(connectionOpenStartedNs, connectionOpenFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(outputStreamOpenStartedNs, outputStreamOpenFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(bodyWriteStartedNs, bodyWriteFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(flushCloseStartedNs, flushCloseFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(responseStartedNs, responseFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(readStartedNs, readFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
+            }
+
+            if (code < 200 || code >= 300) {
+                log.warn(
+                    "Wrapper HTTP request returned non-2xx: requestId={}, operation={}, endpoint={}, transport={}, status={}, totalMs={}",
+                    requestId,
+                    operation,
+                    endpoint,
+                    wrapperTransportMode,
+                    code,
+                    captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
+            }
+
+            double outputStreamOpenMs = captureTimings ? elapsedMs(outputStreamOpenStartedNs, outputStreamOpenFinishedNs) : 0.0;
+            double bodyWriteMs = captureTimings ? elapsedMs(bodyWriteStartedNs, bodyWriteFinishedNs) : 0.0;
+            double bodyFlushCloseMs = captureTimings ? elapsedMs(flushCloseStartedNs, flushCloseFinishedNs) : 0.0;
+            return new BinaryHttpResponse(
+                    requestId,
+                    code,
+                    responseBody,
+                    endpoint,
+                    requestBytes,
+                    responseBody.length,
+                    wrapperTransportMode,
+                    captureTimings ? elapsedMs(connectionOpenStartedNs, connectionOpenFinishedNs) : 0.0,
+                    outputStreamOpenMs,
+                    bodyWriteMs,
+                    bodyFlushCloseMs,
+                    outputStreamOpenMs + bodyWriteMs + bodyFlushCloseMs,
+                    captureTimings ? elapsedMs(responseStartedNs, responseFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(readStartedNs, readFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(startedNs, readFinishedNs) : 0.0);
         } catch (java.net.SocketTimeoutException e) {
             log.warn(
                 "Wrapper HTTP request timed out: requestId={}, operation={}, endpoint={}, transport={}, requestBytes={}, timeoutMs={}, totalMs={}",
@@ -537,105 +502,11 @@ public class HubCryptoService {
                 captureTimings ? String.format("%.3f", elapsedMs(startedNs, System.nanoTime())) : "n/a",
                 e.getMessage());
             throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
-        }
-    }
-
-    private static double responseCodeWaitMs(long executeStartedNs, long executeFinishedNs, TimedByteArrayEntity entity) {
-        if (executeStartedNs <= 0L || executeFinishedNs <= 0L) {
-            return 0.0;
-        }
-        double executeMs = elapsedMs(executeStartedNs, executeFinishedNs);
-        double sendMs = entity != null ? entity.totalWriteMs() : 0.0;
-        double connectionMs = entity != null ? entity.connectionOpenMs(executeStartedNs) : 0.0;
-        double result = executeMs - sendMs - connectionMs;
-        return result > 0.0 ? result : 0.0;
-    }
-
-    private static final class TimedByteArrayEntity extends AbstractHttpEntity {
-        private final byte[] content;
-        private final boolean captureTimings;
-        private long writeStartedNs;
-        private long bodyWriteStartedNs;
-        private long bodyWriteFinishedNs;
-        private long flushStartedNs;
-        private long flushFinishedNs;
-
-        private TimedByteArrayEntity(byte[] content, String contentType, boolean captureTimings) {
-            this.content = content != null ? content : new byte[0];
-            this.captureTimings = captureTimings;
-            setContentType(contentType);
-        }
-
-        @Override
-        public boolean isRepeatable() {
-            return true;
-        }
-
-        @Override
-        public long getContentLength() {
-            return content.length;
-        }
-
-        @Override
-        public InputStream getContent() {
-            return new ByteArrayInputStream(content);
-        }
-
-        @Override
-        public void writeTo(OutputStream outstream) throws IOException {
-            if (outstream == null) {
-                throw new IllegalArgumentException("Output stream may not be null");
+        } finally {
+            // Keep successful connections eligible for JDK keep-alive reuse.
+            if (conn != null && !responseFullyConsumed) {
+                conn.disconnect();
             }
-            if (captureTimings) {
-                writeStartedNs = System.nanoTime();
-                bodyWriteStartedNs = writeStartedNs;
-            }
-            outstream.write(content);
-            if (captureTimings) {
-                bodyWriteFinishedNs = System.nanoTime();
-                flushStartedNs = bodyWriteFinishedNs;
-            }
-            outstream.flush();
-            if (captureTimings) {
-                flushFinishedNs = System.nanoTime();
-            }
-        }
-
-        @Override
-        public boolean isStreaming() {
-            return false;
-        }
-
-        double connectionOpenMs(long executeStartedNs) {
-            if (!captureTimings || executeStartedNs <= 0L || writeStartedNs <= 0L) {
-                return 0.0;
-            }
-            return elapsedMs(executeStartedNs, writeStartedNs);
-        }
-
-        double outputStreamOpenMs() {
-            return 0.0;
-        }
-
-        double bodyWriteMs() {
-            if (!captureTimings || bodyWriteStartedNs <= 0L || bodyWriteFinishedNs <= 0L) {
-                return 0.0;
-            }
-            return elapsedMs(bodyWriteStartedNs, bodyWriteFinishedNs);
-        }
-
-        double bodyFlushCloseMs() {
-            if (!captureTimings || flushStartedNs <= 0L || flushFinishedNs <= 0L) {
-                return 0.0;
-            }
-            return elapsedMs(flushStartedNs, flushFinishedNs);
-        }
-
-        double totalWriteMs() {
-            if (!captureTimings || writeStartedNs <= 0L || flushFinishedNs <= 0L) {
-                return 0.0;
-            }
-            return elapsedMs(writeStartedNs, flushFinishedNs);
         }
     }
 

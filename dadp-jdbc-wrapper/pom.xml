@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.8.12</version>
+    <version>5.8.13</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -135,19 +135,6 @@
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- Apache HttpClient for explicit wrapper-side connection pooling (Java 8 compatible) -->
-        <dependency>
-            <groupId>org.apache.httpcomponents</groupId>
-            <artifactId>httpclient</artifactId>
-            <version>4.5.14</version>
-        </dependency>
-
-        <dependency>
-            <groupId>commons-logging</groupId>
-            <artifactId>commons-logging</artifactId>
-            <version>1.2</version>
-        </dependency>
-        
         <!-- 
         DB 드라이버는 pom.xml에 포함하지 않음
         고객사가 lib 폴더에 필요한 드라이버 JAR를 직접 배치
@@ -323,18 +310,6 @@
                                     <pattern>ch.qos.logback</pattern>
                                     <shadedPattern>com.dadp.wrapper.shaded.logback</shadedPattern>
                                 </relocation>
-                                <relocation>
-                                    <pattern>org.apache.http</pattern>
-                                    <shadedPattern>com.dadp.wrapper.shaded.apache.http</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.apache.commons.logging</pattern>
-                                    <shadedPattern>com.dadp.wrapper.shaded.apache.commons.logging</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.apache.commons.codec</pattern>
-                                    <shadedPattern>com.dadp.wrapper.shaded.apache.commons.codec</shadedPattern>
-                                </relocation>
 
                             </relocations>
                             
@@ -391,7 +366,7 @@
                                     </manifestEntries>
                                 </transformer>
                             </transformers>
-                            <minimizeJar>false</minimizeJar>
+                            <minimizeJar>true</minimizeJar>
                         </configuration>
                     </execution>
                 </executions>
