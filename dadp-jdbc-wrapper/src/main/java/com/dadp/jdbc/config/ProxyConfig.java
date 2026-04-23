@@ -38,6 +38,7 @@ public class ProxyConfig {
     private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
+    private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -140,6 +141,18 @@ public class ProxyConfig {
         
         // DadpLoggerFactory에 로그 활성화 설정 전달 (JDBC URL 파라미터를 통해 설정된 경우 반영)
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
+
+        String singleTransportModeProp = null;
+        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
+            singleTransportModeProp = System.getProperty("dadp.wrapper.single-transport-mode");
+        }
+        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
+            singleTransportModeProp = System.getenv("DADP_WRAPPER_SINGLE_TRANSPORT_MODE");
+        }
+        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
+            singleTransportModeProp = urlParams != null ? urlParams.get("singleTransportMode") : null;
+        }
+        this.singleTransportMode = normalizeSingleTransportMode(singleTransportModeProp);
 
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
@@ -292,6 +305,7 @@ public class ProxyConfig {
         log.trace("   - Fail-open: {}", this.failOpen);
         log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
+        log.trace("   - Single transport mode: {}", this.singleTransportMode);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -390,6 +404,10 @@ public class ProxyConfig {
         return enableLogging;
     }
 
+    public String getSingleTransportMode() {
+        return singleTransportMode;
+    }
+
     /**
      * Wrapper 암복호화 stage profiling 활성화 여부 조회
      *
@@ -406,6 +424,20 @@ public class ProxyConfig {
      */
     public String getCryptoProfilePath() {
         return cryptoProfilePath;
+    }
+
+    private static String normalizeSingleTransportMode(String mode) {
+        if (mode == null || mode.trim().isEmpty()) {
+            return "json";
+        }
+
+        String normalized = mode.trim().toLowerCase();
+        if ("binary-framed".equals(normalized) || "json".equals(normalized)) {
+            return normalized;
+        }
+
+        log.warn("Unsupported single transport mode: {} (falling back to json)", mode);
+        return "json";
     }
     
     /**

@@ -15,6 +15,7 @@ class ProxyConfigCryptoProfileTest {
     void clearSystemProperties() {
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
+        System.clearProperty("dadp.wrapper.single-transport-mode");
     }
 
     @Test
@@ -22,6 +23,7 @@ class ProxyConfigCryptoProfileTest {
         ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
         assertFalse(config.isCryptoProfileEnabled());
+        assertTrue("json".equals(config.getSingleTransportMode()));
         assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
@@ -36,5 +38,15 @@ class ProxyConfigCryptoProfileTest {
 
         assertTrue(config.isCryptoProfileEnabled());
         assertTrue("/tmp/dadp/wrapper-profile.ndjson".equals(config.getCryptoProfilePath()));
+    }
+
+    @Test
+    void singleTransportModeCanBeEnabledFromJdbcUrlParams() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("singleTransportMode", "binary-framed");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue("binary-framed".equals(config.getSingleTransportMode()));
     }
 }

@@ -30,6 +30,7 @@ public class DirectCryptoAdapter {
     // 현재 설정된 cryptoUrl (중복 초기화 방지용)
     private volatile String currentCryptoUrl;
     private volatile CryptoProfileRecorder profileRecorder;
+    private volatile String singleTransportMode = "json";
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -70,6 +71,7 @@ public class DirectCryptoAdapter {
             
             // cryptoUrl로 암복호화 서비스 초기화
             this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
+            applySingleTransportMode(this.currentCryptoService);
             applyProfileRecorder(this.currentCryptoService);
             this.currentCryptoUrl = trimmedCryptoUrl;
             log.debug("Crypto service initialized: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
@@ -92,6 +94,28 @@ public class DirectCryptoAdapter {
     public void setProfileRecorder(CryptoProfileRecorder profileRecorder) {
         this.profileRecorder = profileRecorder;
         applyProfileRecorder(this.currentCryptoService);
+    }
+
+    public void setSingleTransportMode(String singleTransportMode) {
+        if (singleTransportMode == null || singleTransportMode.trim().isEmpty()) {
+            this.singleTransportMode = "json";
+        } else {
+            this.singleTransportMode = singleTransportMode.trim().toLowerCase();
+        }
+        applySingleTransportMode(this.currentCryptoService);
+    }
+
+    private void applySingleTransportMode(HubCryptoService cryptoService) {
+        if (cryptoService == null) {
+            return;
+        }
+
+        try {
+            java.lang.reflect.Method method = cryptoService.getClass().getMethod("setSingleTransportMode", String.class);
+            method.invoke(cryptoService, singleTransportMode);
+        } catch (ReflectiveOperationException ignored) {
+            log.trace("HubCryptoService does not expose optional single transport mode hook");
+        }
     }
 
     private void applyProfileRecorder(HubCryptoService cryptoService) {

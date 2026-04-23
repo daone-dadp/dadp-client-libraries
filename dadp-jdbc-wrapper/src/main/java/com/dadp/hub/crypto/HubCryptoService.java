@@ -47,6 +47,7 @@ public class HubCryptoService {
     private String apiBasePath = "/api";
     private int timeout;
     private boolean enableLogging;
+    private String singleTransportMode = "json";
     private boolean initialized = false;
     private volatile CryptoProfileRecorder profileRecorder;
 
@@ -86,6 +87,36 @@ public class HubCryptoService {
             this.totalMs = totalMs;
         }
         boolean is2xx() { return statusCode >= 200 && statusCode < 300; }
+    }
+
+    private static class BinaryHttpResponse {
+        final long requestId;
+        final int statusCode;
+        final byte[] body;
+        final String endpoint;
+        final int requestBytes;
+        final int responseBytes;
+        final double writeMs;
+        final double responseCodeMs;
+        final double readMs;
+        final double totalMs;
+
+        BinaryHttpResponse(long requestId, int statusCode, byte[] body, String endpoint, int requestBytes, int responseBytes,
+                           double writeMs, double responseCodeMs, double readMs, double totalMs) {
+            this.requestId = requestId;
+            this.statusCode = statusCode;
+            this.body = body;
+            this.endpoint = endpoint;
+            this.requestBytes = requestBytes;
+            this.responseBytes = responseBytes;
+            this.writeMs = writeMs;
+            this.responseCodeMs = responseCodeMs;
+            this.readMs = readMs;
+            this.totalMs = totalMs;
+        }
+
+        boolean is2xx() { return statusCode >= 200 && statusCode < 300; }
+        String bodyAsText() { return new String(body, StandardCharsets.UTF_8); }
     }
 
     // SSL helpers
@@ -223,6 +254,14 @@ public class HubCryptoService {
         this.profileRecorder = profileRecorder;
     }
 
+    public void setSingleTransportMode(String singleTransportMode) {
+        if (singleTransportMode == null || singleTransportMode.trim().isEmpty()) {
+            this.singleTransportMode = "json";
+        } else {
+            this.singleTransportMode = singleTransportMode.trim().toLowerCase();
+        }
+    }
+
     public void initializeIfNeeded() {
         if (!isInitialized()) {
             this.initialized = true;
@@ -248,6 +287,10 @@ public class HubCryptoService {
 
     public String getLastUsedEndpoint() { return lastUsedEndpoint; }
     public long getEndpointUsageCount() { return endpointUsageCount; }
+
+    private boolean useSingleBinaryFramedTransport() {
+        return "binary-framed".equals(singleTransportMode);
+    }
 
     private static double elapsedMs(long startedNs, long finishedNs) {
         return (finishedNs - startedNs) / 1_000_000.0;
@@ -393,6 +436,89 @@ public class HubCryptoService {
         }
     }
 
+    private BinaryHttpResponse doPostBinary(String operation, String url, byte[] requestBody, String contentType, String acceptType) {
+        HttpURLConnection conn = null;
+        boolean responseFullyConsumed = false;
+        boolean captureTimings = profileRecorder != null || (enableLogging && log.isDebugEnabled());
+        long requestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
+        int requestBytes = requestBody != null ? requestBody.length : 0;
+        String endpoint = summarizeEndpoint(url);
+        long startedNs = captureTimings ? System.nanoTime() : 0L;
+        long writeStartedNs = startedNs;
+        long writeFinishedNs = startedNs;
+        long responseStartedNs = startedNs;
+        long responseFinishedNs = startedNs;
+        long readStartedNs = startedNs;
+        long readFinishedNs = startedNs;
+        try {
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug(
+                    "Wrapper binary HTTP request start: requestId={}, operation={}, endpoint={}, requestBytes={}, contentType={}",
+                    requestId, operation, endpoint, requestBytes, contentType);
+            }
+
+            URL urlObj = new URL(url);
+            conn = (HttpURLConnection) urlObj.openConnection();
+
+            if (conn instanceof HttpsURLConnection && sslContext != null) {
+                ((HttpsURLConnection) conn).setSSLSocketFactory(sslContext.getSocketFactory());
+            }
+
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", contentType);
+            conn.setRequestProperty("Accept", acceptType);
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(timeout);
+            conn.setReadTimeout(timeout);
+            conn.setFixedLengthStreamingMode(requestBytes);
+
+            if (captureTimings) {
+                writeStartedNs = System.nanoTime();
+            }
+            OutputStream os = conn.getOutputStream();
+            os.write(requestBody);
+            os.flush();
+            os.close();
+            if (captureTimings) {
+                writeFinishedNs = System.nanoTime();
+            }
+
+            if (captureTimings) {
+                responseStartedNs = System.nanoTime();
+            }
+            int code = conn.getResponseCode();
+            if (captureTimings) {
+                responseFinishedNs = System.nanoTime();
+                readStartedNs = System.nanoTime();
+            }
+            byte[] responseBody = readStreamBytes(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
+            if (captureTimings) {
+                readFinishedNs = System.nanoTime();
+            }
+            responseFullyConsumed = true;
+
+            return new BinaryHttpResponse(
+                    requestId,
+                    code,
+                    responseBody,
+                    endpoint,
+                    requestBytes,
+                    responseBody.length,
+                    captureTimings ? elapsedMs(writeStartedNs, writeFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(responseStartedNs, responseFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(readStartedNs, readFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(startedNs, readFinishedNs) : 0.0);
+        } catch (java.net.SocketTimeoutException e) {
+            throw new HubConnectionException("Engine connection timeout: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
+        } finally {
+            if (conn != null && !responseFullyConsumed) {
+                conn.disconnect();
+            }
+        }
+    }
+
     private static String readStream(InputStream is) throws IOException {
         if (is == null) return "";
         try {
@@ -409,6 +535,21 @@ public class HubCryptoService {
         }
     }
 
+    private static byte[] readStreamBytes(InputStream is) throws IOException {
+        if (is == null) return new byte[0];
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return output.toByteArray();
+        } finally {
+            is.close();
+        }
+    }
+
     // Encrypt
 
     public String encrypt(String data, String policy) {
@@ -420,6 +561,7 @@ public class HubCryptoService {
         validateNotHubPath();
         CryptoProfileRecorder recorder = this.profileRecorder;
         boolean captureProfile = recorder != null;
+        boolean useBinaryFramed = useSingleBinaryFramedTransport();
 
         if (enableLogging && log.isDebugEnabled()) {
             log.debug("Wrapper encrypt request: dataLength={}, policy={}",
@@ -435,36 +577,80 @@ public class HubCryptoService {
             request.setPolicyName(policy);
             request.setIncludeStats(includeStats || captureProfile);
 
-            String requestBody;
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
-            try {
-                requestBody = objectMapper.writeValueAsString(request);
-            } catch (Exception e) {
-                throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
-            }
-            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+            ParsedEncryptResult parsed;
+            int requestBytes;
+            int responseBytes;
+            long responseId;
+            int responseStatus;
+            String responseEndpoint;
+            double responseWriteMs;
+            double responseCodeMs;
+            double responseReadMs;
+            long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
+            long requestBuildFinishedNs;
+            long responseParseFinishedNs;
 
-            HttpResponse response = doPost("encrypt", url, requestBody);
-
-            if (response.is2xx()) {
-                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
-                ParsedEncryptResult parsed = parseEncryptResponse(response.body, captureProfile);
-                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-
-                // Prefer the v2 "code" contract, then fall back to the legacy success flag.
-                if (captureProfile) {
-                    recordProfileEvent(recorder, "encrypt", response.endpoint, response.requestId, response.statusCode,
-                            true, policy, null, response.requestBytes, response.responseBytes,
-                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
-                            response.responseCodeMs, response.readMs,
-                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
-                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
-                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
+            if (useBinaryFramed) {
+                byte[] requestBody = SingleBinaryFramedCodec.writeEncryptRequest(request);
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                BinaryHttpResponse response = doPostBinary("encrypt", url, requestBody,
+                        SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE);
+                requestBytes = response.requestBytes;
+                responseBytes = response.responseBytes;
+                responseId = response.requestId;
+                responseStatus = response.statusCode;
+                responseEndpoint = response.endpoint;
+                responseWriteMs = response.writeMs;
+                responseCodeMs = response.responseCodeMs;
+                responseReadMs = response.readMs;
+                if (response.is2xx()) {
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseEncryptResponse(SingleBinaryFramedCodec.readEncryptResponse(response.body, objectMapper), captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } else {
+                    throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.bodyAsText());
                 }
-                return parsed.encryptedData;
             } else {
-                throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.body);
+                String requestBody;
+                try {
+                    requestBody = objectMapper.writeValueAsString(request);
+                } catch (Exception e) {
+                    throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
+                }
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                HttpResponse response = doPost("encrypt", url, requestBody);
+                requestBytes = response.requestBytes;
+                responseBytes = response.responseBytes;
+                responseId = response.requestId;
+                responseStatus = response.statusCode;
+                responseEndpoint = response.endpoint;
+                responseWriteMs = response.writeMs;
+                responseCodeMs = response.responseCodeMs;
+                responseReadMs = response.readMs;
+                if (response.is2xx()) {
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseEncryptResponse(response.body, captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } else {
+                    throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.body);
+                }
             }
+
+            if (captureProfile) {
+                recordProfileEvent(recorder, "encrypt", responseEndpoint, responseId, responseStatus,
+                        true, policy, null, requestBytes, responseBytes,
+                        elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), responseWriteMs,
+                        responseCodeMs, responseReadMs,
+                        elapsedMs(responseParseStartedNs, responseParseFinishedNs),
+                        elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
+                        parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
+            }
+            return parsed.encryptedData;
 
         } catch (Exception e) {
             if (captureProfile) {
@@ -556,6 +742,7 @@ public class HubCryptoService {
         validateNotHubPath();
         CryptoProfileRecorder recorder = this.profileRecorder;
         boolean captureProfile = recorder != null;
+        boolean useBinaryFramed = useSingleBinaryFramedTransport();
 
         if (enableLogging && log.isDebugEnabled()) {
             log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyUid={}",
@@ -573,39 +760,89 @@ public class HubCryptoService {
             request.setMaskPolicyUid(maskPolicyUid);
             request.setIncludeStats(includeStats || captureProfile);
 
-            String requestBody;
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
-            try {
-                requestBody = objectMapper.writeValueAsString(request);
-            } catch (Exception e) {
-                throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
-            }
-            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+            ParsedDecryptResult parsed;
+            int requestBytes;
+            int responseBytes;
+            long responseId;
+            int responseStatus;
+            String responseEndpoint;
+            double responseWriteMs;
+            double responseCodeMs;
+            double responseReadMs;
+            long requestBuildFinishedNs;
+            long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
+            long responseParseFinishedNs;
 
-            HttpResponse response = doPost("decrypt", url, requestBody);
-
-            if (response.is2xx()) {
-                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
-                ParsedDecryptResult parsed = parseDecryptResponse(response.body, encryptedData, captureProfile);
-                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                if (captureProfile) {
-                    recordProfileEvent(recorder, "decrypt", response.endpoint, response.requestId, response.statusCode,
-                            true, policyName, maskPolicyName, response.requestBytes, response.responseBytes,
-                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
-                            response.responseCodeMs, response.readMs,
-                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
-                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
-                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
+            if (useBinaryFramed) {
+                byte[] requestBody = SingleBinaryFramedCodec.writeDecryptRequest(request);
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                BinaryHttpResponse response = doPostBinary("decrypt", url, requestBody,
+                        SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE);
+                requestBytes = response.requestBytes;
+                responseBytes = response.responseBytes;
+                responseId = response.requestId;
+                responseStatus = response.statusCode;
+                responseEndpoint = response.endpoint;
+                responseWriteMs = response.writeMs;
+                responseCodeMs = response.responseCodeMs;
+                responseReadMs = response.readMs;
+                if (response.is2xx()) {
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseDecryptResponse(SingleBinaryFramedCodec.readDecryptResponse(response.body, objectMapper), encryptedData, captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } else {
+                    String errorBody = response.bodyAsText();
+                    if (errorBody.contains("Data is not encrypted")) {
+                        if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
+                        return null;
+                    }
+                    throw new HubConnectionException("Engine API call failed: " + response.statusCode + " " + errorBody);
                 }
-                return parsed.decryptedData;
             } else {
-                // Handle the known "Data is not encrypted" case even on non-2xx responses.
-                if (response.body != null && response.body.contains("Data is not encrypted")) {
-                    if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
-                    return null;
+                String requestBody;
+                try {
+                    requestBody = objectMapper.writeValueAsString(request);
+                } catch (Exception e) {
+                    throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
                 }
-                throw new HubConnectionException("Engine API call failed: " + response.statusCode + " " + response.body);
+                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                HttpResponse response = doPost("decrypt", url, requestBody);
+                requestBytes = response.requestBytes;
+                responseBytes = response.responseBytes;
+                responseId = response.requestId;
+                responseStatus = response.statusCode;
+                responseEndpoint = response.endpoint;
+                responseWriteMs = response.writeMs;
+                responseCodeMs = response.responseCodeMs;
+                responseReadMs = response.readMs;
+                if (response.is2xx()) {
+                    if (captureProfile) {
+                        responseParseStartedNs = System.nanoTime();
+                    }
+                    parsed = parseDecryptResponse(response.body, encryptedData, captureProfile);
+                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                } else {
+                    if (response.body != null && response.body.contains("Data is not encrypted")) {
+                        if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
+                        return null;
+                    }
+                    throw new HubConnectionException("Engine API call failed: " + response.statusCode + " " + response.body);
+                }
             }
+
+            if (captureProfile) {
+                recordProfileEvent(recorder, "decrypt", responseEndpoint, responseId, responseStatus,
+                        true, policyName, maskPolicyName, requestBytes, responseBytes,
+                        elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), responseWriteMs,
+                        responseCodeMs, responseReadMs,
+                        elapsedMs(responseParseStartedNs, responseParseFinishedNs),
+                        elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
+                        parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
+            }
+            return parsed.decryptedData;
 
         } catch (Exception e) {
             if (captureProfile) {
@@ -627,7 +864,10 @@ public class HubCryptoService {
     }
 
     private ParsedDecryptResult parseDecryptResponse(String responseBody, String encryptedData, boolean includeEngineObservability) {
-        JsonNode rootNode = parseJson(responseBody);
+        return parseDecryptResponse(parseJson(responseBody), encryptedData, includeEngineObservability);
+    }
+
+    private ParsedDecryptResult parseDecryptResponse(JsonNode rootNode, String encryptedData, boolean includeEngineObservability) {
         Long processingTime = includeEngineObservability ? extractProcessingTime(rootNode) : null;
         String engineTraceId = includeEngineObservability ? extractTraceId(rootNode) : null;
         Map<String, Object> engineStats = includeEngineObservability ? extractEngineStats(rootNode) : null;
@@ -703,7 +943,10 @@ public class HubCryptoService {
     }
 
     private ParsedEncryptResult parseEncryptResponse(String responseBody, boolean includeEngineObservability) {
-        JsonNode rootNode = parseJson(responseBody);
+        return parseEncryptResponse(parseJson(responseBody), includeEngineObservability);
+    }
+
+    private ParsedEncryptResult parseEncryptResponse(JsonNode rootNode, boolean includeEngineObservability) {
         Long processingTime = includeEngineObservability ? extractProcessingTime(rootNode) : null;
         String engineTraceId = includeEngineObservability ? extractTraceId(rootNode) : null;
         Map<String, Object> engineStats = includeEngineObservability ? extractEngineStats(rootNode) : null;
@@ -1113,6 +1356,30 @@ public class HubCryptoService {
         JsonNode observabilityNode = rootNode.get("observability");
         if (observabilityNode != null && !observabilityNode.isNull()) {
             JsonNode cryptoOperationTimeNode = observabilityNode.get("cryptoOperationTime");
+            if (cryptoOperationTimeNode != null && cryptoOperationTimeNode.isNumber()) {
+                return cryptoOperationTimeNode.asLong();
+            }
+        }
+
+        JsonNode timingsNode = rootNode.get("timings");
+        if (timingsNode != null && !timingsNode.isNull()) {
+            JsonNode apiProcessingTimeNode = timingsNode.get("apiProcessingTimeMs");
+            if (apiProcessingTimeNode != null && apiProcessingTimeNode.isNumber()) {
+                return apiProcessingTimeNode.asLong();
+            }
+            JsonNode cryptoOperationTimeNode = timingsNode.get("cryptoOperationTimeMs");
+            if (cryptoOperationTimeNode != null && cryptoOperationTimeNode.isNumber()) {
+                return cryptoOperationTimeNode.asLong();
+            }
+        }
+
+        JsonNode statsNode = rootNode.get("stats");
+        if (statsNode != null && !statsNode.isNull()) {
+            JsonNode totalProcessingTimeNode = statsNode.get("totalProcessingTime");
+            if (totalProcessingTimeNode != null && totalProcessingTimeNode.isNumber()) {
+                return totalProcessingTimeNode.asLong();
+            }
+            JsonNode cryptoOperationTimeNode = statsNode.get("cryptoOperationTime");
             if (cryptoOperationTimeNode != null && cryptoOperationTimeNode.isNumber()) {
                 return cryptoOperationTimeNode.asLong();
             }
