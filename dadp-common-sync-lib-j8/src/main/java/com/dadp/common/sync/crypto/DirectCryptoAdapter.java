@@ -29,6 +29,7 @@ public class DirectCryptoAdapter {
     
     // 현재 설정된 cryptoUrl (중복 초기화 방지용)
     private volatile String currentCryptoUrl;
+    private volatile CryptoProfileRecorder profileRecorder;
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -69,6 +70,7 @@ public class DirectCryptoAdapter {
             
             // cryptoUrl로 암복호화 서비스 초기화
             this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
+            applyProfileRecorder(this.currentCryptoService);
             this.currentCryptoUrl = trimmedCryptoUrl;
             log.debug("Crypto service initialized: cryptoUrl={}, apiBasePath={}, enableLogging={}", trimmedCryptoUrl, apiBasePath, enableLogging);
             
@@ -85,6 +87,24 @@ public class DirectCryptoAdapter {
      */
     public boolean isEndpointAvailable() {
         return endpointAvailable && currentCryptoService != null;
+    }
+
+    public void setProfileRecorder(CryptoProfileRecorder profileRecorder) {
+        this.profileRecorder = profileRecorder;
+        applyProfileRecorder(this.currentCryptoService);
+    }
+
+    private void applyProfileRecorder(HubCryptoService cryptoService) {
+        if (cryptoService == null || profileRecorder == null) {
+            return;
+        }
+
+        try {
+            java.lang.reflect.Method method = cryptoService.getClass().getMethod("setProfileRecorder", CryptoProfileRecorder.class);
+            method.invoke(cryptoService, profileRecorder);
+        } catch (ReflectiveOperationException ignored) {
+            log.trace("HubCryptoService does not expose optional profile recorder hook");
+        }
     }
     
     /**
@@ -343,4 +363,3 @@ public class DirectCryptoAdapter {
         return currentCryptoService.isEncryptedData(data);
     }
 }
-

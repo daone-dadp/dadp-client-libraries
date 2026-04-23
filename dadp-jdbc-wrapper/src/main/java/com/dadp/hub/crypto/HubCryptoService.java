@@ -1,5 +1,6 @@
 package com.dadp.hub.crypto;
 
+import com.dadp.common.sync.crypto.CryptoProfileRecorder;
 import com.dadp.hub.crypto.dto.*;
 import com.dadp.hub.crypto.exception.HubCryptoException;
 import com.dadp.hub.crypto.exception.HubConnectionException;
@@ -20,6 +21,9 @@ import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -44,6 +48,7 @@ public class HubCryptoService {
     private int timeout;
     private boolean enableLogging;
     private boolean initialized = false;
+    private volatile CryptoProfileRecorder profileRecorder;
 
     @Deprecated
     private static final String HUB_API_PATH = "/hub/api/v1";
@@ -56,11 +61,29 @@ public class HubCryptoService {
     // HTTP response holder
 
     private static class HttpResponse {
+        final long requestId;
         final int statusCode;
         final String body;
-        HttpResponse(int statusCode, String body) {
+        final String endpoint;
+        final int requestBytes;
+        final int responseBytes;
+        final double writeMs;
+        final double responseCodeMs;
+        final double readMs;
+        final double totalMs;
+
+        HttpResponse(long requestId, int statusCode, String body, String endpoint, int requestBytes, int responseBytes,
+                     double writeMs, double responseCodeMs, double readMs, double totalMs) {
+            this.requestId = requestId;
             this.statusCode = statusCode;
             this.body = body;
+            this.endpoint = endpoint;
+            this.requestBytes = requestBytes;
+            this.responseBytes = responseBytes;
+            this.writeMs = writeMs;
+            this.responseCodeMs = responseCodeMs;
+            this.readMs = readMs;
+            this.totalMs = totalMs;
         }
         boolean is2xx() { return statusCode >= 200 && statusCode < 300; }
     }
@@ -196,6 +219,10 @@ public class HubCryptoService {
     public String getApiBasePath() { return this.apiBasePath; }
     public boolean isInitialized() { return initialized; }
 
+    public void setProfileRecorder(CryptoProfileRecorder profileRecorder) {
+        this.profileRecorder = profileRecorder;
+    }
+
     public void initializeIfNeeded() {
         if (!isInitialized()) {
             this.initialized = true;
@@ -243,10 +270,11 @@ public class HubCryptoService {
     private HttpResponse doPost(String operation, String url, String requestBody) {
         HttpURLConnection conn = null;
         boolean responseFullyConsumed = false;
+        boolean captureTimings = profileRecorder != null || (enableLogging && log.isDebugEnabled());
         long requestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
         int requestBytes = utf8Length(requestBody);
         String endpoint = summarizeEndpoint(url);
-        long startedNs = System.nanoTime();
+        long startedNs = captureTimings ? System.nanoTime() : 0L;
         long writeStartedNs = startedNs;
         long writeFinishedNs = startedNs;
         long responseStartedNs = startedNs;
@@ -275,19 +303,29 @@ public class HubCryptoService {
 
             byte[] body = requestBody.getBytes(StandardCharsets.UTF_8);
             conn.setFixedLengthStreamingMode(body.length);
-            writeStartedNs = System.nanoTime();
+            if (captureTimings) {
+                writeStartedNs = System.nanoTime();
+            }
             OutputStream os = conn.getOutputStream();
             os.write(body);
             os.flush();
             os.close();
-            writeFinishedNs = System.nanoTime();
+            if (captureTimings) {
+                writeFinishedNs = System.nanoTime();
+            }
 
-            responseStartedNs = System.nanoTime();
+            if (captureTimings) {
+                responseStartedNs = System.nanoTime();
+            }
             int code = conn.getResponseCode();
-            responseFinishedNs = System.nanoTime();
-            readStartedNs = System.nanoTime();
+            if (captureTimings) {
+                responseFinishedNs = System.nanoTime();
+                readStartedNs = System.nanoTime();
+            }
             String responseBody = readStream(code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream());
-            readFinishedNs = System.nanoTime();
+            if (captureTimings) {
+                readFinishedNs = System.nanoTime();
+            }
             responseFullyConsumed = true;
 
             if (enableLogging && log.isDebugEnabled()) {
@@ -299,10 +337,10 @@ public class HubCryptoService {
                     code,
                     requestBytes,
                     utf8Length(responseBody),
-                    String.format("%.3f", elapsedMs(writeStartedNs, writeFinishedNs)),
-                    String.format("%.3f", elapsedMs(responseStartedNs, responseFinishedNs)),
-                    String.format("%.3f", elapsedMs(readStartedNs, readFinishedNs)),
-                    String.format("%.3f", elapsedMs(startedNs, readFinishedNs)));
+                    captureTimings ? String.format("%.3f", elapsedMs(writeStartedNs, writeFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(responseStartedNs, responseFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(readStartedNs, readFinishedNs)) : "n/a",
+                    captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
             }
 
             if (code < 200 || code >= 300) {
@@ -312,10 +350,20 @@ public class HubCryptoService {
                     operation,
                     endpoint,
                     code,
-                    String.format("%.3f", elapsedMs(startedNs, readFinishedNs)));
+                    captureTimings ? String.format("%.3f", elapsedMs(startedNs, readFinishedNs)) : "n/a");
             }
 
-            return new HttpResponse(code, responseBody);
+            return new HttpResponse(
+                    requestId,
+                    code,
+                    responseBody,
+                    endpoint,
+                    requestBytes,
+                    utf8Length(responseBody),
+                    captureTimings ? elapsedMs(writeStartedNs, writeFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(responseStartedNs, responseFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(readStartedNs, readFinishedNs) : 0.0,
+                    captureTimings ? elapsedMs(startedNs, readFinishedNs) : 0.0);
 
         } catch (java.net.SocketTimeoutException e) {
             log.warn(
@@ -325,7 +373,7 @@ public class HubCryptoService {
                 endpoint,
                 requestBytes,
                 timeout,
-                String.format("%.3f", elapsedMs(startedNs, System.nanoTime())));
+                captureTimings ? String.format("%.3f", elapsedMs(startedNs, System.nanoTime())) : "n/a");
             throw new HubConnectionException("Engine connection timeout: " + e.getMessage(), e);
         } catch (IOException e) {
             log.warn(
@@ -334,7 +382,7 @@ public class HubCryptoService {
                 operation,
                 endpoint,
                 requestBytes,
-                String.format("%.3f", elapsedMs(startedNs, System.nanoTime())),
+                captureTimings ? String.format("%.3f", elapsedMs(startedNs, System.nanoTime())) : "n/a",
                 e.getMessage());
             throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
         } finally {
@@ -370,6 +418,8 @@ public class HubCryptoService {
     public String encrypt(String data, String policy, boolean includeStats) {
         initializeIfNeeded();
         validateNotHubPath();
+        CryptoProfileRecorder recorder = this.profileRecorder;
+        boolean captureProfile = recorder != null;
 
         if (enableLogging && log.isDebugEnabled()) {
             log.debug("Wrapper encrypt request: dataLength={}, policy={}",
@@ -383,69 +433,44 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policy);
+            request.setIncludeStats(includeStats || captureProfile);
 
             String requestBody;
+            long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             try {
                 requestBody = objectMapper.writeValueAsString(request);
             } catch (Exception e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
+            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
 
             HttpResponse response = doPost("encrypt", url, requestBody);
 
             if (response.is2xx()) {
-                JsonNode rootNode = parseJson(response.body);
+                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
+                ParsedEncryptResult parsed = parseEncryptResponse(response.body, captureProfile);
+                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
 
                 // Prefer the v2 "code" contract, then fall back to the legacy success flag.
-                JsonNode codeNode = rootNode.get("code");
-                boolean responseSuccess;
-                if (codeNode != null && codeNode.isTextual()) {
-                    responseSuccess = "SUCCESS".equals(codeNode.asText());
-                } else {
-                    JsonNode successNode = rootNode.get("success");
-                    responseSuccess = successNode != null && successNode.asBoolean();
+                if (captureProfile) {
+                    recordProfileEvent(recorder, "encrypt", response.endpoint, response.requestId, response.statusCode,
+                            true, policy, null, response.requestBytes, response.responseBytes,
+                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
+                            response.responseCodeMs, response.readMs,
+                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
+                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
+                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
                 }
-                if (!responseSuccess) {
-                    JsonNode messageNode = rootNode.get("message");
-                    String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Encryption failed";
-                    throw new HubCryptoException("Encryption failed: " + errorMessage);
-                }
-
-                JsonNode dataNode = rootNode.get("data");
-                if (dataNode == null || dataNode.isNull()) {
-                    throw new HubCryptoException("Encryption failed: no data field in response");
-                }
-
-                // Engine response: "data" is the encrypted string.
-                if (dataNode.isTextual()) {
-                    String encryptedData = dataNode.asText();
-                    if (enableLogging && log.isDebugEnabled()) {
-                        log.debug("Wrapper encrypt response parsed: encryptedLength={}",
-                                encryptedData.length());
-                    }
-                    return encryptedData;
-                }
-
-                // Legacy response: "data" contains an EncryptResponse object.
-                EncryptResponse encryptResponse;
-                try {
-                    encryptResponse = objectMapper.treeToValue(dataNode, EncryptResponse.class);
-                } catch (Exception e) {
-                    throw new HubCryptoException("Engine response data parsing failed: " + e.getMessage());
-                }
-
-                if (encryptResponse != null && encryptResponse.getSuccess() != null
-                        && encryptResponse.getSuccess() && encryptResponse.getEncryptedData() != null) {
-                    return encryptResponse.getEncryptedData();
-                } else {
-                    String msg = encryptResponse != null ? encryptResponse.getMessage() : "null";
-                    throw new HubCryptoException("Encryption failed: " + msg);
-                }
+                return parsed.encryptedData;
             } else {
                 throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.body);
             }
 
         } catch (Exception e) {
+            if (captureProfile) {
+                recordProfileEvent(recorder, "encrypt", null, null, null, false, policy, null,
+                        null, null, null, null, null, null, null, null, null, null, null, e.getMessage());
+            }
             if (enableLogging) log.debug("Engine encryption failed: {}", e.getMessage());
             if (e instanceof HubCryptoException) throw e;
             throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
@@ -457,6 +482,8 @@ public class HubCryptoService {
     public String encryptForSearch(String data, String policyName) {
         initializeIfNeeded();
         validateNotHubPath();
+        CryptoProfileRecorder recorder = this.profileRecorder;
+        boolean captureProfile = recorder != null;
 
         if (enableLogging && log.isDebugEnabled()) log.debug("Wrapper encrypt-for-search request: policy={}", policyName);
 
@@ -468,45 +495,43 @@ public class HubCryptoService {
             request.setData(data);
             request.setPolicyName(policyName);
             request.setForSearch(true);
+            request.setIncludeStats(captureProfile);
 
             String requestBody;
+            long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             try {
                 requestBody = objectMapper.writeValueAsString(request);
             } catch (Exception e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
+            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
 
             HttpResponse response = doPost("encryptForSearch", url, requestBody);
 
             if (response.is2xx()) {
-                JsonNode rootNode = parseJson(response.body);
+                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
+                ParsedEncryptResult parsed = parseEncryptResponse(response.body, captureProfile);
+                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
                 // Prefer the v2 "code" contract, then fall back to the legacy success flag.
-                JsonNode codeNode = rootNode.get("code");
-                boolean responseSuccess;
-                if (codeNode != null && codeNode.isTextual()) {
-                    responseSuccess = "SUCCESS".equals(codeNode.asText());
-                } else {
-                    JsonNode successNode = rootNode.get("success");
-                    responseSuccess = successNode != null && successNode.asBoolean();
+                if (captureProfile) {
+                    recordProfileEvent(recorder, "encryptForSearch", response.endpoint, response.requestId, response.statusCode,
+                            true, policyName, null, response.requestBytes, response.responseBytes,
+                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
+                            response.responseCodeMs, response.readMs,
+                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
+                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
+                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
                 }
-                if (!responseSuccess) {
-                    if (enableLogging) log.warn("Encrypt-for-search failed, returning plaintext: {}", rootNode.get("message"));
-                    return data;
-                }
-                JsonNode dataNode = rootNode.get("data");
-                if (dataNode != null && dataNode.isTextual()) {
-                    String result = dataNode.asText();
-                    if (enableLogging && log.isDebugEnabled()) {
-                        log.debug("Wrapper encrypt-for-search completed: resultLength={}", result.length());
-                    }
-                    return result;
-                }
-                return data;
+                return parsed.encryptedData != null ? parsed.encryptedData : data;
             } else {
                 if (enableLogging) log.warn("Encrypt-for-search API failed ({}), returning plaintext", response.statusCode);
                 return data;
             }
         } catch (Exception e) {
+            if (captureProfile) {
+                recordProfileEvent(recorder, "encryptForSearch", null, null, null, false, policyName, null,
+                        null, null, null, null, null, null, null, null, null, null, null, e.getMessage());
+            }
             if (enableLogging) log.warn("Encrypt-for-search failed, returning plaintext: {}", e.getMessage());
             return data;
         }
@@ -529,6 +554,8 @@ public class HubCryptoService {
     public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         initializeIfNeeded();
         validateNotHubPath();
+        CryptoProfileRecorder recorder = this.profileRecorder;
+        boolean captureProfile = recorder != null;
 
         if (enableLogging && log.isDebugEnabled()) {
             log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyUid={}",
@@ -544,18 +571,33 @@ public class HubCryptoService {
             request.setPolicyName(policyName);
             request.setMaskPolicyName(maskPolicyName);
             request.setMaskPolicyUid(maskPolicyUid);
+            request.setIncludeStats(includeStats || captureProfile);
 
             String requestBody;
+            long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             try {
                 requestBody = objectMapper.writeValueAsString(request);
             } catch (Exception e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
+            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
 
             HttpResponse response = doPost("decrypt", url, requestBody);
 
             if (response.is2xx()) {
-                return parseDecryptResponse(response.body, encryptedData);
+                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
+                ParsedDecryptResult parsed = parseDecryptResponse(response.body, encryptedData, captureProfile);
+                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
+                if (captureProfile) {
+                    recordProfileEvent(recorder, "decrypt", response.endpoint, response.requestId, response.statusCode,
+                            true, policyName, maskPolicyName, response.requestBytes, response.responseBytes,
+                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
+                            response.responseCodeMs, response.readMs,
+                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
+                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
+                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null);
+                }
+                return parsed.decryptedData;
             } else {
                 // Handle the known "Data is not encrypted" case even on non-2xx responses.
                 if (response.body != null && response.body.contains("Data is not encrypted")) {
@@ -566,6 +608,10 @@ public class HubCryptoService {
             }
 
         } catch (Exception e) {
+            if (captureProfile) {
+                recordProfileEvent(recorder, "decrypt", null, null, null, false, policyName, maskPolicyName,
+                        null, null, null, null, null, null, null, null, null, null, null, e.getMessage());
+            }
             String errorMessage = e.getMessage() != null ? e.getMessage() : "";
 
             // Detect the known plaintext / pre-policy response case.
@@ -580,8 +626,11 @@ public class HubCryptoService {
         }
     }
 
-    private String parseDecryptResponse(String responseBody, String encryptedData) {
+    private ParsedDecryptResult parseDecryptResponse(String responseBody, String encryptedData, boolean includeEngineObservability) {
         JsonNode rootNode = parseJson(responseBody);
+        Long processingTime = includeEngineObservability ? extractProcessingTime(rootNode) : null;
+        String engineTraceId = includeEngineObservability ? extractTraceId(rootNode) : null;
+        Map<String, Object> engineStats = includeEngineObservability ? extractEngineStats(rootNode) : null;
 
         // Prefer the v2 "code" contract, then fall back to the legacy success flag.
         JsonNode codeNode = rootNode.get("code");
@@ -598,7 +647,7 @@ public class HubCryptoService {
 
             if (errorMessage.contains("Data is not encrypted")) {
                 if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
-                return null;
+                return new ParsedDecryptResult(null, processingTime, engineTraceId, engineStats);
             }
             throw new HubCryptoException("Decryption failed: " + errorMessage);
         }
@@ -615,7 +664,7 @@ public class HubCryptoService {
                 log.debug("Wrapper decrypt response parsed: decryptedLength={}",
                         decryptedData.length());
             }
-            return decryptedData;
+            return new ParsedDecryptResult(decryptedData, processingTime, engineTraceId, engineStats);
         }
 
         // Legacy response: "data" contains a DecryptResponse object.
@@ -631,18 +680,79 @@ public class HubCryptoService {
         }
 
         if (Boolean.TRUE.equals(decryptResponse.getSuccess()) && decryptResponse.getDecryptedData() != null) {
-            return decryptResponse.getDecryptedData();
+            return new ParsedDecryptResult(
+                    decryptResponse.getDecryptedData(),
+                    decryptResponse.getProcessingTime() != null ? decryptResponse.getProcessingTime() : processingTime,
+                    engineTraceId,
+                    engineStats);
         } else if (decryptResponse.getDecryptedData() != null) {
             // Masked results can still be returned as decryptedData.
-            return decryptResponse.getDecryptedData();
+            return new ParsedDecryptResult(
+                    decryptResponse.getDecryptedData(),
+                    decryptResponse.getProcessingTime() != null ? decryptResponse.getProcessingTime() : processingTime,
+                    engineTraceId,
+                    engineStats);
         } else {
             String message = decryptResponse.getMessage() != null ? decryptResponse.getMessage() : "Decryption failed";
             if (message.contains("Data is not encrypted")) {
                 if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
-                return null;
+                return new ParsedDecryptResult(null, processingTime, engineTraceId, engineStats);
             }
             throw new HubCryptoException("Decryption failed: " + message);
         }
+    }
+
+    private ParsedEncryptResult parseEncryptResponse(String responseBody, boolean includeEngineObservability) {
+        JsonNode rootNode = parseJson(responseBody);
+        Long processingTime = includeEngineObservability ? extractProcessingTime(rootNode) : null;
+        String engineTraceId = includeEngineObservability ? extractTraceId(rootNode) : null;
+        Map<String, Object> engineStats = includeEngineObservability ? extractEngineStats(rootNode) : null;
+
+        JsonNode codeNode = rootNode.get("code");
+        boolean responseSuccess;
+        if (codeNode != null && codeNode.isTextual()) {
+            responseSuccess = "SUCCESS".equals(codeNode.asText());
+        } else {
+            JsonNode successNode = rootNode.get("success");
+            responseSuccess = successNode != null && successNode.asBoolean();
+        }
+        if (!responseSuccess) {
+            JsonNode messageNode = rootNode.get("message");
+            String errorMessage = messageNode != null && !messageNode.isNull() ? messageNode.asText() : "Encryption failed";
+            throw new HubCryptoException("Encryption failed: " + errorMessage);
+        }
+
+        JsonNode dataNode = rootNode.get("data");
+        if (dataNode == null || dataNode.isNull()) {
+            throw new HubCryptoException("Encryption failed: no data field in response");
+        }
+
+        if (dataNode.isTextual()) {
+            String encryptedData = dataNode.asText();
+            if (enableLogging && log.isDebugEnabled()) {
+                log.debug("Wrapper encrypt response parsed: encryptedLength={}", encryptedData.length());
+            }
+            return new ParsedEncryptResult(encryptedData, processingTime, engineTraceId, engineStats);
+        }
+
+        EncryptResponse encryptResponse;
+        try {
+            encryptResponse = objectMapper.treeToValue(dataNode, EncryptResponse.class);
+        } catch (Exception e) {
+            throw new HubCryptoException("Engine response data parsing failed: " + e.getMessage());
+        }
+
+        if (encryptResponse != null && encryptResponse.getSuccess() != null
+                && encryptResponse.getSuccess() && encryptResponse.getEncryptedData() != null) {
+            return new ParsedEncryptResult(
+                    encryptResponse.getEncryptedData(),
+                    encryptResponse.getProcessingTime() != null ? encryptResponse.getProcessingTime() : processingTime,
+                    engineTraceId,
+                    engineStats);
+        }
+
+        String msg = encryptResponse != null ? encryptResponse.getMessage() : "null";
+        throw new HubCryptoException("Encryption failed: " + msg);
     }
 
     // Batch decrypt
@@ -932,6 +1042,208 @@ public class HubCryptoService {
             return false;
         } catch (IllegalArgumentException e) {
             return false;
+        }
+    }
+
+    private void recordProfileEvent(CryptoProfileRecorder recorder,
+                                    String operation,
+                                    String endpoint,
+                                    Long requestId,
+                                    Integer statusCode,
+                                    boolean success,
+                                    String policyName,
+                                    String maskPolicyName,
+                                    Integer requestBytes,
+                                    Integer responseBytes,
+                                    Double requestBuildMs,
+                                    Double httpWriteMs,
+                                    Double httpResponseCodeMs,
+                                    Double httpReadMs,
+                                    Double responseParseMs,
+                                    Double totalMs,
+                                    Long engineProcessingTimeMs,
+                                    String engineTraceId,
+                                    Map<String, Object> engineStats,
+                                    String error) {
+        if (recorder == null) {
+            return;
+        }
+
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("operation", operation);
+        event.put("endpoint", endpoint);
+        event.put("requestId", requestId);
+        event.put("statusCode", statusCode);
+        event.put("success", success);
+        event.put("policyName", policyName);
+        event.put("maskPolicyName", maskPolicyName);
+        event.put("requestBytes", requestBytes);
+        event.put("responseBytes", responseBytes);
+        event.put("requestBuildMs", requestBuildMs);
+        event.put("httpWriteMs", httpWriteMs);
+        event.put("httpResponseCodeMs", httpResponseCodeMs);
+        event.put("httpReadMs", httpReadMs);
+        event.put("responseParseMs", responseParseMs);
+        event.put("totalMs", totalMs);
+        event.put("engineProcessingTimeMs", engineProcessingTimeMs);
+        event.put("engineTraceId", engineTraceId);
+        event.put("engineStats", engineStats);
+        event.put("error", error);
+        recorder.record(event);
+    }
+
+    private Long extractProcessingTime(JsonNode rootNode) {
+        if (rootNode == null || rootNode.isNull()) {
+            return null;
+        }
+
+        JsonNode processingTimeNode = rootNode.get("processingTime");
+        if (processingTimeNode != null && processingTimeNode.isNumber()) {
+            return processingTimeNode.asLong();
+        }
+
+        JsonNode dataNode = rootNode.get("data");
+        if (dataNode != null && !dataNode.isNull()) {
+            JsonNode nestedProcessingTimeNode = dataNode.get("processingTime");
+            if (nestedProcessingTimeNode != null && nestedProcessingTimeNode.isNumber()) {
+                return nestedProcessingTimeNode.asLong();
+            }
+        }
+
+        JsonNode observabilityNode = rootNode.get("observability");
+        if (observabilityNode != null && !observabilityNode.isNull()) {
+            JsonNode cryptoOperationTimeNode = observabilityNode.get("cryptoOperationTime");
+            if (cryptoOperationTimeNode != null && cryptoOperationTimeNode.isNumber()) {
+                return cryptoOperationTimeNode.asLong();
+            }
+        }
+
+        return null;
+    }
+
+    private String extractTraceId(JsonNode rootNode) {
+        if (rootNode == null || rootNode.isNull()) {
+            return null;
+        }
+
+        JsonNode traceIdNode = rootNode.get("traceId");
+        if (traceIdNode != null && traceIdNode.isTextual()) {
+            return traceIdNode.asText();
+        }
+
+        JsonNode observabilityNode = rootNode.get("observability");
+        if (observabilityNode != null && !observabilityNode.isNull()) {
+            JsonNode nestedTraceIdNode = observabilityNode.get("traceId");
+            if (nestedTraceIdNode != null && nestedTraceIdNode.isTextual()) {
+                return nestedTraceIdNode.asText();
+            }
+        }
+
+        JsonNode dataNode = rootNode.get("data");
+        if (dataNode != null && !dataNode.isNull()) {
+            JsonNode nestedTraceIdNode = dataNode.get("traceId");
+            if (nestedTraceIdNode != null && nestedTraceIdNode.isTextual()) {
+                return nestedTraceIdNode.asText();
+            }
+        }
+
+        return null;
+    }
+
+    private Map<String, Object> extractEngineStats(JsonNode rootNode) {
+        if (rootNode == null || rootNode.isNull()) {
+            return null;
+        }
+
+        JsonNode observabilityNode = rootNode.get("observability");
+        if (observabilityNode != null && !observabilityNode.isNull()) {
+            return toMap(observabilityNode);
+        }
+
+        JsonNode statsNode = rootNode.get("stats");
+        if (statsNode != null && !statsNode.isNull()) {
+            return toMap(statsNode);
+        }
+
+        JsonNode dataNode = rootNode.get("data");
+        if (dataNode != null && !dataNode.isNull()) {
+            JsonNode nestedStatsNode = dataNode.get("stats");
+            if (nestedStatsNode != null && !nestedStatsNode.isNull()) {
+                return toMap(nestedStatsNode);
+            }
+        }
+
+        return null;
+    }
+
+    private Map<String, Object> toMap(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            mapped.put(field.getKey(), toValue(field.getValue()));
+        }
+        return mapped;
+    }
+
+    private Object toValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            return toMap(node);
+        }
+        if (node.isArray()) {
+            java.util.List<Object> values = new java.util.ArrayList<>();
+            for (JsonNode child : node) {
+                values.add(toValue(child));
+            }
+            return values;
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node.isIntegralNumber()) {
+            return node.asLong();
+        }
+        if (node.isFloatingPointNumber()) {
+            return node.asDouble();
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        return node.toString();
+    }
+
+    private static final class ParsedEncryptResult {
+        private final String encryptedData;
+        private final Long processingTime;
+        private final String engineTraceId;
+        private final Map<String, Object> engineStats;
+
+        private ParsedEncryptResult(String encryptedData, Long processingTime, String engineTraceId, Map<String, Object> engineStats) {
+            this.encryptedData = encryptedData;
+            this.processingTime = processingTime;
+            this.engineTraceId = engineTraceId;
+            this.engineStats = engineStats;
+        }
+    }
+
+    private static final class ParsedDecryptResult {
+        private final String decryptedData;
+        private final Long processingTime;
+        private final String engineTraceId;
+        private final Map<String, Object> engineStats;
+
+        private ParsedDecryptResult(String decryptedData, Long processingTime, String engineTraceId, Map<String, Object> engineStats) {
+            this.decryptedData = decryptedData;
+            this.processingTime = processingTime;
+            this.engineTraceId = engineTraceId;
+            this.engineStats = engineStats;
         }
     }
 

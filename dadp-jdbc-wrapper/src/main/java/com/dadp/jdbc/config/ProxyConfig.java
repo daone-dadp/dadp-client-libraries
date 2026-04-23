@@ -1,5 +1,6 @@
 package com.dadp.jdbc.config;
 
+import com.dadp.common.sync.config.StoragePathResolver;
 // TODO: Hub API 구현 후 주석 해제
 // import com.dadp.common.sync.config.SchemaCollectionConfigResolver;
 // import com.dadp.common.sync.config.SchemaCollectionConfigStorage;
@@ -37,6 +38,8 @@ public class ProxyConfig {
     private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
+    private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
+    private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
     
     // 스키마 수집 안정성 설정
@@ -137,6 +140,37 @@ public class ProxyConfig {
         
         // DadpLoggerFactory에 로그 활성화 설정 전달 (JDBC URL 파라미터를 통해 설정된 경우 반영)
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
+
+        // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
+        String cryptoProfileEnabledProp = null;
+        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
+            cryptoProfileEnabledProp = System.getProperty("dadp.wrapper.crypto-profile.enabled");
+        }
+        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
+            cryptoProfileEnabledProp = System.getenv("DADP_WRAPPER_CRYPTO_PROFILE_ENABLED");
+        }
+        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
+            cryptoProfileEnabledProp = urlParams != null ? urlParams.get("cryptoProfileEnabled") : null;
+        }
+        this.cryptoProfileEnabled = cryptoProfileEnabledProp != null
+                && !cryptoProfileEnabledProp.trim().isEmpty()
+                && ("true".equalsIgnoreCase(cryptoProfileEnabledProp) || "1".equals(cryptoProfileEnabledProp));
+
+        String cryptoProfilePathProp = null;
+        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
+            cryptoProfilePathProp = System.getProperty("dadp.wrapper.crypto-profile.path");
+        }
+        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
+            cryptoProfilePathProp = System.getenv("DADP_WRAPPER_CRYPTO_PROFILE_PATH");
+        }
+        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
+            cryptoProfilePathProp = urlParams != null ? urlParams.get("cryptoProfilePath") : null;
+        }
+        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
+            String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.instanceId);
+            cryptoProfilePathProp = defaultProfileDir + java.io.File.separator + "crypto-stage-profile.ndjson";
+        }
+        this.cryptoProfilePath = cryptoProfilePathProp.trim();
         
         // 스키마 수집 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         // TODO: Hub API 구현 후 Hub 저장소 우선순위 추가
@@ -258,6 +292,8 @@ public class ProxyConfig {
         log.trace("   - Fail-open: {}", this.failOpen);
         log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
+        log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
+        log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
         log.trace("   - Max schemas: {}", this.maxSchemas);
         log.trace("   - Schema Allowlist: {}", this.schemaAllowlist != null ? this.schemaAllowlist : "(none)");
@@ -353,6 +389,24 @@ public class ProxyConfig {
     public boolean isEnableLogging() {
         return enableLogging;
     }
+
+    /**
+     * Wrapper 암복호화 stage profiling 활성화 여부 조회
+     *
+     * @return profiling 활성화 여부
+     */
+    public boolean isCryptoProfileEnabled() {
+        return cryptoProfileEnabled;
+    }
+
+    /**
+     * Wrapper 암복호화 stage profiling 출력 경로 조회
+     *
+     * @return profiling NDJSON 파일 경로
+     */
+    public String getCryptoProfilePath() {
+        return cryptoProfilePath;
+    }
     
     /**
      * JDBC URL 파라미터 조회 (InstanceIdProvider용)
@@ -433,4 +487,3 @@ public class ProxyConfig {
     
     // InstanceConfigStorage는 HubIdManager에서 관리하므로 제거됨
 }
-

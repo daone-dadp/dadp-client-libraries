@@ -7,6 +7,7 @@ import com.dadp.jdbc.notification.HubNotificationService;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.dadp.jdbc.sync.JdbcBootstrapOrchestrator;
+import com.dadp.hub.crypto.WrapperCryptoProfileRecorder;
 // 공통 라이브러리 사용
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.mapping.MappingSyncService;
@@ -56,6 +57,7 @@ public class DadpProxyConnection implements Connection {
     private String datasourceId;  // Hub에서 받은 논리 데이터소스 ID
     private boolean closed = false;
     private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
+    private final WrapperCryptoProfileRecorder cryptoProfileRecorder;
     
     public DadpProxyConnection(Connection actualConnection, String originalUrl) {
         this(actualConnection, originalUrl, null);
@@ -85,6 +87,7 @@ public class DadpProxyConnection implements Connection {
             this.schemaSyncService = null;
             this.telemetryStatsSender = null;
             this.notificationService = null;
+            this.cryptoProfileRecorder = null;
             return;
         }
 
@@ -164,6 +167,15 @@ public class DadpProxyConnection implements Connection {
         // TelemetryStatsSender 초기화 (오케스트레이터에서 가져온 endpointStorage 사용)
         EndpointStorage endpointStorage = this.orchestrator.getEndpointStorage();
         this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, hubId, this.datasourceId);
+
+        this.cryptoProfileRecorder = config.isCryptoProfileEnabled()
+                ? new WrapperCryptoProfileRecorder(
+                        config.getCryptoProfilePath(),
+                        config.getInstanceId(),
+                        hubId,
+                        this.datasourceId)
+                : null;
+        applyCryptoProfileRecorder(this.directCryptoAdapter);
         
         // Hub 알림 서비스: 오케스트레이터에서 instanceId당 1개 공유 (커넥션마다 생성하지 않음)
         this.notificationService = this.orchestrator.getNotificationService();
@@ -173,6 +185,12 @@ public class DadpProxyConnection implements Connection {
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("DADP Proxy Connection created");
+    }
+
+    private void applyCryptoProfileRecorder(DirectCryptoAdapter adapter) {
+        if (adapter != null && cryptoProfileRecorder != null) {
+            adapter.setProfileRecorder(cryptoProfileRecorder);
+        }
     }
     
     /**
@@ -687,6 +705,7 @@ public class DadpProxyConnection implements Connection {
                 // 오케스트레이터의 어댑터가 있으면 그것을 사용 (엔드포인트 정보가 설정되어 있을 수 있음)
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
+                    applyCryptoProfileRecorder(this.directCryptoAdapter);
                     log.debug("Using orchestrator's direct crypto adapter");
                 }
                 
@@ -751,6 +770,7 @@ public class DadpProxyConnection implements Connection {
                 
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
+                    applyCryptoProfileRecorder(this.directCryptoAdapter);
                     this.directCryptoAdapter.setEndpointData(endpointData);
                     log.debug("Direct crypto adapter lazy initialization completed: cryptoUrl={}", endpointData.getCryptoUrl());
                 }
