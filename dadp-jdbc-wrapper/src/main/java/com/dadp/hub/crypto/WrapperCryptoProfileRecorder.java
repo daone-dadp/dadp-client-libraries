@@ -88,6 +88,11 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
         final String maskPolicyName;
         final Integer requestBytes;
         final Integer responseBytes;
+        final String wrapperTransportMode;
+        final Double connectionOpenMs;
+        final Double outputStreamOpenMs;
+        final Double bodyWriteMs;
+        final Double bodyFlushCloseMs;
         final Double requestBuildMs;
         final Double httpWriteMs;
         final Double httpResponseCodeMs;
@@ -109,6 +114,11 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             this.maskPolicyName = builder.maskPolicyName;
             this.requestBytes = builder.requestBytes;
             this.responseBytes = builder.responseBytes;
+            this.wrapperTransportMode = builder.wrapperTransportMode;
+            this.connectionOpenMs = builder.connectionOpenMs;
+            this.outputStreamOpenMs = builder.outputStreamOpenMs;
+            this.bodyWriteMs = builder.bodyWriteMs;
+            this.bodyFlushCloseMs = builder.bodyFlushCloseMs;
             this.requestBuildMs = builder.requestBuildMs;
             this.httpWriteMs = builder.httpWriteMs;
             this.httpResponseCodeMs = builder.httpResponseCodeMs;
@@ -132,6 +142,11 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             line.put("maskPolicyName", maskPolicyName);
             line.put("requestBytes", requestBytes);
             line.put("responseBytes", responseBytes);
+            line.put("wrapperTransportMode", wrapperTransportMode);
+            line.put("connectionOpenMs", connectionOpenMs);
+            line.put("outputStreamOpenMs", outputStreamOpenMs);
+            line.put("bodyWriteMs", bodyWriteMs);
+            line.put("bodyFlushCloseMs", bodyFlushCloseMs);
             line.put("requestBuildMs", requestBuildMs);
             line.put("httpWriteMs", httpWriteMs);
             line.put("httpResponseCodeMs", httpResponseCodeMs);
@@ -159,6 +174,11 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             private String maskPolicyName;
             private Integer requestBytes;
             private Integer responseBytes;
+            private String wrapperTransportMode;
+            private Double connectionOpenMs;
+            private Double outputStreamOpenMs;
+            private Double bodyWriteMs;
+            private Double bodyFlushCloseMs;
             private Double requestBuildMs;
             private Double httpWriteMs;
             private Double httpResponseCodeMs;
@@ -182,6 +202,11 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             public Builder maskPolicyName(String maskPolicyName) { this.maskPolicyName = maskPolicyName; return this; }
             public Builder requestBytes(Integer requestBytes) { this.requestBytes = requestBytes; return this; }
             public Builder responseBytes(Integer responseBytes) { this.responseBytes = responseBytes; return this; }
+            public Builder wrapperTransportMode(String wrapperTransportMode) { this.wrapperTransportMode = wrapperTransportMode; return this; }
+            public Builder connectionOpenMs(Double connectionOpenMs) { this.connectionOpenMs = connectionOpenMs; return this; }
+            public Builder outputStreamOpenMs(Double outputStreamOpenMs) { this.outputStreamOpenMs = outputStreamOpenMs; return this; }
+            public Builder bodyWriteMs(Double bodyWriteMs) { this.bodyWriteMs = bodyWriteMs; return this; }
+            public Builder bodyFlushCloseMs(Double bodyFlushCloseMs) { this.bodyFlushCloseMs = bodyFlushCloseMs; return this; }
             public Builder requestBuildMs(Double requestBuildMs) { this.requestBuildMs = requestBuildMs; return this; }
             public Builder httpWriteMs(Double httpWriteMs) { this.httpWriteMs = httpWriteMs; return this; }
             public Builder httpResponseCodeMs(Double httpResponseCodeMs) { this.httpResponseCodeMs = httpResponseCodeMs; return this; }

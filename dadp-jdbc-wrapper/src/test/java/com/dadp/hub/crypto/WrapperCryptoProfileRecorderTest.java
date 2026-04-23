@@ -36,6 +36,11 @@ class WrapperCryptoProfileRecorderTest {
                 .policyName("policy-user-name")
                 .requestBytes(128)
                 .responseBytes(256)
+                .wrapperTransportMode("binary-framed")
+                .connectionOpenMs(0.2)
+                .outputStreamOpenMs(0.0)
+                .bodyWriteMs(0.3)
+                .bodyFlushCloseMs(0.1)
                 .requestBuildMs(0.5)
                 .httpWriteMs(1.2)
                 .httpResponseCodeMs(2.3)
@@ -55,5 +60,7 @@ class WrapperCryptoProfileRecorderTest {
         assertEquals("decrypt", root.get("operation").asText());
         assertEquals(101L, root.get("requestId").asLong());
         assertEquals("trace-123", root.get("engineTraceId").asText());
+        assertEquals("binary-framed", root.get("wrapperTransportMode").asText());
+        assertEquals(0.3, root.get("bodyWriteMs").asDouble(), 0.0001);
     }
 }

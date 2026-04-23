@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>5.8.11</version>
+    <version>5.8.12</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>
@@ -133,6 +133,13 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- Apache HttpClient for explicit wrapper-side connection pooling (Java 8 compatible) -->
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.5.14</version>
         </dependency>
         
         <!-- 
@@ -309,6 +316,18 @@
                                 <relocation>
                                     <pattern>ch.qos.logback</pattern>
                                     <shadedPattern>com.dadp.wrapper.shaded.logback</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.http</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.apache.http</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.commons.logging</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.apache.commons.logging</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.commons.codec</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.apache.commons.codec</shadedPattern>
                                 </relocation>
 
                             </relocations>
