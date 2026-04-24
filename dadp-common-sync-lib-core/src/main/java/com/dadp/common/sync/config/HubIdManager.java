@@ -23,6 +23,7 @@ public class HubIdManager {
     
     // 캐시된 hubId (volatile로 변경 감지)
     private volatile String cachedHubId = null;
+    private volatile String cachedWrapperAuthSecret = null;
     
     // hubId 변경 콜백 (각 모듈에서 MappingSyncService 재생성 등 처리)
     private final HubIdChangeCallback changeCallback;
@@ -68,6 +69,7 @@ public class HubIdManager {
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(hubUrl, instanceId);
         if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
             String loadedHubId = config.getHubId();
+            this.cachedWrapperAuthSecret = config.getWrapperAuthSecret();
             setHubId(loadedHubId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
             log.debug("HubId loaded from persistent storage: hubId={}", loadedHubId);
             return loadedHubId;
@@ -97,7 +99,7 @@ public class HubIdManager {
         // 영구저장소에 저장
         if (saveToStorage && hubId != null && !hubId.trim().isEmpty()) {
             String instanceId = instanceIdProvider.getInstanceId();
-            configStorage.saveConfig(hubId, hubUrl, instanceId, null);
+            configStorage.saveConfig(hubId, hubUrl, instanceId, null, cachedWrapperAuthSecret);
             log.debug("HubId saved: hubId={}", hubId);
         }
         
@@ -121,6 +123,26 @@ public class HubIdManager {
     public String getCachedHubId() {
         return cachedHubId;
     }
+
+    public void setWrapperAuthSecret(String hubId, String wrapperAuthSecret, boolean saveToStorage) {
+        if (hubId == null || hubId.trim().isEmpty() || wrapperAuthSecret == null || wrapperAuthSecret.trim().isEmpty()) {
+            return;
+        }
+        if (cachedHubId != null && !cachedHubId.equals(hubId)) {
+            log.warn("Wrapper auth secret ignored due to hubId mismatch: cachedHubId={}, requestedHubId={}", cachedHubId, hubId);
+            return;
+        }
+        this.cachedWrapperAuthSecret = wrapperAuthSecret.trim();
+        if (saveToStorage) {
+            String instanceId = instanceIdProvider.getInstanceId();
+            configStorage.saveConfig(hubId, hubUrl, instanceId, null, this.cachedWrapperAuthSecret);
+            log.debug("Wrapper auth secret saved: hubId={}", hubId);
+        }
+    }
+
+    public String getCachedWrapperAuthSecret() {
+        return cachedWrapperAuthSecret;
+    }
     
     /**
      * hubId가 있는지 확인
@@ -137,6 +159,7 @@ public class HubIdManager {
     public void clear() {
         String oldHubId = this.cachedHubId;
         this.cachedHubId = null;
+        this.cachedWrapperAuthSecret = null;
         if (changeCallback != null && oldHubId != null) {
             try {
                 changeCallback.onHubIdChanged(oldHubId, null);
@@ -146,4 +169,3 @@ public class HubIdManager {
         }
     }
 }
-

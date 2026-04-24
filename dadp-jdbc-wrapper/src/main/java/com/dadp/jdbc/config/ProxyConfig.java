@@ -44,8 +44,8 @@ public class ProxyConfig {
     private final String cryptoMode;  // Wrapper crypto execution mode (remote | local)
     private final boolean cryptoLocalFallbackRemote;  // Local crypto failure fallback to remote Engine
     private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
-    private final String cryptoLocalHubAuthId;  // Engine-compatible Hub internal auth id
-    private final String cryptoLocalHubAuthSecret;  // Engine-compatible Hub internal auth secret
+    private final String cryptoLocalHubAuthId;  // Manual fallback Hub internal auth id override
+    private final String cryptoLocalHubAuthSecret;  // Manual fallback Hub internal auth secret override
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)

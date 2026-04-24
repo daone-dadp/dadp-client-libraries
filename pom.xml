@@ -104,17 +104,17 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-jdbc-wrapper</artifactId>
-                <version>5.8.15</version>
+                <version>5.8.16</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-crypto-core</artifactId>
-                <version>5.8.15-SNAPSHOT</version>
+                <version>5.8.16-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-wrapper-crypto</artifactId>
-                <version>5.8.15-SNAPSHOT</version>
+                <version>5.8.16-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>

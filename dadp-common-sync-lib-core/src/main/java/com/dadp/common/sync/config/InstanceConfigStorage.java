@@ -69,28 +69,46 @@ public class InstanceConfigStorage {
      * @return 저장 성공 여부
      */
     public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen) {
+        return saveConfig(hubId, hubUrl, instanceId, failOpen, null);
+    }
+
+    /**
+     * Save instance config including wrapper auth secret when available.
+     */
+    public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen, String wrapperAuthSecret) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save instance config");
             return false;
         }
         
         try {
-            // 저장 데이터 구조
-            ConfigData data = new ConfigData();
+            ConfigData data = loadExistingConfig();
+            if (data == null) {
+                data = new ConfigData();
+            }
             data.setTimestamp(System.currentTimeMillis());
-            data.setHubId(hubId);
-            data.setHubUrl(hubUrl);
-            data.setInstanceId(instanceId);
+            if (hubId != null) {
+                data.setHubId(hubId);
+            }
+            if (hubUrl != null) {
+                data.setHubUrl(hubUrl);
+            }
+            if (instanceId != null) {
+                data.setInstanceId(instanceId);
+            }
             if (failOpen != null) {
                 data.setFailOpen(failOpen);
+            }
+            if (wrapperAuthSecret != null) {
+                data.setWrapperAuthSecret(wrapperAuthSecret);
             }
             
             // 파일에 저장
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: hubId={}, hubUrl={}, instanceId={} -> {}",
-                    hubId, hubUrl, instanceId, storagePath);
+            log.debug("Instance config saved: hubId={}, hubUrl={}, instanceId={}, wrapperAuthConfigured={} -> {}",
+                    data.getHubId(), data.getHubUrl(), data.getInstanceId(), data.getWrapperAuthSecret() != null, storagePath);
             return true;
 
         } catch (IOException e) {
@@ -150,6 +168,22 @@ public class InstanceConfigStorage {
             return null;
         }
     }
+
+    private ConfigData loadExistingConfig() {
+        if (storagePath == null) {
+            return null;
+        }
+        File storageFile = new File(storagePath);
+        if (!storageFile.exists()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(storageFile, ConfigData.class);
+        } catch (IOException e) {
+            log.debug("Existing instance config load skipped: {}", e.getMessage());
+            return null;
+        }
+    }
     
     /**
      * 저장 파일 존재 여부 확인
@@ -204,6 +238,7 @@ public class InstanceConfigStorage {
         private String hubUrl;  // Hub URL
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open 모드 여부 (WRAPPER용, AOP는 null 가능)
+        private String wrapperAuthSecret;  // Wrapper internal Hub API auth secret
         
         public long getTimestamp() {
             return timestamp;
@@ -244,6 +279,13 @@ public class InstanceConfigStorage {
         public void setFailOpen(Boolean failOpen) {
             this.failOpen = failOpen;
         }
+
+        public String getWrapperAuthSecret() {
+            return wrapperAuthSecret;
+        }
+
+        public void setWrapperAuthSecret(String wrapperAuthSecret) {
+            this.wrapperAuthSecret = wrapperAuthSecret;
+        }
     }
 }
-

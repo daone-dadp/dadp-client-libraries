@@ -133,6 +133,46 @@ class ExportedConfigLoaderTest {
         assertEquals("DEBUG", policyResolver.getStoredLogConfig().getLevel());
     }
 
+    @Test
+    void savesWrapperAuthSecretFromExportedConfig() throws Exception {
+        Path storageDir = tempDir.resolve("wrapper-auth");
+        Files.createDirectories(storageDir);
+
+        String json = "{\n"
+                + "  \"exportVersion\": 1,\n"
+                + "  \"hubId\": \"pi_test123\",\n"
+                + "  \"wrapperHubId\": \"pi_test123\",\n"
+                + "  \"wrapperAuthSecret\": \"secret-test-value\",\n"
+                + "  \"instanceId\": \"wrapper-test\",\n"
+                + "  \"datasourceId\": \"ds-test\",\n"
+                + "  \"cryptoUrl\": \"http://engine:9003\",\n"
+                + "  \"policyVersion\": 9,\n"
+                + "  \"mappings\": {}\n"
+                + "}\n";
+        Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
+
+        InstanceConfigStorage configStorage =
+                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
+        HubIdManager hubIdManager =
+                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
+        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
+
+        String datasourceId = ExportedConfigLoader.loadIfExists(
+                storageDir.toString(),
+                "wrapper-test",
+                hubIdManager,
+                policyResolver,
+                endpointStorage);
+
+        assertEquals("ds-test", datasourceId);
+        InstanceConfigStorage.ConfigData saved = configStorage.loadConfig("http://hub:9004", "wrapper-test");
+        assertNotNull(saved);
+        assertEquals("pi_test123", saved.getHubId());
+        assertEquals("secret-test-value", saved.getWrapperAuthSecret());
+        assertEquals("secret-test-value", hubIdManager.getCachedWrapperAuthSecret());
+    }
+
     private void setStaticField(String fieldName, Object value) throws Exception {
         Field field = DadpLoggerFactory.class.getDeclaredField(fieldName);
         field.setAccessible(true);

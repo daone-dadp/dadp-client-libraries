@@ -442,6 +442,14 @@ public class JdbcBootstrapOrchestrator {
         
         
         hubIdManager.setHubId(hubId, true);
+        String wrapperHubId = datasourceInfo.getWrapperHubId();
+        if (wrapperHubId == null || wrapperHubId.trim().isEmpty()) {
+            wrapperHubId = hubId;
+        }
+        if (datasourceInfo.getWrapperAuthSecret() != null && !datasourceInfo.getWrapperAuthSecret().trim().isEmpty()) {
+            hubIdManager.setWrapperAuthSecret(wrapperHubId, datasourceInfo.getWrapperAuthSecret(), true);
+            applyCryptoMode(this.directCryptoAdapter);
+        }
         log.info("Hub Datasource registration completed: hubId={}, datasourceId={}", hubId, datasourceInfo.getDatasourceId());
         
         
@@ -905,14 +913,26 @@ public class JdbcBootstrapOrchestrator {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
+            String effectiveHubAuthId = hubIdManager.getCachedHubId();
+            String effectiveHubAuthSecret = hubIdManager.getCachedWrapperAuthSecret();
+            if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
+                effectiveHubAuthId = config.getCryptoLocalHubAuthId();
+            }
+            if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
+                effectiveHubAuthSecret = config.getCryptoLocalHubAuthSecret();
+            }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
-                    config.getCryptoLocalHubAuthId(),
-                    config.getCryptoLocalHubAuthSecret());
+                    effectiveHubAuthId,
+                    effectiveHubAuthSecret);
         }
+    }
+
+    public String getWrapperAuthSecret() {
+        return hubIdManager.getCachedWrapperAuthSecret();
     }
     
     

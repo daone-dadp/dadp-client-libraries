@@ -127,6 +127,8 @@ public class DatasourceRegistrationService {
         private String datasourceId;
         private String displayName;
         private String hubId;
+        private String wrapperHubId;
+        private String wrapperAuthSecret;
         private String rootCaCertificate;
 
         public DatasourceInfo() {
@@ -173,6 +175,22 @@ public class DatasourceRegistrationService {
 
         public void setRootCaCertificate(String rootCaCertificate) {
             this.rootCaCertificate = rootCaCertificate;
+        }
+
+        public String getWrapperHubId() {
+            return wrapperHubId;
+        }
+
+        public void setWrapperHubId(String wrapperHubId) {
+            this.wrapperHubId = wrapperHubId;
+        }
+
+        public String getWrapperAuthSecret() {
+            return wrapperAuthSecret;
+        }
+
+        public void setWrapperAuthSecret(String wrapperAuthSecret) {
+            this.wrapperAuthSecret = wrapperAuthSecret;
         }
     }
 

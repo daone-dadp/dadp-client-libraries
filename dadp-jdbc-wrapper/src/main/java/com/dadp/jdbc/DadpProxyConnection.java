@@ -198,13 +198,21 @@ public class DadpProxyConnection implements Connection {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
+            String effectiveHubAuthId = orchestrator != null ? orchestrator.getCachedHubId() : null;
+            String effectiveHubAuthSecret = orchestrator != null ? orchestrator.getWrapperAuthSecret() : null;
+            if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
+                effectiveHubAuthId = config.getCryptoLocalHubAuthId();
+            }
+            if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
+                effectiveHubAuthSecret = config.getCryptoLocalHubAuthSecret();
+            }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
-                    config.getCryptoLocalHubAuthId(),
-                    config.getCryptoLocalHubAuthSecret());
+                    effectiveHubAuthId,
+                    effectiveHubAuthSecret);
         }
     }
 

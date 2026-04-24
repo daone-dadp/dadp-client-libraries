@@ -159,6 +159,15 @@ public class ExportedConfigLoader {
 
             // 3. Save hubId via hubIdManager
             hubIdManager.setHubId(hubId, true);
+            String wrapperAuthSecret = getStringValue(config, "wrapperAuthSecret");
+            String wrapperHubId = getStringValue(config, "wrapperHubId");
+            if (wrapperHubId == null || wrapperHubId.trim().isEmpty()) {
+                wrapperHubId = hubId;
+            }
+            if (wrapperAuthSecret != null && !wrapperAuthSecret.trim().isEmpty()) {
+                hubIdManager.setWrapperAuthSecret(wrapperHubId, wrapperAuthSecret, true);
+                log.info("Exported config: wrapper auth secret applied: hubId={}", wrapperHubId);
+            }
             log.info("Exported config: hubId applied: {}", hubId);
 
             // 4. Save policy mappings via policyResolver.refreshMappings()
