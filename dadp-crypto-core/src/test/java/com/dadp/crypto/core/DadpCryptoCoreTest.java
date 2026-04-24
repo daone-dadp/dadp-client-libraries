@@ -36,6 +36,29 @@ class DadpCryptoCoreTest {
     }
 
     @Test
+    void a256EcbEncryptDecryptUsesEngineHubFormat() {
+        DadpCryptoCore crypto = new DadpCryptoCore(new SecureRandom());
+        CryptoMaterial material = material("HUB", "A256ECB", false, null, null);
+
+        String encrypted = crypto.encrypt("hello-ecb-core", material);
+
+        assertTrue(encrypted.startsWith("hub:123e4567-e89b-12d3-a456-426614174000:"));
+        assertEquals("123e4567-e89b-12d3-a456-426614174000", DadpCryptoCore.extractPolicyUid(encrypted));
+        assertEquals("hello-ecb-core", crypto.decrypt(encrypted, material));
+    }
+
+    @Test
+    void a256EcbPartialEncryptDecryptKeepsPlainSegment() {
+        DadpCryptoCore crypto = new DadpCryptoCore(new SecureRandom());
+        CryptoMaterial material = material("DB", "AES-256-ECB", true, 0, 3);
+
+        String encrypted = crypto.encrypt("1234567812345678", material);
+
+        assertTrue(encrypted.startsWith("123::ENC::hub:123e4567-e89b-12d3-a456-426614174000:"));
+        assertEquals("1234567812345678", crypto.decrypt(encrypted, material));
+    }
+
+    @Test
     void encryptUsesRandomIv() {
         DadpCryptoCore crypto = new DadpCryptoCore(new SecureRandom());
         CryptoMaterial material = material("DB", "AES-256-GCM", false, null, null);

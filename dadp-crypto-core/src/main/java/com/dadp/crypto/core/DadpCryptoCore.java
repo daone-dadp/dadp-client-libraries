@@ -10,10 +10,12 @@ import java.util.Base64;
 
 public final class DadpCryptoCore {
 
-    private static final String CIPHER = "AES/GCM/NoPadding";
+    private static final String GCM_CIPHER = "AES/GCM/NoPadding";
+    private static final String ECB_CIPHER = "AES/ECB/PKCS5Padding";
     private static final int IV_LENGTH = 12;
     private static final int TAG_LENGTH = 16;
     private static final int TAG_BITS = 128;
+    private static final int ECB_KEY_LENGTH = 32;
 
     private final SecureRandom secureRandom;
 
@@ -73,10 +75,13 @@ public final class DadpCryptoCore {
 
     private String encryptWhole(String plainText, CryptoMaterial material) {
         SecretKeySpec key = key(material);
+        if (isEcbAlgorithm(material)) {
+            return encryptWholeEcb(plainText, material, key);
+        }
         byte[] iv = new byte[IV_LENGTH];
         secureRandom.nextBytes(iv);
         try {
-            Cipher cipher = Cipher.getInstance(CIPHER);
+            Cipher cipher = Cipher.getInstance(GCM_CIPHER);
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
             byte[] cipherAndTag = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             int cipherLength = cipherAndTag.length - TAG_LENGTH;
@@ -89,18 +94,43 @@ public final class DadpCryptoCore {
     }
 
     private String decryptWhole(String encryptedData, CryptoMaterial material) {
-        EncryptedPayload parsed = EngineCiphertextCodec.parse(encryptedData);
+        EncryptedPayload parsed = EngineCiphertextCodec.parse(encryptedData, material.getAlgorithm());
         SecretKeySpec key = key(material);
+        if (isEcbAlgorithm(material)) {
+            return decryptWholeEcb(parsed, key);
+        }
         byte[] cipherAndTag = new byte[parsed.getCiphertext().length + parsed.getTag().length];
         System.arraycopy(parsed.getCiphertext(), 0, cipherAndTag, 0, parsed.getCiphertext().length);
         System.arraycopy(parsed.getTag(), 0, cipherAndTag, parsed.getCiphertext().length, parsed.getTag().length);
         try {
-            Cipher cipher = Cipher.getInstance(CIPHER);
+            Cipher cipher = Cipher.getInstance(GCM_CIPHER);
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, parsed.getIv()));
             byte[] plain = cipher.doFinal(cipherAndTag);
             return new String(plain, StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new CoreCryptoException("AES-GCM decrypt failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String encryptWholeEcb(String plainText, CryptoMaterial material, SecretKeySpec key) {
+        try {
+            Cipher cipher = Cipher.getInstance(ECB_CIPHER);
+            cipher.init(Cipher.ENCRYPT_MODE, key);
+            byte[] ciphertext = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+            return EngineCiphertextCodec.format(material.getPolicyUid(), new byte[0], ciphertext, new byte[0]);
+        } catch (Exception e) {
+            throw new CoreCryptoException("AES-ECB encrypt failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String decryptWholeEcb(EncryptedPayload parsed, SecretKeySpec key) {
+        try {
+            Cipher cipher = Cipher.getInstance(ECB_CIPHER);
+            cipher.init(Cipher.DECRYPT_MODE, key);
+            byte[] plain = cipher.doFinal(parsed.getCiphertext());
+            return new String(plain, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new CoreCryptoException("AES-ECB decrypt failed: " + e.getMessage(), e);
         }
     }
 
@@ -123,7 +153,9 @@ public final class DadpCryptoCore {
         } catch (IllegalArgumentException e) {
             throw new CoreCryptoException("Key material is not base64", e);
         }
-        if (keyBytes.length != 32) {
+        if (isEcbAlgorithm(material)) {
+            keyBytes = normalizeEcbKey(keyBytes);
+        } else if (keyBytes.length != 32) {
             throw new UnsupportedCryptoMaterialException("AES-256-GCM requires 32-byte key material");
         }
         return new SecretKeySpec(keyBytes, "AES");
@@ -137,8 +169,29 @@ public final class DadpCryptoCore {
             throw new UnsupportedCryptoMaterialException("Provider requires remote fallback: " + material.getProvider());
         }
         String algorithm = material.getAlgorithm();
-        if (algorithm != null && !"A256GCM".equalsIgnoreCase(algorithm) && !"AES-256-GCM".equalsIgnoreCase(algorithm)) {
+        if (algorithm != null
+                && !"A256GCM".equalsIgnoreCase(algorithm)
+                && !"AES-256-GCM".equalsIgnoreCase(algorithm)
+                && !"A256ECB".equalsIgnoreCase(algorithm)
+                && !"AES-256-ECB".equalsIgnoreCase(algorithm)) {
             throw new UnsupportedCryptoMaterialException("Algorithm requires remote fallback: " + algorithm);
         }
+    }
+
+    private static boolean isEcbAlgorithm(CryptoMaterial material) {
+        return isEcbAlgorithm(material.getAlgorithm());
+    }
+
+    private static boolean isEcbAlgorithm(String algorithm) {
+        return "A256ECB".equalsIgnoreCase(algorithm) || "AES-256-ECB".equalsIgnoreCase(algorithm);
+    }
+
+    private static byte[] normalizeEcbKey(byte[] key) {
+        if (key.length == ECB_KEY_LENGTH) {
+            return key.clone();
+        }
+        byte[] normalized = new byte[ECB_KEY_LENGTH];
+        System.arraycopy(key, 0, normalized, 0, Math.min(key.length, ECB_KEY_LENGTH));
+        return normalized;
     }
 }
