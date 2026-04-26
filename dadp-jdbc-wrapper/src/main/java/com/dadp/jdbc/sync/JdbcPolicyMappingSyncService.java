@@ -385,7 +385,11 @@ public class JdbcPolicyMappingSyncService {
         } else {
             if (config != null && !config.isEnabled()) {
                 config.setEnabled(true);
-                log.info("Wrapper ENABLED by Hub config (30s sync)");
+                if (config.isRuntimeActive()) {
+                    log.info("Wrapper ENABLED by Hub config (30s sync)");
+                } else if (!config.isStartupReady()) {
+                    log.warn("Wrapper enable requested by Hub but startup prerequisites are not met; keeping passthrough mode");
+                }
             }
         }
     }

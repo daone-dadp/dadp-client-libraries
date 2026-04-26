@@ -34,6 +34,7 @@ public class ProxyConfig {
     private static volatile ProxyConfig instance;
     private final String hubUrl;  // Hub URL (스키마 동기화 + 암복호화 라우팅, Hub가 Engine/Gateway로 자동 라우팅)
     private final String alias;  // 공유 DB 그룹 별칭
+    private final boolean aliasConfigured;
     private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
@@ -101,9 +102,13 @@ public class ProxyConfig {
             aliasProp = urlParams != null ? urlParams.get("alias") : null;
         }
         if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            throw missingRequiredAlias();
+            this.alias = null;
+            this.aliasConfigured = false;
+            emitMissingRequiredAlias();
+        } else {
+            this.alias = aliasProp.trim();
+            this.aliasConfigured = true;
         }
-        this.alias = aliasProp.trim();
         
         // Fail-open 모드 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String failOpenProp = null;
@@ -380,8 +385,9 @@ public class ProxyConfig {
         // Wrapper 활성화 여부 (JDBC URL 파라미터 또는 exported config에서만 설정)
         // 시스템 프로퍼티/환경변수는 모든 인스턴스에 적용되어 Hub 인스턴스별 설정을 덮어쓰므로 제거
         String enabledProp = urlParams != null ? urlParams.get("enabled") : null;
-        this.enabled = enabledProp == null || enabledProp.trim().isEmpty() ||
+        boolean requestedEnabled = enabledProp == null || enabledProp.trim().isEmpty() ||
                        !"false".equalsIgnoreCase(enabledProp.trim());
+        this.enabled = requestedEnabled;
 
         // hubId는 HubIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음 (AOP 플로우와 일치)
@@ -448,7 +454,7 @@ public class ProxyConfig {
         return alias;
     }
 
-    private static IllegalStateException missingRequiredAlias() {
+    private static void emitMissingRequiredAlias() {
         String message = "DADP wrapper startup failed: missing required alias. Configure dadp.proxy.alias, DADP_PROXY_ALIAS, or JDBC URL alias.";
         System.err.println(message);
         try {
@@ -456,7 +462,6 @@ public class ProxyConfig {
         } catch (Exception ignored) {
             // System.err emission is the mandatory fallback for startup failure.
         }
-        return new IllegalStateException(message);
     }
     
     /**
@@ -499,6 +504,14 @@ public class ProxyConfig {
      */
     public boolean isEnabled() {
         return enabled;
+    }
+
+    public boolean isStartupReady() {
+        return aliasConfigured;
+    }
+
+    public boolean isRuntimeActive() {
+        return enabled && aliasConfigured;
     }
 
     /**

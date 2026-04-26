@@ -1,7 +1,6 @@
 package com.dadp.jdbc.config;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -58,13 +57,18 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
-    void aliasIsRequiredAndLegacyInstanceIdDoesNotWork() {
-        assertThrows(IllegalStateException.class, () -> new ProxyConfig(Collections.emptyMap()));
+    void missingAliasDisablesWrapperAndLegacyInstanceIdDoesNotWork() {
+        ProxyConfig missingAliasConfig = new ProxyConfig(Collections.emptyMap());
+        assertFalse(missingAliasConfig.isStartupReady());
+        assertFalse(missingAliasConfig.isRuntimeActive());
+        assertTrue(missingAliasConfig.isEnabled());
 
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("instanceId", "legacy-instance-id");
-
-        assertThrows(IllegalStateException.class, () -> new ProxyConfig(urlParams));
+        ProxyConfig legacyInstanceIdOnlyConfig = new ProxyConfig(urlParams);
+        assertFalse(legacyInstanceIdOnlyConfig.isStartupReady());
+        assertFalse(legacyInstanceIdOnlyConfig.isRuntimeActive());
+        assertTrue(legacyInstanceIdOnlyConfig.isEnabled());
     }
 
     @Test
@@ -74,11 +78,9 @@ class ProxyConfigCryptoProfileTest {
         try {
             System.setErr(new PrintStream(stderr, true));
 
-            IllegalStateException error =
-                    assertThrows(IllegalStateException.class, () -> new ProxyConfig(Collections.emptyMap()));
-
+            ProxyConfig config = new ProxyConfig(Collections.emptyMap());
             String output = stderr.toString();
-            assertTrue(error.getMessage().contains("missing required alias"));
+            assertFalse(config.isStartupReady());
             assertTrue(output.contains("missing required alias"));
         } finally {
             System.setErr(originalErr);
