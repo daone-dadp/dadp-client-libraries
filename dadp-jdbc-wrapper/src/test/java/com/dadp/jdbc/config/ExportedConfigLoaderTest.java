@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.HashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -111,7 +112,10 @@ class ExportedConfigLoaderTest {
                 new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
-        ProxyConfig proxyConfig = new ProxyConfig(Collections.singletonMap("enabled", "false"));
+        HashMap<String, String> proxyParams = new HashMap<>();
+        proxyParams.put("alias", "wrapper-test");
+        proxyParams.put("enabled", "false");
+        ProxyConfig proxyConfig = new ProxyConfig(proxyParams);
 
         assertFalse(proxyConfig.isEnabled());
 

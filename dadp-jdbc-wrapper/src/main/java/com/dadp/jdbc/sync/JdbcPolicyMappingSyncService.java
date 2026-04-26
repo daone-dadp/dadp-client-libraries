@@ -197,7 +197,7 @@ public class JdbcPolicyMappingSyncService {
             return; 
         }
         
-        log.info("Periodic policy mapping sync starting: 30s interval, instanceId={}, hubId={}, enabled={}, initialized={}",
+        log.info("Periodic policy mapping sync starting: 30s interval, alias={}, hubId={}, enabled={}, initialized={}",
                 instanceId, hubIdManager.getCachedHubId(), enabled.get(), initialized);
         
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -221,7 +221,7 @@ public class JdbcPolicyMappingSyncService {
             }
         }, 0, 30, TimeUnit.SECONDS);
 
-        log.info("Periodic policy mapping sync scheduler registered: immediate first + 30s interval, instanceId={}", instanceId);
+        log.info("Periodic policy mapping sync scheduler registered: immediate first + 30s interval, alias={}", instanceId);
     }
     
     
@@ -406,7 +406,7 @@ public class JdbcPolicyMappingSyncService {
     private void registerWithHub() {
         try {
             if (reregistrationCallback != null) {
-                log.info("Hub re-registration starting (using stored metadata): instanceId={}", instanceId);
+                log.info("Hub re-registration starting (using stored metadata): alias={}", instanceId);
                 reregistrationCallback.run();
                 String hubId = hubIdManager.hasHubId() ? "hubId set" : "hubId not available";
                 log.info("Hub registration completed: {} (re-registration, schema re-send skipped)", hubId);

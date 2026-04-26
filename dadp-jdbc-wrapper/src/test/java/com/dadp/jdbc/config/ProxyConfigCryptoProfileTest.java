@@ -1,12 +1,16 @@
 package com.dadp.jdbc.config;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class ProxyConfigCryptoProfileTest {
@@ -14,7 +18,6 @@ class ProxyConfigCryptoProfileTest {
     @AfterEach
     void clearSystemProperties() {
         System.clearProperty("dadp.proxy.alias");
-        System.clearProperty("dadp.proxy.instance-id");
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
         System.clearProperty("dadp.wrapper.single-transport-mode");
@@ -29,7 +32,7 @@ class ProxyConfigCryptoProfileTest {
 
     @Test
     void cryptoProfileDefaultsToDisabled() {
-        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+        ProxyConfig config = new ProxyConfig(Collections.singletonMap("alias", "wrapper-profile-test"));
 
         assertFalse(config.isCryptoProfileEnabled());
         assertTrue("json".equals(config.getSingleTransportMode()));
@@ -44,7 +47,7 @@ class ProxyConfigCryptoProfileTest {
     @Test
     void cryptoProfileCanBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
-        urlParams.put("instanceId", "wrapper-profile-test");
+        urlParams.put("alias", "wrapper-profile-test");
         urlParams.put("cryptoProfileEnabled", "true");
         urlParams.put("cryptoProfilePath", "/tmp/dadp/wrapper-profile.ndjson");
 
@@ -55,20 +58,67 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
-    void aliasPrefersDedicatedAliasKeyOverLegacyInstanceId() {
+    void aliasIsRequiredAndLegacyInstanceIdDoesNotWork() {
+        assertThrows(IllegalStateException.class, () -> new ProxyConfig(Collections.emptyMap()));
+
         Map<String, String> urlParams = new HashMap<>();
-        urlParams.put("alias", "shared-db-group");
         urlParams.put("instanceId", "legacy-instance-id");
+
+        assertThrows(IllegalStateException.class, () -> new ProxyConfig(urlParams));
+    }
+
+    @Test
+    void missingAliasAlwaysPrintsFailureMessageToStderr() {
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(stderr, true));
+
+            IllegalStateException error =
+                    assertThrows(IllegalStateException.class, () -> new ProxyConfig(Collections.emptyMap()));
+
+            String output = stderr.toString();
+            assertTrue(error.getMessage().contains("missing required alias"));
+            assertTrue(output.contains("missing required alias"));
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    void aliasCanBeLoadedFromJdbcUrlParamOnly() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "jdbc-url-alias");
 
         ProxyConfig config = new ProxyConfig(urlParams);
 
-        assertTrue("shared-db-group".equals(config.getAlias()));
-        assertTrue("shared-db-group".equals(config.getInstanceId()));
+        assertTrue("jdbc-url-alias".equals(config.getAlias()));
+        assertTrue("jdbc-url-alias".equals(config.getInstanceId()));
+    }
+
+    @Test
+    void aliasCanBeLoadedFromSystemPropertyOnly() {
+        System.setProperty("dadp.proxy.alias", "system-prop-alias");
+
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+        assertTrue("system-prop-alias".equals(config.getAlias()));
+        assertTrue("system-prop-alias".equals(config.getInstanceId()));
+    }
+
+    @Test
+    void aliasCanBeLoadedFromEnvironmentOnly() {
+        Assumptions.assumeTrue("env-alias-only".equals(System.getenv("DADP_PROXY_ALIAS")));
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+        assertTrue("env-alias-only".equals(config.getAlias()));
+        assertTrue("env-alias-only".equals(config.getInstanceId()));
     }
 
     @Test
     void singleTransportModeCanBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "shared-db-group");
         urlParams.put("singleTransportMode", "binary-framed");
 
         ProxyConfig config = new ProxyConfig(urlParams);
@@ -79,6 +129,7 @@ class ProxyConfigCryptoProfileTest {
     @Test
     void engineTransportCanBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "shared-db-group");
         urlParams.put("engineTransport", "binary-tcp");
         urlParams.put("engineBinaryPort", "19104");
 
@@ -91,6 +142,7 @@ class ProxyConfigCryptoProfileTest {
     @Test
     void localCryptoModeCanBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "shared-db-group");
         urlParams.put("cryptoMode", "local");
         urlParams.put("cryptoLocalFallbackRemote", "false");
         urlParams.put("cryptoLocalTimeoutMs", "1234");

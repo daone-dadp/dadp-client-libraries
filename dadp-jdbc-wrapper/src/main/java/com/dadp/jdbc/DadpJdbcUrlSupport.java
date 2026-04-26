@@ -13,7 +13,7 @@ final class DadpJdbcUrlSupport {
     static final String DADP_URL_PREFIX = "jdbc:dadp:";
 
     private static final List<String> PROXY_PARAM_KEYS = Arrays.asList(
-        "hubUrl", "instanceId", "failOpen", "enableLogging", "enabled"
+        "hubUrl", "alias", "instanceId", "failOpen", "enableLogging", "enabled"
     );
 
     private DadpJdbcUrlSupport() {

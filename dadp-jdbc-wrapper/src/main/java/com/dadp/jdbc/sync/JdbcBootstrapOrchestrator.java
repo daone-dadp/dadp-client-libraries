@@ -94,9 +94,8 @@ public class JdbcBootstrapOrchestrator {
         this.config = config;
         
         
-        java.util.Map<String, String> urlParams = config.getUrlParams();
-        this.instanceIdProvider = new InstanceIdProvider(urlParams);
-        String instanceId = this.instanceIdProvider.getInstanceId();
+        String instanceId = config.getAlias();
+        this.instanceIdProvider = new InstanceIdProvider(java.util.Collections.singletonMap("alias", instanceId));
         
         
         this.configStorage = new InstanceConfigStorage(
@@ -228,7 +227,7 @@ public class JdbcBootstrapOrchestrator {
         AtomicBoolean instanceStarted = instanceStartedMap.computeIfAbsent(instanceId, k -> new AtomicBoolean(false));
         
         if (!instanceStarted.compareAndSet(false, true)) {
-            log.trace("JdbcBootstrapOrchestrator already executed (instanceId={})", instanceId);
+            log.trace("JdbcBootstrapOrchestrator already executed (alias={})", instanceId);
             
             String loadedHubId = hubIdManager.loadFromStorage();
             if (loadedHubId != null && !loadedHubId.trim().isEmpty()) {
@@ -426,7 +425,7 @@ public class JdbcBootstrapOrchestrator {
         String instanceId = instanceIdProvider.getInstanceId();
         
         
-        log.info("Hub Datasource registration starting: instanceId={}", instanceId);
+        log.info("Hub Datasource registration starting: alias={}", instanceId);
         DatasourceRegistrationService.DatasourceInfo datasourceInfo = registerDatasource(null);
         if (datasourceInfo == null) {
             log.warn("Datasource registration failed: Hub unreachable or response error");
@@ -579,12 +578,12 @@ public class JdbcBootstrapOrchestrator {
                 
                 return datasourceInfo;
             } else {
-                log.warn("Datasource registration failed: Hub unreachable or null response. hubUrl={}, instanceId={}",
+                log.warn("Datasource registration failed: Hub unreachable or null response. hubUrl={}, alias={}",
                     config.getHubUrl(), instanceIdProvider.getInstanceId());
                 return null;
             }
         } catch (Exception e) {
-            log.warn("Datasource registration failed: hubUrl={}, instanceId={}, error={}",
+            log.warn("Datasource registration failed: hubUrl={}, alias={}, error={}",
                 config.getHubUrl(), instanceIdProvider.getInstanceId(), e.getMessage());
             return null;
         }
@@ -592,7 +591,7 @@ public class JdbcBootstrapOrchestrator {
     
     
     private String ensureRootCACertificate(String hubUrl, String instanceId) {
-        log.info("Root CA certificate verification starting: hubUrl={}, instanceId={}", hubUrl, instanceId);
+        log.info("Root CA certificate verification starting: hubUrl={}, alias={}", hubUrl, instanceId);
         
         
         String manualCaCertPath = System.getProperty("dadp.ca.cert.path");

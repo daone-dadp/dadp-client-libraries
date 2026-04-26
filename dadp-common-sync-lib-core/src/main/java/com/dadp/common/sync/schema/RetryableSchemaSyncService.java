@@ -273,7 +273,7 @@ public class RetryableSchemaSyncService {
                         }
                         
                         success = true;
-                        log.info("Schema metadata sync succeeded: hubId={}, instanceId={}, attempts={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
+                        log.info("Schema metadata sync succeeded: hubId={}, alias={}, attempts={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
                     } else {
                         throw new RuntimeException("Schema sync failed: syncToHub returned false");
                     }
@@ -394,4 +394,3 @@ public class RetryableSchemaSyncService {
         return errorMsg != null && (errorMsg.contains("404") || errorMsg.contains("re-registration is required"));
     }
 }
-

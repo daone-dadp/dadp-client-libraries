@@ -27,7 +27,6 @@ public class ProxyConfig {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfig.class);
     
     private static final String DEFAULT_HUB_URL = "http://localhost:9004";
-    private static final String DEFAULT_ALIAS = "proxy-1";
     private static final long DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS = 30000; // 30초
     private static final int DEFAULT_MAX_SCHEMAS = 100;
     private static final String DEFAULT_SCHEMA_COLLECTION_FAIL_MODE = "fail-open"; // fail-open 또는 fail-close
@@ -101,18 +100,8 @@ public class ProxyConfig {
         if (aliasProp == null || aliasProp.trim().isEmpty()) {
             aliasProp = urlParams != null ? urlParams.get("alias") : null;
         }
-        // Legacy fallback for 5.8-era naming
         if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = System.getProperty("dadp.proxy.instance-id");
-        }
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = System.getenv("DADP_PROXY_INSTANCE_ID");
-        }
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = urlParams != null ? urlParams.get("instanceId") : null;
-        }
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = DEFAULT_ALIAS;
+            throw missingRequiredAlias();
         }
         this.alias = aliasProp.trim();
         
@@ -457,6 +446,17 @@ public class ProxyConfig {
      */
     public String getInstanceId() {
         return alias;
+    }
+
+    private static IllegalStateException missingRequiredAlias() {
+        String message = "DADP wrapper startup failed: missing required alias. Configure dadp.proxy.alias, DADP_PROXY_ALIAS, or JDBC URL alias.";
+        System.err.println(message);
+        try {
+            log.error(message);
+        } catch (Exception ignored) {
+            // System.err emission is the mandatory fallback for startup failure.
+        }
+        return new IllegalStateException(message);
     }
     
     /**
