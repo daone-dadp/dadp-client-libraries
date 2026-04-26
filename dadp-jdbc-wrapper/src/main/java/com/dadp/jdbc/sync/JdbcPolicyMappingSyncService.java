@@ -87,7 +87,8 @@ public class JdbcPolicyMappingSyncService {
         this.datasourceId = datasourceId;
         
         
-        InstanceIdProvider instanceIdProvider = new InstanceIdProvider(config.getInstanceId());
+        InstanceIdProvider instanceIdProvider =
+                new InstanceIdProvider(java.util.Collections.singletonMap("alias", config.getAlias()));
         this.instanceId = instanceIdProvider.getInstanceId();
         
         

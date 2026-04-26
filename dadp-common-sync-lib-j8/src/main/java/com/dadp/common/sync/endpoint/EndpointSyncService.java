@@ -33,7 +33,7 @@ public class EndpointSyncService {
     private final EndpointStorage endpointStorage;
     
     public EndpointSyncService(String hubUrl, String hubId, String alias) {
-        this(hubUrl, hubId, alias, EndpointStorage.getInstance());
+        this(hubUrl, hubId, alias, new EndpointStorage(requireAlias(alias)));
     }
     
     public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName) {
@@ -56,6 +56,14 @@ public class EndpointSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.endpointStorage = endpointStorage;
+    }
+
+    private static String requireAlias(String alias) {
+        if (alias == null || alias.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "DADP wrapper endpoint sync requires alias-scoped storage. Shared/default storage is not allowed.");
+        }
+        return alias.trim();
     }
     
     /**

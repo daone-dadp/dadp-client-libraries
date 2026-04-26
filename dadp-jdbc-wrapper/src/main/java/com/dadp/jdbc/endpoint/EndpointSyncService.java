@@ -1,6 +1,7 @@
 package com.dadp.jdbc.endpoint;
 
 import com.dadp.jdbc.config.EndpointStorage;
+import com.dadp.common.sync.config.StoragePathResolver;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -44,7 +45,17 @@ public class EndpointSyncService {
         this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        this.endpointStorage = new EndpointStorage();
+        this.endpointStorage = new EndpointStorage(
+                StoragePathResolver.resolveStorageDir(requireAlias(alias)),
+                "crypto-endpoints.json");
+    }
+
+    private static String requireAlias(String alias) {
+        if (alias == null || alias.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "DADP wrapper endpoint sync requires alias-scoped storage. Shared/default storage is not allowed.");
+        }
+        return alias.trim();
     }
     
     /**
