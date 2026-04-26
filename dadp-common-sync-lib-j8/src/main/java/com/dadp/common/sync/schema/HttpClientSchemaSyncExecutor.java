@@ -44,7 +44,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     }
     
     @Override
-    public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String instanceId, Long currentVersion) throws Exception {
+    public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String alias, Long currentVersion) throws Exception {
         // AOP는 복수형(/schemas/sync), Wrapper는 단수형(/schema/sync)
         boolean isAop = apiBasePath != null && apiBasePath.contains("/aop");
         String syncPath = isAop ? "/schemas/sync" : "/schema/sync";
@@ -52,10 +52,10 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         log.trace("Hub schema sync URL: {}", syncUrl);
         
         SchemaSyncRequest request = new SchemaSyncRequest();
-        // 스키마 동기화: 헤더에 hubId와 instanceId를 넣고 body에 instanceId와 스키마 전송
+        // 스키마 동기화: 헤더에 hubId와 alias를 넣고 body에 instanceId(alias)와 스키마 전송
         // hubId는 헤더(X-DADP-TENANT)로 전송
-        // instanceId는 헤더(X-Instance-Id)와 body에 모두 포함
-        request.setInstanceId(instanceId);
+        // alias는 헤더(X-Instance-Id)와 body에 모두 포함
+        request.setInstanceId(alias);
         request.setSchemas(schemas);
         
         String requestBody = objectMapper.writeValueAsString(request);
@@ -66,16 +66,8 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         if (hubId != null && !hubId.trim().isEmpty()) {
             headers.put("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
         }
-        /**
-         * X-Instance-Id 헤더 추가
-         * 
-         * Hub가 헤더에서 instanceId(별칭)를 받아 스키마를 alias로 직접 저장할 수 있도록 함.
-         * instanceId는 요청 바디에도 포함되지만, 헤더에서도 전달하여 Hub가 별도 조회 없이 사용할 수 있음.
-         * 
-         * @param instanceId 인스턴스 별칭 (null이거나 비어있으면 헤더에 추가하지 않음)
-         */
-        if (instanceId != null && !instanceId.trim().isEmpty()) {
-            headers.put("X-Instance-Id", instanceId);
+        if (alias != null && !alias.trim().isEmpty()) {
+            headers.put("X-Instance-Id", alias);
         }
         if (currentVersion != null) {
             headers.put("X-Current-Version", String.valueOf(currentVersion));
@@ -211,4 +203,3 @@ class SchemaSync404Exception extends RuntimeException {
         super(message);
     }
 }
-

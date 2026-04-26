@@ -22,17 +22,17 @@ public class DatasourceRegistrationService {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DatasourceRegistrationService.class);
 
     private final String hubUrl;
-    private final String proxyInstanceId;
+    private final String alias;
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
 
-    public DatasourceRegistrationService(String hubUrl, String proxyInstanceId) {
-        this(hubUrl, proxyInstanceId, null);
+    public DatasourceRegistrationService(String hubUrl, String alias) {
+        this(hubUrl, alias, null);
     }
 
-    public DatasourceRegistrationService(String hubUrl, String proxyInstanceId, String caCertPath) {
+    public DatasourceRegistrationService(String hubUrl, String alias, String caCertPath) {
         this.hubUrl = hubUrl;
-        this.proxyInstanceId = proxyInstanceId;
+        this.alias = alias;
         this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000, caCertPath);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -54,15 +54,15 @@ public class DatasourceRegistrationService {
             String dbVendor, String host, int port,
             String database, String schema, Long currentVersion, String hubId) {
 
-        String cachedDatasourceId = DatasourceStorage.loadDatasourceId(proxyInstanceId, dbVendor, host, port, database, schema);
+        String cachedDatasourceId = DatasourceStorage.loadDatasourceId(alias, dbVendor, host, port, database, schema);
         if (cachedDatasourceId != null) {
-            log.debug("Datasource ID found in local storage: {}", cachedDatasourceId);
+            log.debug("Canonical datasourceId found in local storage: alias={}, datasourceId={}", alias, cachedDatasourceId);
         }
 
         String registerUrl = hubUrl + "/hub/api/v1/proxy/datasources/register";
 
         Map<String, Object> request = new HashMap<>();
-        request.put("instanceId", proxyInstanceId);
+        request.put("alias", alias);
         request.put("dbVendor", dbVendor);
         request.put("host", host);
         request.put("port", port);
@@ -92,9 +92,9 @@ public class DatasourceRegistrationService {
 
                     if (apiResponse != null && apiResponse.getData() != null && apiResponse.getData().getHubId() != null) {
                         DatasourceInfo info = apiResponse.getData();
-                        DatasourceStorage.saveDatasource(proxyInstanceId, info.getDatasourceId(), dbVendor, host, port, database, schema);
-                        log.info("Datasource registered with Hub: datasourceId={}, displayName={}, hubId={}",
-                            info.getDatasourceId(), info.getDisplayName(), info.getHubId());
+                        DatasourceStorage.saveDatasource(alias, info.getDatasourceId(), dbVendor, host, port, database, schema);
+                        log.info("Datasource registered with Hub: alias={}, datasourceId={}, displayName={}, hubId={}",
+                            alias, info.getDatasourceId(), info.getDisplayName(), info.getHubId());
                         return info;
                     }
 

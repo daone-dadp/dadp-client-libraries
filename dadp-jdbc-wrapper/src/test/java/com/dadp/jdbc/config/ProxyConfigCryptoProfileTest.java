@@ -13,6 +13,8 @@ class ProxyConfigCryptoProfileTest {
 
     @AfterEach
     void clearSystemProperties() {
+        System.clearProperty("dadp.proxy.alias");
+        System.clearProperty("dadp.proxy.instance-id");
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
         System.clearProperty("dadp.wrapper.single-transport-mode");
@@ -50,6 +52,18 @@ class ProxyConfigCryptoProfileTest {
 
         assertTrue(config.isCryptoProfileEnabled());
         assertTrue("/tmp/dadp/wrapper-profile.ndjson".equals(config.getCryptoProfilePath()));
+    }
+
+    @Test
+    void aliasPrefersDedicatedAliasKeyOverLegacyInstanceId() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "shared-db-group");
+        urlParams.put("instanceId", "legacy-instance-id");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue("shared-db-group".equals(config.getAlias()));
+        assertTrue("shared-db-group".equals(config.getInstanceId()));
     }
 
     @Test

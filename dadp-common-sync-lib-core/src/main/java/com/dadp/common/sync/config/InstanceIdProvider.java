@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * InstanceId 제공자
  * 
- * 각 모듈(AOP, Wrapper)에서 instanceId를 가져오는 공통 로직을 제공합니다.
+ * 각 모듈(AOP, Wrapper)에서 식별자를 가져오는 공통 로직을 제공합니다.
  * 모듈별 차이는 생성자 파라미터로 주입받아 처리합니다.
  * 
  * @author DADP Development Team
@@ -19,6 +19,8 @@ public class InstanceIdProvider {
     private static final String AOP_DEFAULT = "aop";
     
     // Wrapper용 설정
+    private static final String WRAPPER_ALIAS_SYSTEM_PROP = "dadp.proxy.alias";
+    private static final String WRAPPER_ALIAS_ENV_VAR = "DADP_PROXY_ALIAS";
     private static final String WRAPPER_SYSTEM_PROP = "dadp.proxy.instance-id";
     private static final String WRAPPER_ENV_VAR = "DADP_PROXY_INSTANCE_ID";
     private static final String WRAPPER_DEFAULT = "dadp-proxy";
@@ -88,32 +90,51 @@ public class InstanceIdProvider {
     }
     
     /**
-     * Wrapper용 instanceId 조회
+     * Wrapper용 식별자 조회
+     *
+     * <p>5.9 line uses alias as the shared DB-group key. The legacy instanceId
+     * naming is kept only as a fallback source.</p>
      */
     private String getWrapperInstanceId() {
         String instanceId = null;
-        
-        // 1. 시스템 프로퍼티 확인
+
+        // 1. alias 시스템 프로퍼티 확인
+        instanceId = System.getProperty(WRAPPER_ALIAS_SYSTEM_PROP);
+        if (instanceId != null && !instanceId.trim().isEmpty()) {
+            return instanceId.trim();
+        }
+
+        // 2. alias 환경 변수 확인
+        instanceId = System.getenv(WRAPPER_ALIAS_ENV_VAR);
+        if (instanceId != null && !instanceId.trim().isEmpty()) {
+            return instanceId.trim();
+        }
+
+        // 3. legacy instanceId 시스템 프로퍼티 확인
         instanceId = System.getProperty(WRAPPER_SYSTEM_PROP);
         if (instanceId != null && !instanceId.trim().isEmpty()) {
             return instanceId.trim();
         }
-        
-        // 2. 환경 변수 확인
+
+        // 4. legacy instanceId 환경 변수 확인
         instanceId = System.getenv(WRAPPER_ENV_VAR);
         if (instanceId != null && !instanceId.trim().isEmpty()) {
             return instanceId.trim();
         }
-        
-        // 3. JDBC URL 파라미터 확인
+
+        // 5. JDBC URL 파라미터 확인
         if (urlParams != null) {
+            instanceId = urlParams.get("alias");
+            if (instanceId != null && !instanceId.trim().isEmpty()) {
+                return instanceId.trim();
+            }
             instanceId = urlParams.get("instanceId");
             if (instanceId != null && !instanceId.trim().isEmpty()) {
                 return instanceId.trim();
             }
         }
-        
-        // 4. 기본값 사용
+
+        // 6. 기본값 사용
         return WRAPPER_DEFAULT;
     }
 }

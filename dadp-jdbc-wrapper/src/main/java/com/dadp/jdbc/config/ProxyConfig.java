@@ -13,9 +13,9 @@ import java.util.Map;
  * Proxy 설정 관리
  * 
  * 설정 우선순위:
- * 1. 시스템 프로퍼티 (dadp.proxy.hub-url, dadp.proxy.instance-id, dadp.proxy.fail-open)
- * 2. 환경 변수 (DADP_HUB_BASE_URL > DADP_PROXY_HUB_URL, DADP_PROXY_INSTANCE_ID, DADP_PROXY_FAIL_OPEN)
- * 3. JDBC URL 쿼리 파라미터 (hubUrl, instanceId, failOpen)
+ * 1. 시스템 프로퍼티 (dadp.proxy.hub-url, dadp.proxy.alias, dadp.proxy.instance-id, dadp.proxy.fail-open)
+ * 2. 환경 변수 (DADP_HUB_BASE_URL > DADP_PROXY_HUB_URL, DADP_PROXY_ALIAS, DADP_PROXY_INSTANCE_ID, DADP_PROXY_FAIL_OPEN)
+ * 3. JDBC URL 쿼리 파라미터 (hubUrl, alias, instanceId, failOpen)
  * 4. 기본값
  * 
  * @author DADP Development Team
@@ -27,14 +27,14 @@ public class ProxyConfig {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfig.class);
     
     private static final String DEFAULT_HUB_URL = "http://localhost:9004";
-    private static final String DEFAULT_INSTANCE_ID = "proxy-1";
+    private static final String DEFAULT_ALIAS = "proxy-1";
     private static final long DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS = 30000; // 30초
     private static final int DEFAULT_MAX_SCHEMAS = 100;
     private static final String DEFAULT_SCHEMA_COLLECTION_FAIL_MODE = "fail-open"; // fail-open 또는 fail-close
     
     private static volatile ProxyConfig instance;
     private final String hubUrl;  // Hub URL (스키마 동기화 + 암복호화 라우팅, Hub가 Engine/Gateway로 자동 라우팅)
-    private final String instanceId;  // 사용자가 설정한 별칭 (검색/표시용)
+    private final String alias;  // 공유 DB 그룹 별칭
     private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
@@ -90,25 +90,31 @@ public class ProxyConfig {
         }
         this.hubUrl = hubUrlProp.trim();
         
-        // Instance ID 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        String instanceIdProp = null;
-        // 1. 시스템 프로퍼티 우선 확인
-        if (instanceIdProp == null || instanceIdProp.trim().isEmpty()) {
-            instanceIdProp = System.getProperty("dadp.proxy.instance-id");
+        // Alias 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > legacy instanceId > 기본값)
+        String aliasProp = null;
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = System.getProperty("dadp.proxy.alias");
         }
-        // 2. 환경 변수 확인
-        if (instanceIdProp == null || instanceIdProp.trim().isEmpty()) {
-            instanceIdProp = System.getenv("DADP_PROXY_INSTANCE_ID");
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = System.getenv("DADP_PROXY_ALIAS");
         }
-        // 3. JDBC URL 파라미터 확인
-        if (instanceIdProp == null || instanceIdProp.trim().isEmpty()) {
-            instanceIdProp = urlParams != null ? urlParams.get("instanceId") : null;
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = urlParams != null ? urlParams.get("alias") : null;
         }
-        // 4. 기본값 사용
-        if (instanceIdProp == null || instanceIdProp.trim().isEmpty()) {
-            instanceIdProp = DEFAULT_INSTANCE_ID;
+        // Legacy fallback for 5.8-era naming
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = System.getProperty("dadp.proxy.instance-id");
         }
-        this.instanceId = instanceIdProp.trim();
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = System.getenv("DADP_PROXY_INSTANCE_ID");
+        }
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = urlParams != null ? urlParams.get("instanceId") : null;
+        }
+        if (aliasProp == null || aliasProp.trim().isEmpty()) {
+            aliasProp = DEFAULT_ALIAS;
+        }
+        this.alias = aliasProp.trim();
         
         // Fail-open 모드 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String failOpenProp = null;
@@ -274,7 +280,7 @@ public class ProxyConfig {
             cryptoProfilePathProp = urlParams != null ? urlParams.get("cryptoProfilePath") : null;
         }
         if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
-            String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.instanceId);
+            String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.alias);
             cryptoProfilePathProp = defaultProfileDir + java.io.File.separator + "crypto-stage-profile.ndjson";
         }
         this.cryptoProfilePath = cryptoProfilePathProp.trim();
@@ -395,7 +401,7 @@ public class ProxyConfig {
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("Proxy config loaded:");
         log.trace("   - Hub URL (schema sync + crypto routing): {}", this.hubUrl);
-        log.trace("   - Instance ID: {}", this.instanceId);
+        log.trace("   - Alias: {}", this.alias);
         log.trace("   - Fail-open: {}", this.failOpen);
         log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
@@ -440,8 +446,17 @@ public class ProxyConfig {
         return hubUrl;
     }
     
+    public String getAlias() {
+        return alias;
+    }
+
+    /**
+     * Legacy compatibility accessor.
+     *
+     * <p>In the 5.9 line, wrapper runtime should treat this value as alias.</p>
+     */
     public String getInstanceId() {
-        return instanceId;
+        return alias;
     }
     
     /**

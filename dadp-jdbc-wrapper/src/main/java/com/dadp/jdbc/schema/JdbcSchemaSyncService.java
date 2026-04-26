@@ -143,8 +143,8 @@ public class JdbcSchemaSyncService {
     /**
      * 스키마 메타데이터를 Hub로 동기화 (재시도 로직 포함)
      */
-    public boolean syncSchemaToHub(String hubId, String instanceId, Long currentVersion) {
-        return schemaSyncService.syncSchemaToHub(hubId, instanceId, currentVersion);
+    public boolean syncSchemaToHub(String hubId, String alias, Long currentVersion) {
+        return schemaSyncService.syncSchemaToHub(hubId, alias, currentVersion);
     }
     
     /**
@@ -180,7 +180,7 @@ public class JdbcSchemaSyncService {
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송 (AOP와 동일한 구조)
             SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath);
-            boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getInstanceId(), currentVersion);
+            boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getAlias(), currentVersion);
             
             if (synced) {
                 log.info("Specific schemas sent: hubId={}, schemaCount={}", hubId, schemas.size());
@@ -205,4 +205,3 @@ public class JdbcSchemaSyncService {
         }
     }
 }
-

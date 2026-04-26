@@ -264,7 +264,7 @@ public class DadpProxyConnection implements Connection {
         // 2. hubId 확인
         String hubId = config.getHubId();
         if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("hubId not available, attempting Hub re-registration: instanceId={}", config.getInstanceId());
+            log.warn("hubId not available, attempting Hub re-registration: alias={}", config.getAlias());
             String retryHubId = retryRegisterProxyInstance(connection, originalUrl);
             if (retryHubId != null && !retryHubId.trim().isEmpty()) {
                 hubId = retryHubId;
@@ -273,8 +273,7 @@ public class DadpProxyConnection implements Connection {
             } else {
                 // fail-open 모드에서만 허용
                 if (config.isFailOpen()) {
-                    hubId = config.getInstanceId();
-                    log.warn("Hub connection failed (fail-open mode): using instanceId as temporary ID: instanceId={}", hubId);
+                    log.warn("Hub connection failed (fail-open mode): continuing without hubId. Alias must not be used as a temporary runtime hubId: alias={}", config.getAlias());
                 } else {
                     log.error("Failed to obtain hubId from Hub. Check Hub connection or enable fail-open mode.");
                     return null;
@@ -321,7 +320,7 @@ public class DadpProxyConnection implements Connection {
             }
 
             DatasourceRegistrationService registrationService =
-                new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
+                new DatasourceRegistrationService(config.getHubUrl(), config.getAlias());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
                 normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
             );
@@ -379,7 +378,7 @@ public class DadpProxyConnection implements Connection {
             }
 
             DatasourceRegistrationService registrationService =
-                new DatasourceRegistrationService(config.getHubUrl(), config.getInstanceId());
+                new DatasourceRegistrationService(config.getHubUrl(), config.getAlias());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
                 normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
             );
