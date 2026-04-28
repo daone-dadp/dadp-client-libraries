@@ -216,7 +216,9 @@ public class DadpProxyConnection implements Connection {
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     effectiveHubAuthId,
-                    effectiveHubAuthSecret);
+                    effectiveHubAuthSecret,
+                    config.isWrapperCryptoStatsEnabled(),
+                    config.getWrapperCryptoStatsAggregationLevel());
         }
     }
 

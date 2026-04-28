@@ -46,6 +46,8 @@ public class ProxyConfig {
     private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
     private final String cryptoLocalHubAuthId;  // Manual fallback Hub internal auth id override
     private final String cryptoLocalHubAuthSecret;  // Manual fallback Hub internal auth secret override
+    private final boolean wrapperCryptoStatsEnabled;  // Wrapper local crypto aggregated stats enabled
+    private final String wrapperCryptoStatsAggregationLevel;  // Wrapper local crypto aggregated stats level
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -248,6 +250,33 @@ public class ProxyConfig {
         }
         this.cryptoLocalHubAuthSecret = trimToNull(localHubAuthSecretProp);
 
+        String wrapperCryptoStatsEnabledProp = null;
+        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
+            wrapperCryptoStatsEnabledProp = System.getProperty("dadp.wrapper.crypto-stats.enabled");
+        }
+        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
+            wrapperCryptoStatsEnabledProp = System.getenv("DADP_WRAPPER_CRYPTO_STATS_ENABLED");
+        }
+        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
+            wrapperCryptoStatsEnabledProp = urlParams != null ? urlParams.get("wrapperCryptoStatsEnabled") : null;
+        }
+        this.wrapperCryptoStatsEnabled = wrapperCryptoStatsEnabledProp != null
+                && !wrapperCryptoStatsEnabledProp.trim().isEmpty()
+                && ("true".equalsIgnoreCase(wrapperCryptoStatsEnabledProp) || "1".equals(wrapperCryptoStatsEnabledProp));
+
+        String wrapperCryptoStatsAggregationLevelProp = null;
+        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
+            wrapperCryptoStatsAggregationLevelProp = System.getProperty("dadp.wrapper.crypto-stats.aggregation-level");
+        }
+        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
+            wrapperCryptoStatsAggregationLevelProp = System.getenv("DADP_WRAPPER_CRYPTO_STATS_AGGREGATION_LEVEL");
+        }
+        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
+            wrapperCryptoStatsAggregationLevelProp = urlParams != null ? urlParams.get("wrapperCryptoStatsAggregationLevel") : null;
+        }
+        this.wrapperCryptoStatsAggregationLevel =
+                normalizeWrapperCryptoStatsAggregationLevel(wrapperCryptoStatsAggregationLevelProp);
+
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
         if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
@@ -407,6 +436,8 @@ public class ProxyConfig {
         log.trace("   - Wrapper local crypto fallback remote: {}", this.cryptoLocalFallbackRemote);
         log.trace("   - Wrapper local crypto timeout: {}ms", this.cryptoLocalTimeoutMs);
         log.trace("   - Wrapper local crypto hub auth configured: {}", this.cryptoLocalHubAuthSecret != null);
+        log.trace("   - Wrapper local crypto stats enabled: {}", this.wrapperCryptoStatsEnabled);
+        log.trace("   - Wrapper local crypto stats aggregation level: {}", this.wrapperCryptoStatsAggregationLevel);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -564,6 +595,14 @@ public class ProxyConfig {
         return cryptoLocalHubAuthSecret;
     }
 
+    public boolean isWrapperCryptoStatsEnabled() {
+        return wrapperCryptoStatsEnabled;
+    }
+
+    public String getWrapperCryptoStatsAggregationLevel() {
+        return wrapperCryptoStatsAggregationLevel;
+    }
+
     /**
      * Wrapper 암복호화 stage profiling 활성화 여부 조회
      *
@@ -625,6 +664,20 @@ public class ProxyConfig {
 
         log.warn("Unsupported wrapper crypto mode: {} (falling back to remote)", mode);
         return "remote";
+    }
+
+    private static String normalizeWrapperCryptoStatsAggregationLevel(String level) {
+        if (level == null || level.trim().isEmpty()) {
+            return "1hour";
+        }
+
+        String normalized = level.trim().toLowerCase();
+        if ("1hour".equals(normalized) || "1day".equals(normalized)) {
+            return normalized;
+        }
+
+        log.warn("Unsupported wrapper crypto stats aggregation level: {} (falling back to 1hour)", level);
+        return "1hour";
     }
 
     private static int parsePort(String value, int defaultValue) {

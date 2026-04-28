@@ -42,6 +42,8 @@ public class DirectCryptoAdapter {
     private volatile Integer localTimeoutMillis = 30000;
     private volatile String localHubAuthId;
     private volatile String localHubAuthSecret;
+    private volatile boolean localCryptoStatsEnabled;
+    private volatile String localCryptoStatsAggregationLevel = "1hour";
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -132,11 +134,18 @@ public class DirectCryptoAdapter {
     }
 
     public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote, Integer timeoutMillis) {
-        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis, null, null);
+        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis, null, null, false, "1hour");
     }
 
     public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
                               Integer timeoutMillis, String hubAuthId, String hubAuthSecret) {
+        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis,
+                hubAuthId, hubAuthSecret, false, "1hour");
+    }
+
+    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
+                              Integer timeoutMillis, String hubAuthId, String hubAuthSecret,
+                              boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         String normalized = cryptoMode != null ? cryptoMode.trim().toLowerCase() : "remote";
         if (!"local".equals(normalized)) {
             normalized = "remote";
@@ -144,27 +153,44 @@ public class DirectCryptoAdapter {
         this.cryptoMode = normalized;
         this.localFallbackRemote = localFallbackRemote;
         int effectiveTimeout = timeoutMillis != null ? timeoutMillis : 30000;
+        String normalizedStatsAggregationLevel =
+                "1day".equalsIgnoreCase(cryptoStatsAggregationLevel) ? "1day" : "1hour";
         if ("local".equals(normalized)) {
             if (this.localCryptoService != null
                     && equalsNullable(this.localHubBaseUrl, hubBaseUrl)
                     && equalsNullable(this.localHubAuthId, hubAuthId)
                     && equalsNullable(this.localHubAuthSecret, hubAuthSecret)
+                    && this.localCryptoStatsEnabled == cryptoStatsEnabled
+                    && equalsNullable(this.localCryptoStatsAggregationLevel, normalizedStatsAggregationLevel)
                     && this.localTimeoutMillis != null
                     && this.localTimeoutMillis == effectiveTimeout) {
                 return;
             }
-            this.localCryptoService = new WrapperLocalCryptoService(hubBaseUrl, effectiveTimeout, hubAuthId, hubAuthSecret);
+            closeLocalCryptoService();
+            this.localCryptoService = new WrapperLocalCryptoService(
+                    hubBaseUrl,
+                    effectiveTimeout,
+                    hubAuthId,
+                    hubAuthSecret,
+                    cryptoStatsEnabled,
+                    normalizedStatsAggregationLevel);
             this.localHubBaseUrl = hubBaseUrl;
             this.localTimeoutMillis = effectiveTimeout;
             this.localHubAuthId = hubAuthId;
             this.localHubAuthSecret = hubAuthSecret;
-            log.info("Wrapper local crypto mode enabled: fallbackRemote={}", localFallbackRemote);
+            this.localCryptoStatsEnabled = cryptoStatsEnabled;
+            this.localCryptoStatsAggregationLevel = normalizedStatsAggregationLevel;
+            log.info("Wrapper local crypto mode enabled: fallbackRemote={}, cryptoStatsEnabled={}, cryptoStatsAggregationLevel={}",
+                    localFallbackRemote, cryptoStatsEnabled, normalizedStatsAggregationLevel);
         } else {
+            closeLocalCryptoService();
             this.localCryptoService = null;
             this.localHubBaseUrl = null;
             this.localTimeoutMillis = effectiveTimeout;
             this.localHubAuthId = null;
             this.localHubAuthSecret = null;
+            this.localCryptoStatsEnabled = false;
+            this.localCryptoStatsAggregationLevel = "1hour";
             log.trace("Wrapper crypto mode set to remote");
         }
     }
@@ -514,6 +540,12 @@ public class DirectCryptoAdapter {
 
     private boolean isLocalCryptoEnabled() {
         return "local".equals(cryptoMode) && localCryptoService != null;
+    }
+
+    private void closeLocalCryptoService() {
+        if (this.localCryptoService != null) {
+            this.localCryptoService.close();
+        }
     }
 
     private static boolean equalsNullable(String left, String right) {

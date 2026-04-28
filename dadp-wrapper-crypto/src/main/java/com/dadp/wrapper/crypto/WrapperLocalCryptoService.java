@@ -11,28 +11,47 @@ public class WrapperLocalCryptoService {
     private final HubPolicyMaterialClient policyClient;
     private final KeyMaterialResolver keyResolver;
     private final LocalAesGcmCrypto localCrypto;
+    private final WrapperCryptoStatsSender statsSender;
     private final Map<String, PolicyMaterial> policiesByName = new ConcurrentHashMap<String, PolicyMaterial>();
     private final Map<String, PolicyMaterial> policiesByUid = new ConcurrentHashMap<String, PolicyMaterial>();
     private final Map<String, KeyMaterial> keys = new ConcurrentHashMap<String, KeyMaterial>();
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis) {
-        this(hubBaseUrl, timeoutMillis, null, null);
+        this(hubBaseUrl, timeoutMillis, (String) null, (String) null, false, "1hour");
     }
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis, String hubAuthId, String hubAuthSecret) {
-        this(hubBaseUrl, timeoutMillis, createAuthHeaderProvider(hubAuthId, hubAuthSecret));
+        this(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret, false, "1hour");
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String hubAuthId, String hubAuthSecret,
+                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
+        this(hubBaseUrl, timeoutMillis,
+                createAuthHeaderProvider(hubAuthId, hubAuthSecret),
+                createStatsSender(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret,
+                        cryptoStatsEnabled, cryptoStatsAggregationLevel));
     }
 
     private WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                      HubInternalKeyClient.AuthHeaderProvider authHeaderProvider) {
+                                      HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                                      WrapperCryptoStatsSender statsSender) {
         this(new HubPolicyMaterialClient(hubBaseUrl, timeoutMillis),
                 new KeyMaterialResolver(new HubInternalKeyClient(hubBaseUrl, timeoutMillis, authHeaderProvider)),
-                new LocalAesGcmCrypto());
+                new LocalAesGcmCrypto(),
+                statsSender);
     }
 
     WrapperLocalCryptoService(HubPolicyMaterialClient policyClient,
                               KeyMaterialResolver keyResolver,
                               LocalAesGcmCrypto localCrypto) {
+        this(policyClient, keyResolver, localCrypto, null);
+    }
+
+    WrapperLocalCryptoService(HubPolicyMaterialClient policyClient,
+                              KeyMaterialResolver keyResolver,
+                              LocalAesGcmCrypto localCrypto,
+                              WrapperCryptoStatsSender statsSender) {
         if (policyClient == null) {
             throw new IllegalArgumentException("policyClient is required");
         }
@@ -45,24 +64,47 @@ public class WrapperLocalCryptoService {
         this.policyClient = policyClient;
         this.keyResolver = keyResolver;
         this.localCrypto = localCrypto;
+        this.statsSender = statsSender;
     }
 
     public String encrypt(String data, String policyName) {
         if (data == null) {
             return null;
         }
-        PolicyMaterial policy = resolvePolicyByName(policyName);
-        return localCrypto.encrypt(data, policy.getPolicyUid(), resolveKey(policy),
-                policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+        try {
+            PolicyMaterial policy = resolvePolicyByName(policyName);
+            String encrypted = localCrypto.encrypt(data, policy.getPolicyUid(), resolveKey(policy),
+                    policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            if (statsSender != null) {
+                statsSender.recordEncryptSuccess();
+            }
+            return encrypted;
+        } catch (RuntimeException e) {
+            if (statsSender != null) {
+                statsSender.recordEncryptFailure();
+            }
+            throw e;
+        }
     }
 
     public String decrypt(String encryptedData, String policyName) {
         if (encryptedData == null) {
             return null;
         }
-        PolicyMaterial policy = resolvePolicyForCiphertext(encryptedData, policyName);
-        return localCrypto.decrypt(encryptedData, resolveKey(policy),
-                policy.getPlainStart(), policy.getPlainLength());
+        try {
+            PolicyMaterial policy = resolvePolicyForCiphertext(encryptedData, policyName);
+            String decrypted = localCrypto.decrypt(encryptedData, resolveKey(policy),
+                    policy.getPlainStart(), policy.getPlainLength());
+            if (statsSender != null) {
+                statsSender.recordDecryptSuccess();
+            }
+            return decrypted;
+        } catch (RuntimeException e) {
+            if (statsSender != null) {
+                statsSender.recordDecryptFailure();
+            }
+            throw e;
+        }
     }
 
     public boolean isEncryptedData(String data) {
@@ -143,5 +185,22 @@ public class WrapperLocalCryptoService {
             return null;
         }
         return new HubInternalAuthHeaderProvider(hubAuthId, hubAuthSecret);
+    }
+
+    private static WrapperCryptoStatsSender createStatsSender(String hubBaseUrl, int timeoutMillis,
+                                                              String hubAuthId, String hubAuthSecret,
+                                                              boolean cryptoStatsEnabled,
+                                                              String cryptoStatsAggregationLevel) {
+        if (!cryptoStatsEnabled) {
+            return null;
+        }
+        return new WrapperCryptoStatsSender(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret,
+                cryptoStatsAggregationLevel);
+    }
+
+    public void close() {
+        if (statsSender != null) {
+            statsSender.close();
+        }
     }
 }

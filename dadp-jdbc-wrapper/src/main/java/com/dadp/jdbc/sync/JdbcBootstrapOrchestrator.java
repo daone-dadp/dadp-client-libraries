@@ -926,7 +926,9 @@ public class JdbcBootstrapOrchestrator {
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     effectiveHubAuthId,
-                    effectiveHubAuthSecret);
+                    effectiveHubAuthSecret,
+                    config.isWrapperCryptoStatsEnabled(),
+                    config.getWrapperCryptoStatsAggregationLevel());
         }
     }
 
