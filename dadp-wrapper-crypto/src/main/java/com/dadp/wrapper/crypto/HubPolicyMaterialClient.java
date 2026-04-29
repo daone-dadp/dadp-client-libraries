@@ -1,5 +1,7 @@
 package com.dadp.wrapper.crypto;
 
+import com.dadp.common.logging.DadpLogger;
+import com.dadp.common.logging.DadpLoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
@@ -16,6 +18,8 @@ import java.util.Map;
  */
 public class HubPolicyMaterialClient {
 
+    private static final DadpLogger log = DadpLoggerFactory.getLogger(HubPolicyMaterialClient.class);
+
     private final String hubBaseUrl;
     private final int timeoutMillis;
     private final ObjectMapper objectMapper;
@@ -30,6 +34,7 @@ public class HubPolicyMaterialClient {
         if (policyName == null || policyName.trim().isEmpty()) {
             throw new IllegalArgumentException("policyName is required");
         }
+        log.trace("Hub policy lookup by name: policyName={}", policyName);
         return toPolicyMaterial(getData("/api/v1/policies/name/" + encodePathSegment(policyName)));
     }
 
@@ -37,6 +42,7 @@ public class HubPolicyMaterialClient {
         if (policyUid == null || policyUid.trim().isEmpty()) {
             throw new IllegalArgumentException("policyUid is required");
         }
+        log.trace("Hub policy lookup by uid: policyUid={}", policyUid);
         return toPolicyMaterial(getData("/api/v1/policies/uuid/" + encodePathSegment(policyUid)));
     }
 
@@ -56,6 +62,8 @@ public class HubPolicyMaterialClient {
             byte[] body = readAll(status >= 200 && status < 300
                     ? connection.getInputStream()
                     : connection.getErrorStream());
+            log.trace("Hub policy API response: path={}, status={}, bodyLength={}",
+                    engineStylePath, status, body.length);
             if (status < 200 || status >= 300) {
                 throw new WrapperCryptoException("Hub policy API failed: status=" + status
                         + ", url=" + url + ", body=" + new String(body, StandardCharsets.UTF_8));
@@ -66,7 +74,9 @@ public class HubPolicyMaterialClient {
             if (!(data instanceof Map)) {
                 throw new WrapperCryptoException("Hub policy API response has no data object: url=" + url);
             }
-            return (Map<String, Object>) data;
+            Map<String, Object> result = (Map<String, Object>) data;
+            log.trace("Hub policy API data parsed: path={}, keys={}", engineStylePath, result.keySet());
+            return result;
         } catch (IOException e) {
             throw new WrapperCryptoException("Hub policy API request failed: url=" + url
                     + ", error=" + e.getMessage(), e);
@@ -99,8 +109,13 @@ public class HubPolicyMaterialClient {
         if (keyVersion == null) {
             throw new WrapperCryptoException("Hub policy response has no keyVersion");
         }
-        return new PolicyMaterial(policyName, policyUid, keyAlias, keyVersion,
+        PolicyMaterial policy = new PolicyMaterial(policyName, policyUid, keyAlias, keyVersion,
                 algorithm, usePlain, plainStart, plainLength);
+        log.trace("Hub policy material parsed: policyName={}, policyUid={}, algorithm={}, keyAlias={}, keyVersion={}, usePlain={}, plainStart={}, plainLength={}",
+                policy.getPolicyName(), policy.getPolicyUid(), policy.getAlgorithm(),
+                policy.getKeyAlias(), policy.getKeyVersion(),
+                policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+        return policy;
     }
 
     private static String normalizeBaseUrl(String value) {

@@ -1,5 +1,7 @@
 package com.dadp.wrapper.crypto;
 
+import com.dadp.common.logging.DadpLogger;
+import com.dadp.common.logging.DadpLoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
@@ -18,6 +20,8 @@ import java.util.Map;
  */
 public class HubInternalKeyClient {
 
+    private static final DadpLogger log = DadpLoggerFactory.getLogger(HubInternalKeyClient.class);
+
     private final String hubBaseUrl;
     private final int timeoutMillis;
     private final AuthHeaderProvider authHeaderProvider;
@@ -32,24 +36,31 @@ public class HubInternalKeyClient {
 
     public KeyMetadata fetchKeyMetadata(String keyAlias, int keyVersion) {
         String path = "/api/v1/keys/internal/" + encodePathSegment(keyAlias) + "/" + keyVersion;
+        log.trace("Hub internal key metadata lookup: keyAlias={}, keyVersion={}", keyAlias, keyVersion);
         Map<String, Object> data = getData(path);
-        return new KeyMetadata(
+        KeyMetadata metadata = new KeyMetadata(
                 keyAlias,
                 keyVersion,
                 stringValue(data.get("provider")),
                 stringValue(data.get("configJson")),
                 stringValue(data.get("accessInfo")),
                 stringValue(data.get("algorithm")));
+        log.trace("Hub internal key metadata parsed: keyAlias={}, keyVersion={}, provider={}, algorithm={}",
+                metadata.getKeyAlias(), metadata.getKeyVersion(), metadata.getProvider(), metadata.getAlgorithm());
+        return metadata;
     }
 
     public String fetchKeyData(String keyAlias, int keyVersion) {
         String path = "/api/v1/keys/internal-data/" + encodePathSegment(keyAlias) + "/" + keyVersion;
+        log.trace("Hub internal key data lookup: keyAlias={}, keyVersion={}", keyAlias, keyVersion);
         Map<String, Object> data = getData(path);
         String keyData = stringValue(data.get("keyData"));
         if (keyData == null || keyData.trim().isEmpty()) {
             throw new WrapperCryptoException("Hub internal key-data response is empty: keyAlias=" + keyAlias
                     + ", keyVersion=" + keyVersion);
         }
+        log.trace("Hub internal key data parsed: keyAlias={}, keyVersion={}, keyFingerprint={}, keyLength={}",
+                keyAlias, keyVersion, WrapperLocalCryptoDebug.fingerprint(keyData), keyData.length());
         return keyData;
     }
 
@@ -75,6 +86,8 @@ public class HubInternalKeyClient {
             byte[] body = readAll(status >= 200 && status < 300
                     ? connection.getInputStream()
                     : connection.getErrorStream());
+            log.trace("Hub internal key API response: path={}, status={}, bodyLength={}",
+                    engineStylePath, status, body.length);
             if (status < 200 || status >= 300) {
                 throw new WrapperCryptoException("Hub internal key API failed: status=" + status
                         + ", url=" + url + ", body=" + new String(body, StandardCharsets.UTF_8));
@@ -85,7 +98,9 @@ public class HubInternalKeyClient {
             if (!(data instanceof Map)) {
                 throw new WrapperCryptoException("Hub internal key API response has no data object: url=" + url);
             }
-            return (Map<String, Object>) data;
+            Map<String, Object> result = (Map<String, Object>) data;
+            log.trace("Hub internal key API data parsed: path={}, keys={}", engineStylePath, result.keySet());
+            return result;
         } catch (IOException e) {
             throw new WrapperCryptoException("Hub internal key API request failed: url=" + url
                     + ", error=" + e.getMessage(), e);

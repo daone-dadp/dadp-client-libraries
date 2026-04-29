@@ -383,14 +383,16 @@ public class DirectCryptoAdapter {
 
         if (isLocalCryptoEnabled() && maskPolicyName == null && maskPolicyUid == null && !includeStats) {
             try {
-                log.trace("Local decryption request: dataLength={}, policyName={}",
-                        encryptedData.length(), policyName);
+                log.trace("Local decryption request: dataLength={}, dataPreview={}, policyName={}",
+                        encryptedData.length(), preview(encryptedData), policyName);
                 if (!localCryptoService.isEncryptedData(encryptedData)) {
-                    log.trace("Data is not encrypted - returning original data");
+                    log.trace("Data is not encrypted - returning original data: dataLength={}, dataPreview={}",
+                            encryptedData.length(), preview(encryptedData));
                     return encryptedData;
                 }
                 String decrypted = localCryptoService.decrypt(encryptedData, policyName);
-                log.trace("Local decryption completed");
+                log.trace("Local decryption completed: decryptedLength={}, decryptedPreview={}",
+                        decrypted != null ? decrypted.length() : 0, preview(decrypted));
                 endpointAvailable = true;
                 return decrypted;
             } catch (UnsupportedCryptoMaterialException e) {
@@ -574,11 +576,19 @@ public class DirectCryptoAdapter {
             log.debug("Local decryption fallback to remote: {}", errorMsg);
             return decryptRemote(encryptedData, policyName, null, null, false);
         }
-        log.warn("Local decryption failed: {}", errorMsg);
+        log.warn("Local decryption failed: policy={}, dataLength={}, dataPreview={}, error={}",
+                policyName, encryptedData != null ? encryptedData.length() : 0, preview(encryptedData), errorMsg);
         if (failOpen) {
             return encryptedData;
         }
         throw new RuntimeException("Local decryption failed (Fail-closed mode)", e);
+    }
+
+    private static String preview(String value) {
+        if (value == null) {
+            return "null";
+        }
+        return value.length() > 48 ? value.substring(0, 48) + "..." : value;
     }
 
     private String encryptRemote(String data, String policyName) {

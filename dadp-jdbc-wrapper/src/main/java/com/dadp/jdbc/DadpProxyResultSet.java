@@ -185,6 +185,9 @@ public class DadpProxyResultSet implements ResultSet {
             return value;
         }
 
+        log.trace("Decrypt target value: table={}, column={}, policy={}, valueLength={}, valuePreview={}",
+                plan.tableName, plan.columnName, plan.policyName, value.length(), preview(value));
+
         DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
         if (adapter == null) {
             log.warn("Crypto adapter not initialized. Returning encrypted data: {}.{} (policy: {})",
@@ -207,6 +210,13 @@ public class DadpProxyResultSet implements ResultSet {
         }
 
         return value;
+    }
+
+    private static String preview(String value) {
+        if (value == null) {
+            return "null";
+        }
+        return value.length() > 48 ? value.substring(0, 48) + "..." : value;
     }
 
     private ParsedDecryptPlanEntry resolveParsedDecryptPlan(int columnIndex) throws SQLException {

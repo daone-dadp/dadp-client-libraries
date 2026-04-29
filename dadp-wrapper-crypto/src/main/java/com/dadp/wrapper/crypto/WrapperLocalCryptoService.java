@@ -1,5 +1,8 @@
 package com.dadp.wrapper.crypto;
 
+import com.dadp.common.logging.DadpLogger;
+import com.dadp.common.logging.DadpLoggerFactory;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -7,6 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Wrapper-side local crypto facade with policy/key material caching.
  */
 public class WrapperLocalCryptoService {
+
+    private static final DadpLogger log = DadpLoggerFactory.getLogger(WrapperLocalCryptoService.class);
 
     private final HubPolicyMaterialClient policyClient;
     private final KeyMaterialResolver keyResolver;
@@ -73,13 +78,21 @@ public class WrapperLocalCryptoService {
         }
         try {
             PolicyMaterial policy = resolvePolicyByName(policyName);
-            String encrypted = localCrypto.encrypt(data, policy.getPolicyUid(), resolveKey(policy),
+            KeyMaterial keyMaterial = resolveKey(policy);
+            log.trace("Local encrypt material resolved: policyName={}, policyUid={}, algorithm={}, keyAlias={}, keyVersion={}, keyFingerprint={}, usePlain={}, plainStart={}, plainLength={}",
+                    policy.getPolicyName(), policy.getPolicyUid(), policy.getAlgorithm(),
+                    policy.getKeyAlias(), policy.getKeyVersion(), WrapperLocalCryptoDebug.fingerprint(keyMaterial.getKeyData()),
                     policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            String encrypted = localCrypto.encrypt(data, policy.getPolicyUid(), policy.getAlgorithm(), keyMaterial,
+                    policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            log.trace("Local encrypt result: policyUid={}, encryptedLength={}, encryptedPrefix={}",
+                    policy.getPolicyUid(), encrypted != null ? encrypted.length() : 0, WrapperLocalCryptoDebug.preview(encrypted));
             if (statsSender != null) {
                 statsSender.recordEncryptSuccess();
             }
             return encrypted;
         } catch (RuntimeException e) {
+            log.trace("Local encrypt failed: policyName={}, error={}", policyName, e.getMessage());
             if (statsSender != null) {
                 statsSender.recordEncryptFailure();
             }
@@ -92,14 +105,25 @@ public class WrapperLocalCryptoService {
             return null;
         }
         try {
+            String extractedPolicyUid = safeExtractPolicyUid(encryptedData);
+            log.trace("Local decrypt request: requestedPolicyName={}, extractedPolicyUid={}, encryptedLength={}, encryptedPrefix={}",
+                    policyName, extractedPolicyUid, encryptedData.length(), WrapperLocalCryptoDebug.preview(encryptedData));
             PolicyMaterial policy = resolvePolicyForCiphertext(encryptedData, policyName);
-            String decrypted = localCrypto.decrypt(encryptedData, resolveKey(policy),
+            KeyMaterial keyMaterial = resolveKey(policy);
+            log.trace("Local decrypt material resolved: policyName={}, policyUid={}, algorithm={}, keyAlias={}, keyVersion={}, keyFingerprint={}, usePlain={}, plainStart={}, plainLength={}",
+                    policy.getPolicyName(), policy.getPolicyUid(), policy.getAlgorithm(),
+                    policy.getKeyAlias(), policy.getKeyVersion(), WrapperLocalCryptoDebug.fingerprint(keyMaterial.getKeyData()),
+                    policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            String decrypted = localCrypto.decrypt(encryptedData, policy.getAlgorithm(), keyMaterial,
                     policy.getPlainStart(), policy.getPlainLength());
+            log.trace("Local decrypt result: policyUid={}, decryptedLength={}, decryptedPrefix={}",
+                    policy.getPolicyUid(), decrypted != null ? decrypted.length() : 0, WrapperLocalCryptoDebug.preview(decrypted));
             if (statsSender != null) {
                 statsSender.recordDecryptSuccess();
             }
             return decrypted;
         } catch (RuntimeException e) {
+            log.trace("Local decrypt failed: requestedPolicyName={}, error={}", policyName, e.getMessage());
             if (statsSender != null) {
                 statsSender.recordDecryptFailure();
             }
@@ -126,8 +150,12 @@ public class WrapperLocalCryptoService {
         String key = policyName.trim();
         PolicyMaterial cached = policiesByName.get(key);
         if (cached != null) {
+            log.trace("Local policy cache hit by name: policyName={}, policyUid={}, algorithm={}, keyAlias={}, keyVersion={}",
+                    cached.getPolicyName(), cached.getPolicyUid(), cached.getAlgorithm(),
+                    cached.getKeyAlias(), cached.getKeyVersion());
             return cached;
         }
+        log.trace("Local policy cache miss by name: policyName={}", key);
         PolicyMaterial loaded = policyClient.fetchByName(key);
         cachePolicy(loaded);
         return loaded;
@@ -137,8 +165,12 @@ public class WrapperLocalCryptoService {
         String key = policyUid.trim();
         PolicyMaterial cached = policiesByUid.get(key);
         if (cached != null) {
+            log.trace("Local policy cache hit by uid: policyUid={}, policyName={}, algorithm={}, keyAlias={}, keyVersion={}",
+                    cached.getPolicyUid(), cached.getPolicyName(), cached.getAlgorithm(),
+                    cached.getKeyAlias(), cached.getKeyVersion());
             return cached;
         }
+        log.trace("Local policy cache miss by uid: policyUid={}", key);
         PolicyMaterial loaded = policyClient.fetchByUid(key);
         cachePolicy(loaded);
         return loaded;
@@ -165,19 +197,39 @@ public class WrapperLocalCryptoService {
         String key = policy.getKeyAlias() + ":" + policy.getKeyVersion();
         KeyMaterial cached = keys.get(key);
         if (cached != null) {
+            log.trace("Local key cache hit: keyAlias={}, keyVersion={}, algorithm={}, fingerprint={}",
+                    policy.getKeyAlias(), policy.getKeyVersion(), policy.getAlgorithm(), WrapperLocalCryptoDebug.fingerprint(cached.getKeyData()));
             return cached;
         }
+        log.trace("Local key cache miss: keyAlias={}, keyVersion={}, algorithm={}",
+                policy.getKeyAlias(), policy.getKeyVersion(), policy.getAlgorithm());
         KeyMaterial loaded = keyResolver.resolve(policy.getKeyAlias(), policy.getKeyVersion());
         KeyMaterial previous = keys.putIfAbsent(key, loaded);
-        return previous != null ? previous : loaded;
+        KeyMaterial effective = previous != null ? previous : loaded;
+        log.trace("Local key cached: keyAlias={}, keyVersion={}, algorithm={}, fingerprint={}",
+                policy.getKeyAlias(), policy.getKeyVersion(), policy.getAlgorithm(), WrapperLocalCryptoDebug.fingerprint(effective.getKeyData()));
+        return effective;
     }
 
     private void cachePolicy(PolicyMaterial policy) {
+        log.trace("Local policy cached: policyName={}, policyUid={}, algorithm={}, keyAlias={}, keyVersion={}, usePlain={}, plainStart={}, plainLength={}",
+                policy.getPolicyName(), policy.getPolicyUid(), policy.getAlgorithm(),
+                policy.getKeyAlias(), policy.getKeyVersion(),
+                policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
         if (policy.getPolicyName() != null && !policy.getPolicyName().trim().isEmpty()) {
             policiesByName.put(policy.getPolicyName(), policy);
         }
         policiesByUid.put(policy.getPolicyUid(), policy);
     }
+
+    private static String safeExtractPolicyUid(String encryptedData) {
+        try {
+            return LocalAesGcmCrypto.extractPolicyUid(encryptedData);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
 
     private static HubInternalKeyClient.AuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
         if (hubAuthId == null || hubAuthId.trim().isEmpty()
