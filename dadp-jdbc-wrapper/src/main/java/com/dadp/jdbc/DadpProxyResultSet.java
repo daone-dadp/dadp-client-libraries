@@ -312,14 +312,7 @@ public class DadpProxyResultSet implements ResultSet {
     }
 
     private String resolveParsedSchemaName() {
-        String schemaName = sqlParseResult.getSchemaName();
-        if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = proxyConnection.getCurrentSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentDatabaseName();
-            }
-        }
-        return schemaName;
+        return proxyConnection.resolveLookupSchemaName(sqlParseResult.getSchemaName());
     }
 
     private Integer resolveParsedColumnIndex(String columnLabel) throws SQLException {
@@ -702,10 +695,7 @@ public class DadpProxyResultSet implements ResultSet {
             if (columnName.contains(".")) {
                 columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
             }
-            String schemaName = proxyConnection.getCurrentSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentDatabaseName();
-            }
+            String schemaName = proxyConnection.resolveLookupSchemaName(metadataSchemaName);
             String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
             String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
@@ -745,13 +735,8 @@ public class DadpProxyResultSet implements ResultSet {
         }
 
         // schemaName 결정
-        String schemaName = sqlParseResult != null ? sqlParseResult.getSchemaName() : null;
-        if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = proxyConnection.getCurrentSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentDatabaseName();
-            }
-        }
+        String schemaName = proxyConnection.resolveLookupSchemaName(
+                sqlParseResult != null ? sqlParseResult.getSchemaName() : null);
         
         // 식별자 정규화 (스키마 로드 시와 동일한 방식으로 정규화)
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);

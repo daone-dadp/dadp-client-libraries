@@ -991,14 +991,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     }
 
     private String resolveSchemaNameForLookup() {
-        String schemaName = sqlParseResult.getSchemaName();
-        if (schemaName == null || schemaName.trim().isEmpty()) {
-            schemaName = proxyConnection.getCurrentSchemaName();
-            if (schemaName == null || schemaName.trim().isEmpty()) {
-                schemaName = proxyConnection.getCurrentDatabaseName();
-            }
-        }
-        return schemaName;
+        return proxyConnection.resolveLookupSchemaName(sqlParseResult.getSchemaName());
     }
 
     private static class StatementStructureCacheEntry {

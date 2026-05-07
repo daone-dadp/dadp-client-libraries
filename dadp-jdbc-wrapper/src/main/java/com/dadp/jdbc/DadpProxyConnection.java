@@ -671,6 +671,73 @@ public class DadpProxyConnection implements Connection {
     }
 
     /**
+     * Resolves the logical schema name to use for policy lookup when SQL does not carry one.
+     *
+     * <p>Vendors expose different default-schema behavior, so runtime crypto-target detection needs
+     * to follow the same schema assumptions used during schema sync and policy mapping.</p>
+     *
+     * @param explicitSchemaName schema name explicitly found in SQL or metadata
+     * @return schema name to use for policy lookup, or {@code null} when no stable default exists
+     */
+    public String resolveLookupSchemaName(String explicitSchemaName) {
+        return resolveLookupSchemaName(dbVendor, explicitSchemaName, cachedSchemaName, currentDatabaseName);
+    }
+
+    static String resolveLookupSchemaName(String dbVendor,
+                                          String explicitSchemaName,
+                                          String currentSchemaName,
+                                          String currentDatabaseName) {
+        if (explicitSchemaName != null && !explicitSchemaName.trim().isEmpty()) {
+            return explicitSchemaName;
+        }
+
+        String vendor = dbVendor != null ? dbVendor.toLowerCase() : "";
+        String schema = currentSchemaName != null ? currentSchemaName.trim() : null;
+        String database = currentDatabaseName != null ? currentDatabaseName.trim() : null;
+
+        if (vendor.contains("postgresql")) {
+            return hasText(schema) ? schema : "public";
+        }
+        if (vendor.contains("sqream")) {
+            return "public";
+        }
+        if (vendor.contains("microsoft sql server") || vendor.contains("sql server") || vendor.contains("mssql")) {
+            if (hasText(schema) && !equalsIgnoreCase(schema, database)) {
+                return schema;
+            }
+            return "dbo";
+        }
+        if (vendor.contains("oracle") || vendor.contains("tibero")) {
+            if (hasText(schema)) {
+                return schema;
+            }
+            return hasText(database) ? database : null;
+        }
+        if (vendor.contains("mysql") || vendor.contains("mariadb")) {
+            if (hasText(database)) {
+                return database;
+            }
+            return hasText(schema) ? schema : null;
+        }
+
+        if (hasText(schema)) {
+            return schema;
+        }
+        return hasText(database) ? database : null;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private static boolean equalsIgnoreCase(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.equalsIgnoreCase(right);
+    }
+
+    /**
      * Connection 생성 시 스키마 이름을 1회 해석하여 캐싱용 값 반환.
      * 매 SQL 실행마다 connection.getSchema() / getMetaData().getUserName()을 호출하면
      * Oracle 등에서 sysauth$ 등 시스템 딕셔너리 쿼리가 반복 발생하므로 이를 방지.
