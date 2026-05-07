@@ -1,7 +1,5 @@
 package com.dadp.jdbc;
 
-import com.dadp.jdbc.logging.DadpLogger;
-import com.dadp.jdbc.logging.DadpLoggerFactory;
 import com.dadp.jdbc.policy.SqlParser;
 import java.util.Arrays;
 import java.util.Map;
@@ -9,16 +7,13 @@ import java.util.Set;
 
 final class WrapperSqlMappingDebug {
 
-    private static final DadpLogger log = DadpLoggerFactory.getLogger(WrapperSqlMappingDebug.class);
-
     private WrapperSqlMappingDebug() {
     }
 
     static boolean enabled(DadpProxyConnection connection) {
         return connection != null
                 && connection.getConfig() != null
-                && connection.getConfig().isSqlMappingDebugEnabled()
-                && log.isInfoEnabled();
+                && connection.getConfig().isSqlMappingDebugEnabled();
     }
 
     static void logPreparedStatementMapping(DadpProxyConnection connection,
@@ -31,19 +26,20 @@ final class WrapperSqlMappingDebug {
         if (!enabled(connection)) {
             return;
         }
-        log.info("[Wrapper SQL Mapping] prepared-statement alias={}, vendor={}, datasourceId={}, sqlType={}, schema={}, table={}, columns={}, parameterMapping={}, whereParams={}, wildcardParams={}, classification={}, sql={}",
-                connection.getConfig().getAlias(),
-                connection.getDbVendor(),
-                connection.getDatasourceId(),
-                sqlParseResult != null ? sqlParseResult.getSqlType() : null,
-                sqlParseResult != null ? sqlParseResult.getSchemaName() : null,
-                sqlParseResult != null ? sqlParseResult.getTableName() : null,
-                sqlParseResult != null && sqlParseResult.getColumns() != null ? Arrays.toString(sqlParseResult.getColumns()) : "null",
-                parameterToColumnMap,
-                whereClauseParamIndices,
-                sqlWildcardParamIndices,
-                statementClassification,
-                abbreviateSql(sql));
+        emit("prepared-statement"
+                + " alias=" + connection.getConfig().getAlias()
+                + " vendor=" + connection.getDbVendor()
+                + " datasourceId=" + connection.getDatasourceId()
+                + " sqlType=" + value(sqlParseResult != null ? sqlParseResult.getSqlType() : null)
+                + " schema=" + value(sqlParseResult != null ? sqlParseResult.getSchemaName() : null)
+                + " table=" + value(sqlParseResult != null ? sqlParseResult.getTableName() : null)
+                + " columns=" + (sqlParseResult != null && sqlParseResult.getColumns() != null
+                ? Arrays.toString(sqlParseResult.getColumns()) : "null")
+                + " parameterMapping=" + value(parameterToColumnMap)
+                + " whereParams=" + value(whereClauseParamIndices)
+                + " wildcardParams=" + value(sqlWildcardParamIndices)
+                + " classification=" + value(statementClassification)
+                + " sql=" + abbreviateSql(sql));
     }
 
     static void logParameterPlan(DadpProxyConnection connection,
@@ -61,21 +57,18 @@ final class WrapperSqlMappingDebug {
         if (!enabled(connection)) {
             return;
         }
-        log.info("[Wrapper SQL Mapping] parameter-plan alias={}, vendor={}, datasourceId={}, method={}, parameterIndex={}, searchContext={}, sqlWildcardSearch={}, schema={} -> {}, table={} -> {}, column={} -> {}, policy={}",
-                connection.getConfig().getAlias(),
-                connection.getDbVendor(),
-                connection.getDatasourceId(),
-                methodName,
-                parameterIndex,
-                searchContext,
-                sqlWildcardSearch,
-                schemaName,
-                normalizedSchemaName,
-                tableName,
-                normalizedTableName,
-                columnName,
-                normalizedColumnName,
-                policyName);
+        emit("parameter-plan"
+                + " alias=" + connection.getConfig().getAlias()
+                + " vendor=" + connection.getDbVendor()
+                + " datasourceId=" + connection.getDatasourceId()
+                + " method=" + value(methodName)
+                + " parameterIndex=" + parameterIndex
+                + " searchContext=" + searchContext
+                + " sqlWildcardSearch=" + sqlWildcardSearch
+                + " schema=" + value(schemaName) + " -> " + value(normalizedSchemaName)
+                + " table=" + value(tableName) + " -> " + value(normalizedTableName)
+                + " column=" + value(columnName) + " -> " + value(normalizedColumnName)
+                + " policy=" + value(policyName));
     }
 
     static void logParsedResultSetPlan(DadpProxyConnection connection,
@@ -95,23 +88,23 @@ final class WrapperSqlMappingDebug {
         if (!enabled(connection)) {
             return;
         }
-        log.info("[Wrapper SQL Mapping] resultset-parsed alias={}, vendor={}, datasourceId={}, requestedLabel={}, columnIndex={}, parserSchema={}, parserTable={}, metadataSchema={}, metadataTable={}, metadataColumnName={}, metadataColumnLabel={}, resolvedColumnName={}, normalizedSchema={}, normalizedTable={}, normalizedColumn={}, policy={}",
-                connection.getConfig().getAlias(),
-                connection.getDbVendor(),
-                connection.getDatasourceId(),
-                requestedLabel,
-                columnIndex,
-                parserSchemaName,
-                parserTableName,
-                metadataSchemaName,
-                metadataTableName,
-                metadataColumnName,
-                metadataColumnLabel,
-                resolvedColumnName,
-                normalizedSchemaName,
-                normalizedTableName,
-                normalizedColumnName,
-                policyName);
+        emit("resultset-parsed"
+                + " alias=" + connection.getConfig().getAlias()
+                + " vendor=" + connection.getDbVendor()
+                + " datasourceId=" + connection.getDatasourceId()
+                + " requestedLabel=" + value(requestedLabel)
+                + " columnIndex=" + columnIndex
+                + " parserSchema=" + value(parserSchemaName)
+                + " parserTable=" + value(parserTableName)
+                + " metadataSchema=" + value(metadataSchemaName)
+                + " metadataTable=" + value(metadataTableName)
+                + " metadataColumnName=" + value(metadataColumnName)
+                + " metadataColumnLabel=" + value(metadataColumnLabel)
+                + " resolvedColumnName=" + value(resolvedColumnName)
+                + " normalizedSchema=" + value(normalizedSchemaName)
+                + " normalizedTable=" + value(normalizedTableName)
+                + " normalizedColumn=" + value(normalizedColumnName)
+                + " policy=" + value(policyName));
     }
 
     static void logFallbackResultSetPlan(DadpProxyConnection connection,
@@ -128,20 +121,20 @@ final class WrapperSqlMappingDebug {
         if (!enabled(connection)) {
             return;
         }
-        log.info("[Wrapper SQL Mapping] resultset-fallback alias={}, vendor={}, datasourceId={}, columnIndex={}, metadataSchema={}, metadataTable={}, metadataColumnName={}, metadataColumnLabel={}, lookupSchema={}, normalizedSchema={}, normalizedTable={}, normalizedColumn={}, policy={}",
-                connection.getConfig().getAlias(),
-                connection.getDbVendor(),
-                connection.getDatasourceId(),
-                columnIndex,
-                metadataSchemaName,
-                metadataTableName,
-                metadataColumnName,
-                metadataColumnLabel,
-                lookupSchemaName,
-                normalizedSchemaName,
-                normalizedTableName,
-                normalizedColumnName,
-                policyName);
+        emit("resultset-fallback"
+                + " alias=" + connection.getConfig().getAlias()
+                + " vendor=" + connection.getDbVendor()
+                + " datasourceId=" + connection.getDatasourceId()
+                + " columnIndex=" + columnIndex
+                + " metadataSchema=" + value(metadataSchemaName)
+                + " metadataTable=" + value(metadataTableName)
+                + " metadataColumnName=" + value(metadataColumnName)
+                + " metadataColumnLabel=" + value(metadataColumnLabel)
+                + " lookupSchema=" + value(lookupSchemaName)
+                + " normalizedSchema=" + value(normalizedSchemaName)
+                + " normalizedTable=" + value(normalizedTableName)
+                + " normalizedColumn=" + value(normalizedColumnName)
+                + " policy=" + value(policyName));
     }
 
     static void logLabelResolution(DadpProxyConnection connection,
@@ -151,13 +144,17 @@ final class WrapperSqlMappingDebug {
         if (!enabled(connection)) {
             return;
         }
-        log.info("[Wrapper SQL Mapping] label-resolution alias={}, vendor={}, datasourceId={}, requestedLabel={}, resolvedIndex={}, source={}",
-                connection.getConfig().getAlias(),
-                connection.getDbVendor(),
-                connection.getDatasourceId(),
-                requestedLabel,
-                resolvedIndex,
-                resolutionSource);
+        emit("label-resolution"
+                + " alias=" + connection.getConfig().getAlias()
+                + " vendor=" + connection.getDbVendor()
+                + " datasourceId=" + connection.getDatasourceId()
+                + " requestedLabel=" + value(requestedLabel)
+                + " resolvedIndex=" + value(resolvedIndex)
+                + " source=" + value(resolutionSource));
+    }
+
+    private static synchronized void emit(String message) {
+        System.out.println("[DADP-MAPPING-TRACE] " + message);
     }
 
     private static String abbreviateSql(String sql) {
@@ -166,5 +163,9 @@ final class WrapperSqlMappingDebug {
         }
         String trimmed = sql.replaceAll("\\s+", " ").trim();
         return trimmed.length() > 240 ? trimmed.substring(0, 240) + "..." : trimmed;
+    }
+
+    private static String value(Object value) {
+        return value != null ? String.valueOf(value) : "null";
     }
 }
