@@ -111,6 +111,15 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         } else {
             log.trace("DADP Proxy PreparedStatement created: {} (classification={})", sql, statementClassification);
         }
+
+        WrapperSqlMappingDebug.logPreparedStatementMapping(
+                proxyConnection,
+                sql,
+                sqlParseResult,
+                parameterToColumnMap,
+                whereClauseParamIndices,
+                sqlWildcardParamIndices,
+                statementClassification);
     }
 
     static void clearHotPathCachesForTest() {
@@ -724,6 +733,20 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if ("INSERT".equals(sqlParseResult.getSqlType()) || "UPDATE".equals(sqlParseResult.getSqlType())) {
             log.trace("{}: Policy check: {}.{} -> policyName={}", methodName, tableName, columnName, policyName);
         }
+
+        WrapperSqlMappingDebug.logParameterPlan(
+                proxyConnection,
+                methodName,
+                parameterIndex,
+                schemaName,
+                normalizedSchemaName,
+                tableName,
+                normalizedTableName,
+                columnName,
+                normalizedColumnName,
+                policyName,
+                isSearchContext,
+                sqlWildcardSearch);
 
         ParameterEncryptionPlan plan = new ParameterEncryptionPlan(
                 schemaName,

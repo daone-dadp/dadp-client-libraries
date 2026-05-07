@@ -234,6 +234,8 @@ public class DadpProxyResultSet implements ResultSet {
         ResultSetMetaData metaData = actualResultSet.getMetaData();
         String rawColumnName = metaData.getColumnName(columnIndex);
         String columnLabel = metaData.getColumnLabel(columnIndex);
+        String metadataSchemaName = metaData.getSchemaName(columnIndex);
+        String metadataTableName = metaData.getTableName(columnIndex);
         String tableName = sqlParseResult.getTableName();
 
         log.trace("Decryption check: tableName={}, columnName={}, columnLabel={}, columnIndex={}",
@@ -258,6 +260,21 @@ public class DadpProxyResultSet implements ResultSet {
 
         log.trace("Policy check: {}.{}.{} -> {}",
                 schemaName != null ? schemaName + "." : "", tableName, columnName, policyName);
+        WrapperSqlMappingDebug.logParsedResultSetPlan(
+                proxyConnection,
+                columnIndex,
+                columnLabel,
+                schemaName,
+                tableName,
+                metadataSchemaName,
+                metadataTableName,
+                rawColumnName,
+                columnLabel,
+                columnName,
+                normalizedSchemaName,
+                normalizedTableName,
+                normalizedColumnName,
+                policyName);
 
         ParsedDecryptPlanEntry plan = new ParsedDecryptPlanEntry(tableName, columnName, policyName, currentPolicyVersion);
         parsedCacheByIndex.put(columnIndex, plan);
@@ -316,11 +333,13 @@ public class DadpProxyResultSet implements ResultSet {
 
         Integer cached = parsedLabelToIndex.get(columnLabel);
         if (cached != null) {
+            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, cached, "parsed-cache");
             return cached;
         }
 
         cached = parsedLabelToIndex.get(columnLabel.toLowerCase());
         if (cached != null) {
+            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, cached, "parsed-cache-lowercase");
             return cached;
         }
 
@@ -329,6 +348,7 @@ public class DadpProxyResultSet implements ResultSet {
             String label = actualResultSet.getMetaData().getColumnLabel(i);
             cacheParsedLabel(label, i);
             if (columnLabel.equals(label) || columnLabel.equalsIgnoreCase(label)) {
+                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, i, "metadata-scan");
                 return i;
             }
         }
@@ -336,8 +356,10 @@ public class DadpProxyResultSet implements ResultSet {
         try {
             int foundIndex = actualResultSet.findColumn(columnLabel);
             cacheParsedLabel(columnLabel, foundIndex);
+            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, foundIndex, "resultset-findColumn");
             return foundIndex;
         } catch (SQLException e) {
+            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "resultset-findColumn-miss");
             return null;
         }
     }
@@ -583,6 +605,7 @@ public class DadpProxyResultSet implements ResultSet {
                                 fallbackLabelToIndex = new HashMap<>();
                             }
                             fallbackLabelToIndex.put(columnLabel, i);
+                            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, i, "fallback-metadata-scan");
                             break;
                         }
                     }
@@ -590,6 +613,7 @@ public class DadpProxyResultSet implements ResultSet {
                 if (columnIndex != null) {
                     return fallbackDecryptByIndex(columnIndex, value);
                 }
+                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "fallback-metadata-miss");
             } catch (SQLException e) {
                 log.warn("decryptStringByLabel metadata fallback failed: {}", e.getMessage());
             }
@@ -666,8 +690,10 @@ public class DadpProxyResultSet implements ResultSet {
         }
         if (entry == null) {
             ResultSetMetaData metaData = actualResultSet.getMetaData();
+            String metadataSchemaName = metaData.getSchemaName(columnIndex);
             String tableName = metaData.getTableName(columnIndex);
             String columnName = metaData.getColumnName(columnIndex);
+            String columnLabel = metaData.getColumnLabel(columnIndex);
             if (tableName == null || columnName == null || tableName.isEmpty() || columnName.isEmpty()) {
                 return value;
             }
@@ -688,6 +714,18 @@ public class DadpProxyResultSet implements ResultSet {
             entry = new FallbackDecryptCacheEntry(tableName, columnName, policyName, currentVersion);
             fallbackCacheByIndex.put(columnIndex, entry);
             log.trace("Fallback cache miss: columnIndex={}, {}.{} -> policy={}", columnIndex, tableName, columnName, policyName);
+            WrapperSqlMappingDebug.logFallbackResultSetPlan(
+                    proxyConnection,
+                    columnIndex,
+                    metadataSchemaName,
+                    tableName,
+                    columnName,
+                    columnLabel,
+                    schemaName,
+                    normalizedSchemaName,
+                    normalizedTableName,
+                    normalizedColumnName,
+                    policyName);
         }
         return decryptValueWithResolvedPolicy(entry.tableName, entry.columnName, entry.policyName, value);
     }

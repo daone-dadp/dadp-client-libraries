@@ -48,6 +48,7 @@ public class ProxyConfig {
     private final String cryptoLocalHubAuthSecret;  // Manual fallback Hub internal auth secret override
     private final boolean wrapperCryptoStatsEnabled;  // Wrapper local crypto aggregated stats enabled
     private final String wrapperCryptoStatsAggregationLevel;  // Wrapper local crypto aggregated stats level
+    private final boolean sqlMappingDebugEnabled;  // SQL -> column mapping debug enabled
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -277,6 +278,20 @@ public class ProxyConfig {
         this.wrapperCryptoStatsAggregationLevel =
                 normalizeWrapperCryptoStatsAggregationLevel(wrapperCryptoStatsAggregationLevelProp);
 
+        String sqlMappingDebugEnabledProp = null;
+        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
+            sqlMappingDebugEnabledProp = System.getProperty("dadp.wrapper.sql-mapping-debug.enabled");
+        }
+        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
+            sqlMappingDebugEnabledProp = System.getenv("DADP_WRAPPER_SQL_MAPPING_DEBUG_ENABLED");
+        }
+        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
+            sqlMappingDebugEnabledProp = urlParams != null ? urlParams.get("sqlMappingDebugEnabled") : null;
+        }
+        this.sqlMappingDebugEnabled = sqlMappingDebugEnabledProp != null
+                && !sqlMappingDebugEnabledProp.trim().isEmpty()
+                && ("true".equalsIgnoreCase(sqlMappingDebugEnabledProp) || "1".equals(sqlMappingDebugEnabledProp));
+
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
         if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
@@ -438,6 +453,7 @@ public class ProxyConfig {
         log.trace("   - Wrapper local crypto hub auth configured: {}", this.cryptoLocalHubAuthSecret != null);
         log.trace("   - Wrapper local crypto stats enabled: {}", this.wrapperCryptoStatsEnabled);
         log.trace("   - Wrapper local crypto stats aggregation level: {}", this.wrapperCryptoStatsAggregationLevel);
+        log.trace("   - SQL mapping debug enabled: {}", this.sqlMappingDebugEnabled);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -601,6 +617,10 @@ public class ProxyConfig {
 
     public String getWrapperCryptoStatsAggregationLevel() {
         return wrapperCryptoStatsAggregationLevel;
+    }
+
+    public boolean isSqlMappingDebugEnabled() {
+        return sqlMappingDebugEnabled;
     }
 
     /**

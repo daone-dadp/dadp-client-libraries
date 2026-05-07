@@ -29,6 +29,7 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.wrapper.crypto-local.hub-auth-secret");
         System.clearProperty("dadp.wrapper.crypto-stats.enabled");
         System.clearProperty("dadp.wrapper.crypto-stats.aggregation-level");
+        System.clearProperty("dadp.wrapper.sql-mapping-debug.enabled");
     }
 
     @Test
@@ -44,6 +45,7 @@ class ProxyConfigCryptoProfileTest {
         assertTrue(config.getCryptoLocalTimeoutMs() == 30000);
         assertFalse(config.isWrapperCryptoStatsEnabled());
         assertTrue("1hour".equals(config.getWrapperCryptoStatsAggregationLevel()));
+        assertFalse(config.isSqlMappingDebugEnabled());
         assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
@@ -166,5 +168,16 @@ class ProxyConfigCryptoProfileTest {
         assertTrue("secret".equals(config.getCryptoLocalHubAuthSecret()));
         assertTrue(config.isWrapperCryptoStatsEnabled());
         assertTrue("1day".equals(config.getWrapperCryptoStatsAggregationLevel()));
+    }
+
+    @Test
+    void sqlMappingDebugCanBeEnabledFromJdbcUrlParams() {
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "shared-db-group");
+        urlParams.put("sqlMappingDebugEnabled", "true");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue(config.isSqlMappingDebugEnabled());
     }
 }
