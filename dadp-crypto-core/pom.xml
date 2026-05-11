@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-crypto-core</artifactId>
-    <version>5.13.0</version>
+    <version>5.13.1</version>
     <packaging>jar</packaging>
 
     <name>DADP Crypto Core</name>
