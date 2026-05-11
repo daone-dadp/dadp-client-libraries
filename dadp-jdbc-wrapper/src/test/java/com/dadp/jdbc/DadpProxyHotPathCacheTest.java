@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.policy.PolicyResolver;
+import com.dadp.jdbc.policy.SqlParser;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -37,6 +38,8 @@ class DadpProxyHotPathCacheTest {
 
         when(actualResultSet.getString(1)).thenReturn("enc-index-1");
         when(actualResultSet.getString("email3_0_")).thenReturn("enc-label-1");
+        when(actualResultSet.getObject(1)).thenReturn("enc-object-index-1");
+        when(actualResultSet.getObject("email3_0_")).thenReturn("enc-object-label-1");
         when(actualResultSet.getMetaData()).thenReturn(metaData);
         when(metaData.getColumnCount()).thenReturn(1);
         when(metaData.getColumnName(1)).thenReturn("email");
@@ -48,6 +51,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -55,6 +59,8 @@ class DadpProxyHotPathCacheTest {
         when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
         when(adapter.decrypt("enc-index-1", "policy-email")).thenReturn("plain-index-1");
         when(adapter.decrypt("enc-label-1", "policy-email")).thenReturn("plain-label-1");
+        when(adapter.decrypt("enc-object-index-1", "policy-email")).thenReturn("plain-object-index-1");
+        when(adapter.decrypt("enc-object-label-1", "policy-email")).thenReturn("plain-object-label-1");
 
         DadpProxyResultSet proxyResultSet = new DadpProxyResultSet(
                 actualResultSet,
@@ -63,6 +69,8 @@ class DadpProxyHotPathCacheTest {
 
         assertEquals("plain-index-1", proxyResultSet.getString(1));
         assertEquals("plain-label-1", proxyResultSet.getString("email3_0_"));
+        assertEquals("plain-object-index-1", proxyResultSet.getObject(1));
+        assertEquals("plain-object-label-1", proxyResultSet.getObject("email3_0_"));
 
         verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(metaData, times(1)).getColumnName(1);
@@ -82,6 +90,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -117,6 +126,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -155,6 +165,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -194,6 +205,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -237,6 +249,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -273,6 +286,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -313,6 +327,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -356,6 +371,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -411,6 +427,8 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection2.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection1.getDbVendor()).thenReturn("mysql");
         when(proxyConnection2.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection1);
+        stubMysqlLookup(proxyConnection2);
         when(proxyConnection1.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
         when(proxyConnection2.normalizeIdentifier(anyString()))
@@ -451,6 +469,7 @@ class DadpProxyHotPathCacheTest {
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
         when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
         when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
         when(proxyConnection.normalizeIdentifier(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
 
@@ -469,5 +488,18 @@ class DadpProxyHotPathCacheTest {
         verify(policyResolver, times(1)).isSearchEncryptionNeeded("policy-name");
         verify(adapter, never()).encryptForSearch(anyString(), anyString());
         verify(actualPreparedStatement).setString(1, "AL");
+    }
+
+    private static void stubMysqlLookup(DadpProxyConnection proxyConnection) {
+        when(proxyConnection.resolveLookupSchemaName(null)).thenReturn("testdb");
+        when(proxyConnection.resolveParsedResultColumnName(
+                        org.mockito.ArgumentMatchers.any(SqlParser.SqlParseResult.class),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> DadpProxyConnection.resolveParsedResultColumnName(
+                        "mysql",
+                        invocation.getArgument(0, SqlParser.SqlParseResult.class),
+                        invocation.getArgument(1, String.class),
+                        invocation.getArgument(2, String.class)));
     }
 }

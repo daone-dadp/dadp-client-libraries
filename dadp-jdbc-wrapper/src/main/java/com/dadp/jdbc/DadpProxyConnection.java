@@ -4,6 +4,9 @@ import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.jdbc.mapping.DatasourceRegistrationService;
 import com.dadp.jdbc.notification.HubNotificationService;
+import com.dadp.jdbc.policy.SqlParser;
+import com.dadp.jdbc.resolution.JdbcVendorResolutionStrategies;
+import com.dadp.jdbc.resolution.JdbcVendorResolutionStrategy;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.dadp.jdbc.sync.JdbcBootstrapOrchestrator;
@@ -53,6 +56,7 @@ public class DadpProxyConnection implements Connection {
     private final HubNotificationService notificationService;
     private final String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
     private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
+    private final JdbcVendorResolutionStrategy resolutionStrategy;
     private volatile String cachedSchemaName;  // 캐싱된 스키마 이름 (매 SQL마다 DB 조회 방지, setSchema() 시 갱신)
     private String datasourceId;  // Hub에서 받은 논리 데이터소스 ID
     private boolean closed = false;
@@ -92,6 +96,7 @@ public class DadpProxyConnection implements Connection {
             this.telemetryStatsSender = null;
             this.notificationService = null;
             this.cryptoProfileRecorder = null;
+            this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(null);
             return;
         }
 
@@ -104,6 +109,7 @@ public class DadpProxyConnection implements Connection {
             log.debug("DB vendor info lookup failed (ignored): {}", e.getMessage());
         }
         this.dbVendor = vendor;
+        this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(vendor);
         
         // 현재 연결된 데이터베이스/스키마명 저장 (Connection에서 가져옴)
         String dbName = null;
@@ -680,61 +686,35 @@ public class DadpProxyConnection implements Connection {
      * @return schema name to use for policy lookup, or {@code null} when no stable default exists
      */
     public String resolveLookupSchemaName(String explicitSchemaName) {
-        return resolveLookupSchemaName(dbVendor, explicitSchemaName, cachedSchemaName, currentDatabaseName);
+        return resolutionStrategy.resolveLookupSchema(explicitSchemaName, cachedSchemaName, currentDatabaseName);
+    }
+
+    public String resolveParsedResultColumnName(SqlParser.SqlParseResult sqlParseResult,
+                                                String rawColumnName,
+                                                String columnLabel) {
+        if (sqlParseResult == null) {
+            return rawColumnName;
+        }
+        return resolutionStrategy.resolveParsedColumnName(sqlParseResult, rawColumnName, columnLabel);
     }
 
     static String resolveLookupSchemaName(String dbVendor,
                                           String explicitSchemaName,
                                           String currentSchemaName,
                                           String currentDatabaseName) {
-        if (explicitSchemaName != null && !explicitSchemaName.trim().isEmpty()) {
-            return explicitSchemaName;
-        }
-
-        String vendor = dbVendor != null ? dbVendor.toLowerCase() : "";
-        String schema = currentSchemaName != null ? currentSchemaName.trim() : null;
-        String database = currentDatabaseName != null ? currentDatabaseName.trim() : null;
-
-        if (vendor.contains("postgresql")) {
-            return hasText(schema) ? schema : "public";
-        }
-        if (vendor.contains("sqream")) {
-            return "public";
-        }
-        if (vendor.contains("microsoft sql server") || vendor.contains("sql server") || vendor.contains("mssql")) {
-            if (hasText(schema) && !equalsIgnoreCase(schema, database)) {
-                return schema;
-            }
-            return "dbo";
-        }
-        if (vendor.contains("oracle") || vendor.contains("tibero")) {
-            if (hasText(schema)) {
-                return schema;
-            }
-            return hasText(database) ? database : null;
-        }
-        if (vendor.contains("mysql") || vendor.contains("mariadb")) {
-            if (hasText(database)) {
-                return database;
-            }
-            return hasText(schema) ? schema : null;
-        }
-
-        if (hasText(schema)) {
-            return schema;
-        }
-        return hasText(database) ? database : null;
+        return JdbcVendorResolutionStrategies.forVendor(dbVendor)
+                .resolveLookupSchema(explicitSchemaName, currentSchemaName, currentDatabaseName);
     }
 
-    private static boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
-
-    private static boolean equalsIgnoreCase(String left, String right) {
-        if (left == null || right == null) {
-            return false;
+    static String resolveParsedResultColumnName(String dbVendor,
+                                                SqlParser.SqlParseResult sqlParseResult,
+                                                String rawColumnName,
+                                                String columnLabel) {
+        if (sqlParseResult == null) {
+            return rawColumnName;
         }
-        return left.equalsIgnoreCase(right);
+        return JdbcVendorResolutionStrategies.forVendor(dbVendor)
+                .resolveParsedColumnName(sqlParseResult, rawColumnName, columnLabel);
     }
 
     /**

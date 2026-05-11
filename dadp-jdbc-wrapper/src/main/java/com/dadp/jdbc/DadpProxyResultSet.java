@@ -117,8 +117,10 @@ public class DadpProxyResultSet implements ResultSet {
     @Override
     public String getString(int columnIndex) throws SQLException {
         String value = actualResultSet.getString(columnIndex);
-        log.trace("getString(int) called: columnIndex={}, valueLength={}",
-                 columnIndex, value != null ? value.length() : 0);
+        if (log.isTraceEnabled()) {
+            log.trace("getString(int) called: columnIndex={}, valueLength={}",
+                    columnIndex, value != null ? value.length() : 0);
+        }
         
         if (value == null) {
             return value;
@@ -146,8 +148,10 @@ public class DadpProxyResultSet implements ResultSet {
     @Override
     public String getString(String columnLabel) throws SQLException {
         String value = actualResultSet.getString(columnLabel);
-        log.trace("getString(String) called: columnLabel={}, valueLength={}",
-                 columnLabel, value != null ? value.length() : 0);
+        if (log.isTraceEnabled()) {
+            log.trace("getString(String) called: columnLabel={}, valueLength={}",
+                    columnLabel, value != null ? value.length() : 0);
+        }
         
         if (value != null && sqlParseResult != null) {
             try {
@@ -185,8 +189,10 @@ public class DadpProxyResultSet implements ResultSet {
             return value;
         }
 
-        log.trace("Decrypt target value: table={}, column={}, policy={}, valueLength={}, valuePreview={}",
-                plan.tableName, plan.columnName, plan.policyName, value.length(), preview(value));
+        if (log.isTraceEnabled()) {
+            log.trace("Decrypt target value: table={}, column={}, policy={}, valueLength={}, valuePreview={}",
+                    plan.tableName, plan.columnName, plan.policyName, value.length(), preview(value));
+        }
 
         DirectCryptoAdapter adapter = proxyConnection.getDirectCryptoAdapter();
         if (adapter == null) {
@@ -285,29 +291,10 @@ public class DadpProxyResultSet implements ResultSet {
     }
 
     private String resolveParsedColumnName(String rawColumnName, String columnLabel) {
-        if (rawColumnName == null) {
-            return null;
+        String columnName = proxyConnection.resolveParsedResultColumnName(sqlParseResult, rawColumnName, columnLabel);
+        if (log.isTraceEnabled() && columnLabel != null && columnName != null && !columnName.equals(columnLabel)) {
+            log.trace("Alias resolved: {} -> {}", columnLabel, columnName);
         }
-
-        String columnName = rawColumnName;
-        if (columnName.contains(".")) {
-            columnName = columnName.substring(columnName.lastIndexOf('.') + 1);
-        }
-
-        if (columnLabel != null) {
-            String originalColumnName = sqlParseResult.getOriginalColumnName(columnLabel);
-            if (!originalColumnName.equals(columnLabel)) {
-                log.trace("Alias resolved: {} -> {}", columnLabel, originalColumnName);
-                columnName = originalColumnName;
-            } else if (!columnName.equalsIgnoreCase(columnLabel)) {
-                String mappedName = sqlParseResult.getOriginalColumnName(columnName);
-                if (!mappedName.equals(columnName)) {
-                    log.trace("Alias resolved (columnName): {} -> {}", columnName, mappedName);
-                    columnName = mappedName;
-                }
-            }
-        }
-
         return columnName;
     }
 
@@ -523,12 +510,17 @@ public class DadpProxyResultSet implements ResultSet {
     @Override
     public Object getObject(int columnIndex) throws SQLException {
         Object value = actualResultSet.getObject(columnIndex);
-        log.trace("getObject(int) called: columnIndex={}, type={}", columnIndex,
-                  value != null ? value.getClass().getSimpleName() : "null");
+        if (log.isTraceEnabled()) {
+            log.trace("getObject(int) called: columnIndex={}, type={}", columnIndex,
+                    value != null ? value.getClass().getSimpleName() : "null");
+        }
         
         // String 타입인 경우 복호화 처리
         if (value instanceof String) {
-            return decryptIfNeeded(columnIndex, (String) value);
+            if (sqlParseResult != null) {
+                return decryptUsingParsedPlan(columnIndex, (String) value);
+            }
+            return fallbackDecryptByIndex(columnIndex, (String) value);
         }
         return value;
     }
@@ -536,12 +528,21 @@ public class DadpProxyResultSet implements ResultSet {
     @Override
     public Object getObject(String columnLabel) throws SQLException {
         Object value = actualResultSet.getObject(columnLabel);
-        log.trace("getObject(String) called: columnLabel={}, type={}", columnLabel,
-                  value != null ? value.getClass().getSimpleName() : "null");
+        if (log.isTraceEnabled()) {
+            log.trace("getObject(String) called: columnLabel={}, type={}", columnLabel,
+                    value != null ? value.getClass().getSimpleName() : "null");
+        }
         
         // String 타입인 경우 복호화 처리
         if (value instanceof String) {
-            return decryptStringByLabel(columnLabel, (String) value);
+            if (sqlParseResult != null) {
+                Integer columnIndex = resolveParsedColumnIndex(columnLabel);
+                if (columnIndex != null) {
+                    return decryptUsingParsedPlan(columnIndex, (String) value);
+                }
+            } else {
+                return decryptStringByLabel(columnLabel, (String) value);
+            }
         }
         return value;
     }
@@ -550,8 +551,10 @@ public class DadpProxyResultSet implements ResultSet {
      * 컬럼 인덱스로 복호화 처리
      */
     private String decryptIfNeeded(int columnIndex, String value) throws SQLException {
-        log.trace("decryptIfNeeded called: columnIndex={}, valueLength={}",
-                  columnIndex, value != null ? value.length() : 0);
+        if (log.isTraceEnabled()) {
+            log.trace("decryptIfNeeded called: columnIndex={}, valueLength={}",
+                    columnIndex, value != null ? value.length() : 0);
+        }
         
         if (value == null) {
             return value;
@@ -566,12 +569,7 @@ public class DadpProxyResultSet implements ResultSet {
         }
         
         try {
-            ResultSetMetaData metaData = actualResultSet.getMetaData();
-            String columnName = metaData.getColumnName(columnIndex);
-            String tableName = sqlParseResult.getTableName();
-            
-            log.trace("decryptIfNeeded: tableName={}, columnName={}", tableName, columnName);
-            return decryptValue(tableName, columnName, value);
+            return decryptUsingParsedPlan(columnIndex, value);
         } catch (SQLException e) {
             log.warn("Column metadata lookup failed, returning original data: {}", e.getMessage());
             return value;
