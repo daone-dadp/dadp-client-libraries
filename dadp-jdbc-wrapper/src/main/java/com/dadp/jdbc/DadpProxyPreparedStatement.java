@@ -130,6 +130,10 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
     }
 
+    private void clearOriginalData(int parameterIndex) {
+        originalDataMap.remove(parameterIndex);
+    }
+
     private static StatementStructureCacheEntry getOrCreateStatementStructure(String sql) {
         String cacheKey = normalizeSqlCacheKey(sql);
         synchronized (STATEMENT_CACHE_LOCK) {
@@ -461,46 +465,55 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setNull(int parameterIndex, int sqlType) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNull(parameterIndex, sqlType);
     }
     
     @Override
     public void setBoolean(int parameterIndex, boolean x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBoolean(parameterIndex, x);
     }
     
     @Override
     public void setByte(int parameterIndex, byte x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setByte(parameterIndex, x);
     }
     
     @Override
     public void setShort(int parameterIndex, short x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setShort(parameterIndex, x);
     }
     
     @Override
     public void setInt(int parameterIndex, int x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setInt(parameterIndex, x);
     }
     
     @Override
     public void setLong(int parameterIndex, long x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setLong(parameterIndex, x);
     }
     
     @Override
     public void setFloat(int parameterIndex, float x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setFloat(parameterIndex, x);
     }
     
     @Override
     public void setDouble(int parameterIndex, double x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setDouble(parameterIndex, x);
     }
     
     @Override
     public void setBigDecimal(int parameterIndex, BigDecimal x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBigDecimal(parameterIndex, x);
     }
     
@@ -1150,6 +1163,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setString(int parameterIndex, String x) throws SQLException {
+        clearOriginalData(parameterIndex);
         try {
             if (allPlaintextStatement) {
                 actualPreparedStatement.setString(parameterIndex, x);
@@ -1180,47 +1194,56 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setBytes(int parameterIndex, byte[] x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBytes(parameterIndex, x);
     }
     
     @Override
     public void setDate(int parameterIndex, Date x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setDate(parameterIndex, x);
     }
     
     @Override
     public void setTime(int parameterIndex, Time x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setTime(parameterIndex, x);
     }
     
     @Override
     public void setTimestamp(int parameterIndex, Timestamp x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setTimestamp(parameterIndex, x);
     }
     
     @Override
     public void setAsciiStream(int parameterIndex, InputStream x, int length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setAsciiStream(parameterIndex, x, length);
     }
     
     @Override
     @Deprecated
     public void setUnicodeStream(int parameterIndex, InputStream x, int length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setUnicodeStream(parameterIndex, x, length);
     }
     
     @Override
     public void setBinaryStream(int parameterIndex, InputStream x, int length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBinaryStream(parameterIndex, x, length);
     }
     
     @Override
     public void clearParameters() throws SQLException {
+        originalDataMap.clear();
         actualPreparedStatement.clearParameters();
     }
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
+        clearOriginalData(parameterIndex);
         log.trace("setObject(type) called: parameterIndex={}, valueType={}, targetSqlType={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null", targetSqlType,
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
@@ -1278,6 +1301,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x) throws SQLException {
+        clearOriginalData(parameterIndex);
         log.trace("setObject called: parameterIndex={}, valueType={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null",
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
@@ -1349,26 +1373,31 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setCharacterStream(int parameterIndex, Reader reader, int length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setCharacterStream(parameterIndex, reader, length);
     }
     
     @Override
     public void setRef(int parameterIndex, Ref x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setRef(parameterIndex, x);
     }
     
     @Override
     public void setBlob(int parameterIndex, Blob x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBlob(parameterIndex, x);
     }
     
     @Override
     public void setClob(int parameterIndex, Clob x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setClob(parameterIndex, x);
     }
     
     @Override
     public void setArray(int parameterIndex, Array x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setArray(parameterIndex, x);
     }
     
@@ -1379,26 +1408,31 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setDate(parameterIndex, x, cal);
     }
     
     @Override
     public void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setTime(parameterIndex, x, cal);
     }
     
     @Override
     public void setTimestamp(int parameterIndex, Timestamp x, Calendar cal) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setTimestamp(parameterIndex, x, cal);
     }
     
     @Override
     public void setNull(int parameterIndex, int sqlType, String typeName) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNull(parameterIndex, sqlType, typeName);
     }
     
     @Override
     public void setURL(int parameterIndex, URL x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setURL(parameterIndex, x);
     }
     
@@ -1409,11 +1443,13 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setRowId(int parameterIndex, RowId x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setRowId(parameterIndex, x);
     }
     
     @Override
     public void setNString(int parameterIndex, String value) throws SQLException {
+        clearOriginalData(parameterIndex);
         try {
             if (allPlaintextStatement) {
                 actualPreparedStatement.setNString(parameterIndex, value);
@@ -1444,36 +1480,43 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setNCharacterStream(int parameterIndex, Reader value, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNCharacterStream(parameterIndex, value, length);
     }
     
     @Override
     public void setNClob(int parameterIndex, NClob value) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNClob(parameterIndex, value);
     }
     
     @Override
     public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setClob(parameterIndex, reader, length);
     }
     
     @Override
     public void setBlob(int parameterIndex, InputStream inputStream, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBlob(parameterIndex, inputStream, length);
     }
     
     @Override
     public void setNClob(int parameterIndex, Reader reader, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNClob(parameterIndex, reader, length);
     }
     
     @Override
     public void setSQLXML(int parameterIndex, SQLXML xmlObject) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setSQLXML(parameterIndex, xmlObject);
     }
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
+        clearOriginalData(parameterIndex);
         log.trace("setObject(scale) called: parameterIndex={}, valueType={}, targetSqlType={}, scaleOrLength={}, value={}", parameterIndex,
                  x != null ? x.getClass().getSimpleName() : "null", targetSqlType, scaleOrLength,
                  x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
@@ -1533,51 +1576,61 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setAsciiStream(int parameterIndex, InputStream x, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setAsciiStream(parameterIndex, x, length);
     }
     
     @Override
     public void setBinaryStream(int parameterIndex, InputStream x, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBinaryStream(parameterIndex, x, length);
     }
     
     @Override
     public void setCharacterStream(int parameterIndex, Reader reader, long length) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setCharacterStream(parameterIndex, reader, length);
     }
     
     @Override
     public void setAsciiStream(int parameterIndex, InputStream x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setAsciiStream(parameterIndex, x);
     }
     
     @Override
     public void setBinaryStream(int parameterIndex, InputStream x) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBinaryStream(parameterIndex, x);
     }
     
     @Override
     public void setCharacterStream(int parameterIndex, Reader reader) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setCharacterStream(parameterIndex, reader);
     }
     
     @Override
     public void setNCharacterStream(int parameterIndex, Reader value) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNCharacterStream(parameterIndex, value);
     }
     
     @Override
     public void setClob(int parameterIndex, Reader reader) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setClob(parameterIndex, reader);
     }
     
     @Override
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setBlob(parameterIndex, inputStream);
     }
     
     @Override
     public void setNClob(int parameterIndex, Reader reader) throws SQLException {
+        clearOriginalData(parameterIndex);
         actualPreparedStatement.setNClob(parameterIndex, reader);
     }
     

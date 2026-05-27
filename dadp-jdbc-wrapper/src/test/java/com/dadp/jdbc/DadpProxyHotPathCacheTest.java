@@ -1,6 +1,7 @@
 package com.dadp.jdbc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,8 @@ import com.dadp.jdbc.policy.SqlParser;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -78,6 +81,49 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void resultSetNStringUsesSameParsedDecryptPlanAsString() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(actualResultSet.getNString(1)).thenReturn("enc-n-index");
+        when(actualResultSet.getNString("email3_0_")).thenReturn("enc-n-label");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(1);
+        when(metaData.getColumnName(1)).thenReturn("email");
+        when(metaData.getColumnLabel(1)).thenReturn("email3_0_");
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(8L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.decrypt("enc-n-index", "policy-email")).thenReturn("plain-n-index");
+        when(adapter.decrypt("enc-n-label", "policy-email")).thenReturn("plain-n-label");
+
+        DadpProxyResultSet proxyResultSet = new DadpProxyResultSet(
+                actualResultSet,
+                "SELECT user0_.email AS email3_0_ FROM users user0_ WHERE user0_.id = ?",
+                proxyConnection);
+
+        assertEquals("plain-n-index", proxyResultSet.getNString(1));
+        assertEquals("plain-n-label", proxyResultSet.getNString("email3_0_"));
+
+        verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
+        verify(metaData, times(1)).getColumnName(1);
+        verify(metaData, times(1)).getColumnLabel(1);
+    }
+
+    @Test
     void preparedStatementCachesInsertEncryptionPlanAcrossRepeatedBinds() throws Exception {
         PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
         DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
@@ -111,6 +157,46 @@ class DadpProxyHotPathCacheTest {
         verify(policyResolver, times(1)).resolvePolicy(null, "testdb", "users", "email");
         verify(actualPreparedStatement).setString(1, "enc-alice");
         verify(actualPreparedStatement).setString(1, "enc-bob");
+    }
+
+    @Test
+    void preparedStatementClearsTruncationFallbackPlaintextWhenParameterIsRebound() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(12L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice");
+        when(actualPreparedStatement.executeUpdate())
+                .thenThrow(new SQLException("Data too long for column 'email'", "22001", 1406));
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "alice@example.com");
+        proxyPreparedStatement.clearParameters();
+        proxyPreparedStatement.setNull(1, Types.VARCHAR);
+
+        assertThrows(SQLException.class, proxyPreparedStatement::executeUpdate);
+
+        verify(actualPreparedStatement).setString(1, "enc-alice");
+        verify(actualPreparedStatement).clearParameters();
+        verify(actualPreparedStatement).setNull(1, Types.VARCHAR);
+        verify(actualPreparedStatement, never()).setString(1, "alice@example.com");
     }
 
     @Test

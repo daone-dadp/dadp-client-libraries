@@ -1353,14 +1353,59 @@ public class DadpProxyResultSet implements ResultSet {
     @Override
     public String getNString(int columnIndex) throws SQLException {
         String value = actualResultSet.getNString(columnIndex);
-        // TODO: 복호화 처리 (getString과 동일)
+        if (log.isTraceEnabled()) {
+            log.trace("getNString(int) called: columnIndex={}, valueLength={}",
+                    columnIndex, value != null ? value.length() : 0);
+        }
+
+        if (value == null) {
+            return value;
+        }
+
+        if (sqlParseResult == null) {
+            try {
+                return fallbackDecryptByIndex(columnIndex, value);
+            } catch (SQLException e) {
+                log.warn("getNString(int) fallback failed, returning original: {}", e.getMessage());
+                return value;
+            }
+        }
+
+        try {
+            return decryptUsingParsedPlan(columnIndex, value);
+        } catch (SQLException e) {
+            log.warn("getNString(int) metadata lookup failed, returning original data: {}", e.getMessage());
+        }
+
         return value;
     }
     
     @Override
     public String getNString(String columnLabel) throws SQLException {
         String value = actualResultSet.getNString(columnLabel);
-        // TODO: 복호화 처리 (getString과 동일)
+        if (log.isTraceEnabled()) {
+            log.trace("getNString(String) called: columnLabel={}, valueLength={}",
+                    columnLabel, value != null ? value.length() : 0);
+        }
+
+        if (value != null && sqlParseResult != null) {
+            try {
+                Integer columnIndex = resolveParsedColumnIndex(columnLabel);
+                if (columnIndex != null) {
+                    return decryptUsingParsedPlan(columnIndex, value);
+                }
+            } catch (Exception e) {
+                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                log.warn("Error during getNString decryption, returning original: {}", errorMsg);
+            }
+        } else if (value != null && sqlParseResult == null) {
+            try {
+                return decryptStringByLabel(columnLabel, value);
+            } catch (SQLException e) {
+                log.warn("getNString(String) fallback failed, returning original: {}", e.getMessage());
+            }
+        }
+
         return value;
     }
     
