@@ -14,7 +14,7 @@ public final class EngineCiphertextCodec {
     private EngineCiphertextCodec() {
     }
 
-    static String format(String policyUid, byte[] iv, byte[] ciphertext, byte[] tag) {
+    static String format(String policyCode, byte[] iv, byte[] ciphertext, byte[] tag) {
         byte[] combined = new byte[iv.length + ciphertext.length + tag.length];
         int offset = 0;
         System.arraycopy(iv, 0, combined, offset, iv.length);
@@ -22,7 +22,7 @@ public final class EngineCiphertextCodec {
         System.arraycopy(ciphertext, 0, combined, offset, ciphertext.length);
         offset += ciphertext.length;
         System.arraycopy(tag, 0, combined, offset, tag.length);
-        return HUB_PREFIX + policyUid + ":" + Base64.getEncoder().encodeToString(combined);
+        return HUB_PREFIX + policyCode + ":" + Base64.getEncoder().encodeToString(combined);
     }
 
     static EncryptedPayload parse(String encryptedData, String algorithm) {
@@ -36,15 +36,15 @@ public final class EngineCiphertextCodec {
         }
 
         if (!data.startsWith(HUB_PREFIX)) {
-            throw new CoreCryptoException("Encrypted data must use hub:{policyUid}:{payload} format");
+            throw new CoreCryptoException("Encrypted data must use hub:{policyCode}:{payload} format");
         }
 
         int payloadSeparator = data.indexOf(':', HUB_PREFIX.length());
         if (payloadSeparator <= HUB_PREFIX.length()) {
-            throw new CoreCryptoException("Encrypted data has no policyUid");
+            throw new CoreCryptoException("Encrypted data has no policyCode");
         }
 
-        String policyUid = data.substring(HUB_PREFIX.length(), payloadSeparator);
+        String policyCode = data.substring(HUB_PREFIX.length(), payloadSeparator);
         String payloadBase64 = data.substring(payloadSeparator + 1);
         byte[] payload;
         try {
@@ -54,7 +54,7 @@ public final class EngineCiphertextCodec {
         }
 
         if (isEcbAlgorithm(algorithm)) {
-            return new EncryptedPayload(policyUid, new byte[0], payload, new byte[0]);
+            return new EncryptedPayload(policyCode, new byte[0], payload, new byte[0]);
         }
 
         if (payload.length < IV_LENGTH + TAG_LENGTH) {
@@ -63,10 +63,10 @@ public final class EngineCiphertextCodec {
         byte[] iv = Arrays.copyOfRange(payload, 0, IV_LENGTH);
         byte[] tag = Arrays.copyOfRange(payload, payload.length - TAG_LENGTH, payload.length);
         byte[] ciphertext = Arrays.copyOfRange(payload, IV_LENGTH, payload.length - TAG_LENGTH);
-        return new EncryptedPayload(policyUid, iv, ciphertext, tag);
+        return new EncryptedPayload(policyCode, iv, ciphertext, tag);
     }
 
-    public static String extractPolicyUid(String encryptedData) {
+    public static String extractPolicyCode(String encryptedData) {
         if (encryptedData == null || encryptedData.trim().isEmpty()) {
             throw new CoreCryptoException("Encrypted data is empty");
         }
@@ -75,11 +75,11 @@ public final class EngineCiphertextCodec {
             data = data.substring(data.indexOf(PARTIAL_DELIMITER) + PARTIAL_DELIMITER.length());
         }
         if (!data.startsWith(HUB_PREFIX)) {
-            throw new CoreCryptoException("Encrypted data must use hub:{policyUid}:{payload} format");
+            throw new CoreCryptoException("Encrypted data must use hub:{policyCode}:{payload} format");
         }
         int payloadSeparator = data.indexOf(':', HUB_PREFIX.length());
         if (payloadSeparator <= HUB_PREFIX.length()) {
-            throw new CoreCryptoException("Encrypted data has no policyUid");
+            throw new CoreCryptoException("Encrypted data has no policyCode");
         }
         return data.substring(HUB_PREFIX.length(), payloadSeparator);
     }

@@ -9,7 +9,7 @@ policy mapping, and local/remote routing.
 
 ## Contract
 
-- Reuse the same Hub internal key APIs that Engine uses.
+- Reuse the DADP 6.0 runtime execution-key resolve contract that Engine uses.
 - Do not introduce a wrapper-specific key material format.
 - Do not duplicate crypto algorithms in wrapper code; use `dadp-crypto-core`.
 - Keep local crypto opt-in.
@@ -17,21 +17,24 @@ policy mapping, and local/remote routing.
 
 ## Hub APIs
 
-- `GET /hub/api/v1/keys/internal/{keyAlias}/{keyVersion}`
-- `GET /hub/api/v1/keys/internal-data/{keyAlias}/{keyVersion}`
+- `POST /hub/api/v1/runtime/execution-keys/resolve`
 
 The wrapper integration must use the same response fields as Engine:
 
-- `provider`
-- `configJson`
-- `accessInfo`
-- `keyData`
+- `policyCode`
+- `policyVersion`
+- `keyAlias`
+- `keyVersion`
+- `providerType`
+- `algorithm`
+- `executionKeyBase64`
+- `expiresAt`
 
 ## Current Scope
 
 - HUB/DB-style AES-GCM key material.
 - Engine-compatible payload format:
-- `hub:{policyUid}:{base64(iv(12 bytes) + ciphertext + tag(16 bytes))}`
+- `hub:{policyCode}:{base64(iv(12 bytes) + ciphertext + tag(16 bytes))}`
 - Partial encryption format:
   - `[plainSegment]::ENC::[hub ciphertext]`
 - Java 8 compatible implementation.

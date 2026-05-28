@@ -857,15 +857,15 @@ public class HubCryptoService {
         return decrypt(encryptedData, null, null, null, false);
     }
 
-    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
-        return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, false);
+    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyCode) {
+        return decrypt(encryptedData, null, maskPolicyName, maskPolicyCode, false);
     }
 
-    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
-        return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, includeStats);
+    public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyCode, boolean includeStats) {
+        return decrypt(encryptedData, null, maskPolicyName, maskPolicyCode, includeStats);
     }
 
-    public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
+    public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyCode, boolean includeStats) {
         initializeIfNeeded();
         validateNotHubPath();
         CryptoProfileRecorder recorder = this.profileRecorder;
@@ -873,8 +873,8 @@ public class HubCryptoService {
         boolean useBinaryFramed = useSingleBinaryFramedTransport();
 
         if (enableLogging && log.isDebugEnabled()) {
-            log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyUid={}",
-                    encryptedData != null ? encryptedData.length() : 0, maskPolicyName, maskPolicyUid);
+            log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyCode={}",
+                    encryptedData != null ? encryptedData.length() : 0, maskPolicyName, maskPolicyCode);
         }
 
         try {
@@ -885,7 +885,7 @@ public class HubCryptoService {
             request.setEncryptedData(encryptedData);
             request.setPolicyName(policyName);
             request.setMaskPolicyName(maskPolicyName);
-            request.setMaskPolicyUid(maskPolicyUid);
+            request.setMaskPolicyCode(maskPolicyCode);
             request.setIncludeStats(includeStats || captureProfile);
 
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
@@ -1205,7 +1205,7 @@ public class HubCryptoService {
 
     public java.util.List<String> batchDecrypt(java.util.List<String> encryptedDataList,
                                                 String maskPolicyName,
-                                                String maskPolicyUid,
+                                                String maskPolicyCode,
                                                 boolean includeStats) {
         initializeIfNeeded();
 
@@ -1214,8 +1214,8 @@ public class HubCryptoService {
         }
 
         if (enableLogging && log.isDebugEnabled()) {
-            log.debug("Wrapper batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyUid={}",
-                    encryptedDataList.size(), maskPolicyName, maskPolicyUid);
+            log.debug("Wrapper batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyCode={}",
+                    encryptedDataList.size(), maskPolicyName, maskPolicyCode);
         }
 
         try {
@@ -1234,8 +1234,8 @@ public class HubCryptoService {
                 if (maskPolicyName != null && !maskPolicyName.trim().isEmpty()) {
                     item.put("maskPolicyName", maskPolicyName);
                 }
-                if (maskPolicyUid != null && !maskPolicyUid.trim().isEmpty()) {
-                    item.put("maskPolicyUid", maskPolicyUid);
+                if (maskPolicyCode != null && !maskPolicyCode.trim().isEmpty()) {
+                    item.put("maskPolicyCode", maskPolicyCode);
                 }
                 items.add(item);
             }

@@ -1,20 +1,20 @@
 package com.dadp.crypto.core;
 
 final class EncryptedPayload {
-    private final String policyUid;
+    private final String policyCode;
     private final byte[] iv;
     private final byte[] ciphertext;
     private final byte[] tag;
 
-    EncryptedPayload(String policyUid, byte[] iv, byte[] ciphertext, byte[] tag) {
-        this.policyUid = policyUid;
+    EncryptedPayload(String policyCode, byte[] iv, byte[] ciphertext, byte[] tag) {
+        this.policyCode = policyCode;
         this.iv = iv;
         this.ciphertext = ciphertext;
         this.tag = tag;
     }
 
-    String getPolicyUid() {
-        return policyUid;
+    String getPolicyCode() {
+        return policyCode;
     }
 
     byte[] getIv() {

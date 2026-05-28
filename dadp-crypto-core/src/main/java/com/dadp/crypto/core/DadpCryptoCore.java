@@ -69,8 +69,8 @@ public final class DadpCryptoCore {
         return decrypted.substring(0, start.intValue()) + plainSegment + decrypted.substring(start.intValue());
     }
 
-    public static String extractPolicyUid(String encryptedData) {
-        return EngineCiphertextCodec.extractPolicyUid(encryptedData);
+    public static String extractPolicyCode(String encryptedData) {
+        return EngineCiphertextCodec.extractPolicyCode(encryptedData);
     }
 
     private String encryptWhole(String plainText, CryptoMaterial material) {
@@ -87,7 +87,7 @@ public final class DadpCryptoCore {
             int cipherLength = cipherAndTag.length - TAG_LENGTH;
             byte[] ciphertext = Arrays.copyOfRange(cipherAndTag, 0, cipherLength);
             byte[] tag = Arrays.copyOfRange(cipherAndTag, cipherLength, cipherAndTag.length);
-            return EngineCiphertextCodec.format(material.getPolicyUid(), iv, ciphertext, tag);
+            return EngineCiphertextCodec.format(material.getPolicyCode(), iv, ciphertext, tag);
         } catch (Exception e) {
             throw new CoreCryptoException("AES-GCM encrypt failed: " + e.getMessage(), e);
         }
@@ -117,7 +117,7 @@ public final class DadpCryptoCore {
             Cipher cipher = Cipher.getInstance(ECB_CIPHER);
             cipher.init(Cipher.ENCRYPT_MODE, key);
             byte[] ciphertext = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
-            return EngineCiphertextCodec.format(material.getPolicyUid(), new byte[0], ciphertext, new byte[0]);
+            return EngineCiphertextCodec.format(material.getPolicyCode(), new byte[0], ciphertext, new byte[0]);
         } catch (Exception e) {
             throw new CoreCryptoException("AES-ECB encrypt failed: " + e.getMessage(), e);
         }
@@ -170,6 +170,7 @@ public final class DadpCryptoCore {
         }
         String algorithm = material.getAlgorithm();
         if (algorithm != null
+                && !"AES_256".equalsIgnoreCase(algorithm)
                 && !"A256GCM".equalsIgnoreCase(algorithm)
                 && !"AES-256-GCM".equalsIgnoreCase(algorithm)
                 && !"A256ECB".equalsIgnoreCase(algorithm)

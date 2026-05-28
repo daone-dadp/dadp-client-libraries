@@ -9,7 +9,6 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -57,10 +56,12 @@ class WrapperCryptoStatsSenderTest {
     void postsExpectedPayloadAndAuthHeaderToHubEndpoint() throws Exception {
         MutableTimeProvider timeProvider = new MutableTimeProvider(LocalDateTime.of(2026, 4, 28, 10, 5, 0));
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        List<String> authHeaders = new ArrayList<String>();
+        List<String> authKeys = new ArrayList<String>();
+        List<String> signatures = new ArrayList<String>();
         List<String> bodies = new ArrayList<String>();
         server.createContext("/hub/api/v1/stats/wrapper/crypto", exchange -> {
-            authHeaders.add(exchange.getRequestHeaders().getFirst("X-Hub-Auth"));
+            authKeys.add(exchange.getRequestHeaders().getFirst("X-Hub-Auth-Key"));
+            signatures.add(exchange.getRequestHeaders().getFirst("X-Hub-Auth-Signature"));
             bodies.add(new String(readAll(exchange), StandardCharsets.UTF_8));
             writeJson(exchange, "{\"code\":\"SUCCESS\",\"data\":null}");
         });
@@ -68,11 +69,10 @@ class WrapperCryptoStatsSenderTest {
         server.start();
 
         try {
-            String secret = Base64.getEncoder().encodeToString(new byte[32]);
             WrapperCryptoStatsSender sender = new WrapperCryptoStatsSender(
                     "http://127.0.0.1:" + server.getAddress().getPort(),
                     1000,
-                    new HubInternalAuthHeaderProvider("pi_test", secret),
+                    new HubInternalAuthHeaderProvider("pi_test", "stats-secret"),
                     "1hour",
                     timeProvider,
                     new WrapperCryptoStatsSender.HttpTransport(),
@@ -85,8 +85,10 @@ class WrapperCryptoStatsSenderTest {
                 sender.close();
             }
 
-            assertEquals(1, authHeaders.size());
-            assertTrue(authHeaders.get(0).startsWith("pi_test:"));
+            assertEquals(1, authKeys.size());
+            assertEquals("pi_test", authKeys.get(0));
+            assertEquals(1, signatures.size());
+            assertTrue(signatures.get(0) != null && signatures.get(0).length() == 64);
             assertEquals(1, bodies.size());
             assertTrue(bodies.get(0).contains("\"aggregationLevel\":\"1hour\""));
             assertTrue(bodies.get(0).contains("\"encryptCount\":1"));
@@ -118,7 +120,7 @@ class WrapperCryptoStatsSenderTest {
 
         @Override
         public void send(String hubBaseUrl, int timeoutMillis,
-                         HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                         HubAuthHeaderProvider authHeaderProvider,
                          WrapperCryptoStatsSender.WindowSnapshot snapshot) {
             payloads.add(snapshot.toPayload());
         }

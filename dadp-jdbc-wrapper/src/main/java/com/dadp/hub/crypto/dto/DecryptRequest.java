@@ -21,8 +21,8 @@ public class DecryptRequest {
     @JsonProperty("maskPolicyName")
     private String maskPolicyName;
 
-    @JsonProperty("maskPolicyUid")
-    private String maskPolicyUid;
+    @JsonProperty("maskPolicyCode")
+    private String maskPolicyCode;
 
     @JsonProperty("includeStats")
     private Boolean includeStats = false;
@@ -38,8 +38,8 @@ public class DecryptRequest {
     public String getMaskPolicyName() { return maskPolicyName; }
     public void setMaskPolicyName(String maskPolicyName) { this.maskPolicyName = maskPolicyName; }
 
-    public String getMaskPolicyUid() { return maskPolicyUid; }
-    public void setMaskPolicyUid(String maskPolicyUid) { this.maskPolicyUid = maskPolicyUid; }
+    public String getMaskPolicyCode() { return maskPolicyCode; }
+    public void setMaskPolicyCode(String maskPolicyCode) { this.maskPolicyCode = maskPolicyCode; }
 
     public Boolean getIncludeStats() { return includeStats; }
     public void setIncludeStats(Boolean includeStats) { this.includeStats = includeStats; }

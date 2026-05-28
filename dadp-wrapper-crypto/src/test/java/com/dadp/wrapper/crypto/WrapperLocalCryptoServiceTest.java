@@ -24,24 +24,29 @@ class WrapperLocalCryptoServiceTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         byte[] key = new byte[32];
         String keyData = Base64.getEncoder().encodeToString(key);
-        server.createContext("/hub/api/v1/policies/name/customer-policy", exchange -> writeJson(exchange,
-                "{\"code\":\"SUCCESS\",\"data\":{\"id\":\"policy-uid-1\",\"policyName\":\"customer-policy\","
-                        + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"algorithm\":\"A256GCM\"}}"));
-        server.createContext("/hub/api/v1/keys/internal/customer-key/1", exchange -> writeJson(exchange,
-                "{\"code\":\"SUCCESS\",\"data\":{\"keyAlias\":\"customer-key\",\"keyVersion\":1,"
-                        + "\"provider\":\"HUB\",\"algorithm\":\"A256GCM\"}}"));
-        server.createContext("/hub/api/v1/keys/internal-data/customer-key/1", exchange -> writeJson(exchange,
-                "{\"code\":\"SUCCESS\",\"data\":{\"keyData\":\"" + keyData + "\"}}"));
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod());
+            assertTrue(exchange.getRequestHeaders().containsKey("X-Hub-Auth-Key"));
+            writeJson(exchange,
+                    "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
+                            + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
+                            + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
+                            + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
+                            + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":300,"
+                            + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
+                            + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
+        });
         server.setExecutor(Executors.newSingleThreadExecutor());
         server.start();
 
         try {
             String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-            WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000);
+            WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wrapper-test", "wrapper-secret");
 
             String encrypted = service.encrypt("local-wrapper-value", "customer-policy");
 
-            assertTrue(encrypted.startsWith("hub:policy-uid-1:"));
+            assertTrue(encrypted.startsWith("hub:ABCD1234:"));
             assertEquals("local-wrapper-value", service.decrypt(encrypted, "customer-policy"));
         } finally {
             server.stop(0);
@@ -50,30 +55,24 @@ class WrapperLocalCryptoServiceTest {
 
     @Test
     void localServiceRecordsCryptoStatsOnlyForLocalOperations() {
-        PolicyMaterial policy = new PolicyMaterial("customer-policy", "policy-uid-1", "customer-key", 1,
-                "A256GCM", null, null, null);
-        HubPolicyMaterialClient policyClient = new HubPolicyMaterialClient("http://localhost", 1000) {
+        PolicyMaterial policy = new PolicyMaterial("customer-policy", "ABCD1234", 1, "customer-key", 1,
+                "AES_256", Base64.getEncoder().encodeToString(new byte[32]), 0L, null, null, null);
+        RuntimeExecutionKeyClient executionKeyClient = new RuntimeExecutionKeyClient("http://localhost", 1000,
+                new HubInternalAuthHeaderProvider("wrapper-test", "wrapper-secret")) {
             @Override
-            public PolicyMaterial fetchByName(String policyName) {
-                return policy;
+            public RuntimeExecutionKeyMaterial resolveByPolicyName(String policyName) {
+                return new RuntimeExecutionKeyMaterial(policy.getPolicyCode(), policy.getPolicyVersion(),
+                        policy.getKeyAlias(), policy.getKeyVersion(), "HUB", "", policy.getAlgorithm(),
+                        "RAW_AES_256", "base64", policy.getExecutionKeyBase64(), 300, 0L);
             }
 
             @Override
-            public PolicyMaterial fetchByUid(String policyUid) {
-                return policy;
+            public RuntimeExecutionKeyMaterial resolveByPolicyCode(String policyCode) {
+                return new RuntimeExecutionKeyMaterial(policy.getPolicyCode(), policy.getPolicyVersion(),
+                        policy.getKeyAlias(), policy.getKeyVersion(), "HUB", "", policy.getAlgorithm(),
+                        "RAW_AES_256", "base64", policy.getExecutionKeyBase64(), 300, 0L);
             }
         };
-        KeyMaterialResolver keyResolver = new KeyMaterialResolver(new HubInternalKeyClient("http://localhost", 1000, null) {
-            @Override
-            public KeyMetadata fetchKeyMetadata(String keyAlias, int keyVersion) {
-                return new KeyMetadata(keyAlias, keyVersion, "HUB", null, null, "A256GCM");
-            }
-
-            @Override
-            public String fetchKeyData(String keyAlias, int keyVersion) {
-                return Base64.getEncoder().encodeToString(new byte[32]);
-            }
-        });
         MutableTimeProvider timeProvider = new MutableTimeProvider(LocalDateTime.of(2026, 4, 28, 10, 5, 0));
         CapturingTransport transport = new CapturingTransport();
         WrapperCryptoStatsSender sender = new WrapperCryptoStatsSender(
@@ -86,8 +85,7 @@ class WrapperLocalCryptoServiceTest {
                 false);
 
         WrapperLocalCryptoService service = new WrapperLocalCryptoService(
-                policyClient,
-                keyResolver,
+                executionKeyClient,
                 new LocalAesGcmCrypto(),
                 sender);
         try {
@@ -138,7 +136,7 @@ class WrapperLocalCryptoServiceTest {
 
         @Override
         public void send(String hubBaseUrl, int timeoutMillis,
-                         HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                         HubAuthHeaderProvider authHeaderProvider,
                          WrapperCryptoStatsSender.WindowSnapshot snapshot) {
             payloads.add(snapshot.toPayload());
         }

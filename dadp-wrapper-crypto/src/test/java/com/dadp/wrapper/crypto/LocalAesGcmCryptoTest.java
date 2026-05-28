@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class LocalAesGcmCryptoTest {
 
     @Test
-    void encryptDecryptUsesEngineCompatiblePolicyUidPrefix() {
+    void encryptDecryptUsesEngineCompatiblePolicyCodePrefix() {
         byte[] key = new byte[32];
         for (int i = 0; i < key.length; i++) {
             key[i] = (byte) (i + 1);
@@ -22,11 +22,11 @@ class LocalAesGcmCryptoTest {
                 Base64.getEncoder().encodeToString(key));
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
 
-        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
-        String encrypted = crypto.encrypt("hello-wrapper-local-crypto", policyUid, material);
+        String policyCode = "ABCD1234";
+        String encrypted = crypto.encrypt("hello-wrapper-local-crypto", policyCode, material);
 
-        assertEquals(true, encrypted.startsWith("hub:" + policyUid + ":"));
-        assertEquals(policyUid, LocalAesGcmCrypto.extractPolicyUid(encrypted));
+        assertEquals(true, encrypted.startsWith("hub:" + policyCode + ":"));
+        assertEquals(policyCode, LocalAesGcmCrypto.extractPolicyCode(encrypted));
         assertEquals("hello-wrapper-local-crypto", crypto.decrypt(encrypted, material));
     }
 
@@ -34,11 +34,11 @@ class LocalAesGcmCryptoTest {
     void partialEncryptDecryptUsesSharedCoreFormat() {
         KeyMaterial material = materialWithAlgorithm("A256GCM");
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
-        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
+        String policyCode = "ABCD1234";
 
-        String encrypted = crypto.encrypt("1234567812345678", policyUid, material, true, 0, 3);
+        String encrypted = crypto.encrypt("1234567812345678", policyCode, material, true, 0, 3);
 
-        assertEquals(true, encrypted.startsWith("123::ENC::hub:" + policyUid + ":"));
+        assertEquals(true, encrypted.startsWith("123::ENC::hub:" + policyCode + ":"));
         assertEquals("1234567812345678", crypto.decrypt(encrypted, material, 0, 3));
     }
 
@@ -46,11 +46,11 @@ class LocalAesGcmCryptoTest {
     void a256EcbEncryptDecryptUsesEngineCompatibleFormat() {
         KeyMaterial material = materialWithAlgorithm("A256ECB");
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
-        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
+        String policyCode = "ABCD1234";
 
-        String encrypted = crypto.encrypt("hello-wrapper-ecb", policyUid, material);
+        String encrypted = crypto.encrypt("hello-wrapper-ecb", policyCode, material);
 
-        assertEquals(true, encrypted.startsWith("hub:" + policyUid + ":"));
+        assertEquals(true, encrypted.startsWith("hub:" + policyCode + ":"));
         assertEquals("hello-wrapper-ecb", crypto.decrypt(encrypted, material));
     }
 
@@ -58,11 +58,11 @@ class LocalAesGcmCryptoTest {
     void a256EcbPartialEncryptDecryptUsesSharedCoreFormat() {
         KeyMaterial material = materialWithAlgorithm("AES-256-ECB");
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
-        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
+        String policyCode = "ABCD1234";
 
-        String encrypted = crypto.encrypt("1234567812345678", policyUid, material, true, 0, 3);
+        String encrypted = crypto.encrypt("1234567812345678", policyCode, material, true, 0, 3);
 
-        assertEquals(true, encrypted.startsWith("123::ENC::hub:" + policyUid + ":"));
+        assertEquals(true, encrypted.startsWith("123::ENC::hub:" + policyCode + ":"));
         assertEquals("1234567812345678", crypto.decrypt(encrypted, material, 0, 3));
     }
 
@@ -70,10 +70,10 @@ class LocalAesGcmCryptoTest {
     void encryptUsesRandomIv() {
         KeyMaterial material = materialWithAlgorithm("A256GCM");
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto(new SecureRandom());
-        String policyUid = "123e4567-e89b-12d3-a456-426614174000";
+        String policyCode = "ABCD1234";
 
-        String first = crypto.encrypt("same", policyUid, material);
-        String second = crypto.encrypt("same", policyUid, material);
+        String first = crypto.encrypt("same", policyCode, material);
+        String second = crypto.encrypt("same", policyCode, material);
 
         assertNotEquals(first, second);
     }
@@ -83,7 +83,7 @@ class LocalAesGcmCryptoTest {
         LocalAesGcmCrypto crypto = new LocalAesGcmCrypto();
         UnsupportedCryptoMaterialException error = assertThrows(
                 UnsupportedCryptoMaterialException.class,
-                () -> crypto.encrypt("value", "123e4567-e89b-12d3-a456-426614174000", materialWithAlgorithm("FPE_FF1")));
+                () -> crypto.encrypt("value", "ABCD1234", materialWithAlgorithm("FPE_FF1")));
         assertEquals("Algorithm requires remote fallback: FPE_FF1", error.getMessage());
     }
 

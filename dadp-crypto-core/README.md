@@ -4,14 +4,14 @@
 
 ## Version
 
-- Initial module line: `5.8.15-SNAPSHOT`
+- Runtime module line: `6.0.0`
 - Java compatibility: Java 8
 
 ## Current Contract
 
 - Supported providers: `HUB`, `DB`
-- Supported algorithms: `A256GCM`, `AES-256-GCM`
-- Ciphertext format: `hub:{policyUid}:{base64(iv(12 bytes) + ciphertext + tag(16 bytes))}`
+- Supported algorithms: `A256GCM`, `AES_256`, `AES-256-GCM`, `A256ECB`, `AES-256-ECB`
+- Ciphertext format: `hub:{policyCode}:{base64(iv(12 bytes) + ciphertext + tag(16 bytes))}`
 - Partial encryption format: `[plainSegment]::ENC::[hub ciphertext]`
 
 Unsupported providers or algorithms throw `UnsupportedCryptoMaterialException` so callers can fall back to remote Engine.

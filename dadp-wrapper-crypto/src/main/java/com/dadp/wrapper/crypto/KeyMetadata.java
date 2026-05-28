@@ -34,6 +34,10 @@ public final class KeyMetadata {
         return provider;
     }
 
+    public String getProviderType() {
+        return provider;
+    }
+
     public String getConfigJson() {
         return configJson;
     }

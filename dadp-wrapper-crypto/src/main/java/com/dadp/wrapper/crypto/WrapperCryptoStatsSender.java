@@ -31,7 +31,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
 
     private final String hubBaseUrl;
     private final int timeoutMillis;
-    private final HubInternalKeyClient.AuthHeaderProvider authHeaderProvider;
+    private final HubAuthHeaderProvider authHeaderProvider;
     private final String aggregationLevel;
     private final TimeProvider timeProvider;
     private final Transport transport;
@@ -51,7 +51,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     }
 
     WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
-                             HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                             HubAuthHeaderProvider authHeaderProvider,
                              String aggregationLevel,
                              TimeProvider timeProvider,
                              Transport transport,
@@ -195,7 +195,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
         return baseUrl;
     }
 
-    private static HubInternalKeyClient.AuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
+    private static HubAuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
         if (hubAuthId == null || hubAuthId.trim().isEmpty()
                 || hubAuthSecret == null || hubAuthSecret.trim().isEmpty()) {
             return null;
@@ -209,7 +209,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
 
     interface Transport {
         void send(String hubBaseUrl, int timeoutMillis,
-                  HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                  HubAuthHeaderProvider authHeaderProvider,
                   WindowSnapshot snapshot) throws IOException;
     }
 
@@ -302,7 +302,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
 
         @Override
         public void send(String hubBaseUrl, int timeoutMillis,
-                         HubInternalKeyClient.AuthHeaderProvider authHeaderProvider,
+                         HubAuthHeaderProvider authHeaderProvider,
                          WindowSnapshot snapshot) throws IOException {
             HttpURLConnection connection = null;
             String engineStylePath = ENDPOINT_PATH;
@@ -318,10 +318,8 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
                 connection.setRequestProperty("Content-Type", "application/json");
                 connection.setFixedLengthStreamingMode(body.length);
                 if (authHeaderProvider != null) {
-                    String authHeader = authHeaderProvider.createAuthHeader(engineStylePath);
-                    if (authHeader != null && !authHeader.trim().isEmpty()) {
-                        connection.setRequestProperty("X-Hub-Auth", authHeader);
-                    }
+                    URL target = new URL(url);
+                    authHeaderProvider.applyAuthHeaders(connection, "POST", target.getPath(), target.getQuery(), body);
                 }
                 connection.getOutputStream().write(body);
                 connection.getOutputStream().flush();

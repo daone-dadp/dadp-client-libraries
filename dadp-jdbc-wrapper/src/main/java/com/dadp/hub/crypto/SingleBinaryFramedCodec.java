@@ -56,7 +56,7 @@ final class SingleBinaryFramedCodec {
             writeString(output, request.getPolicyName());
             writeString(output, null);
             writeString(output, request.getMaskPolicyName());
-            writeString(output, request.getMaskPolicyUid());
+            writeString(output, request.getMaskPolicyCode());
             return bytes.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Failed to encode single binary framed decrypt request", e);

@@ -24,28 +24,28 @@ public final class LocalAesGcmCrypto {
         this.core = new DadpCryptoCore(secureRandom);
     }
 
-    public String encrypt(String plainText, String policyUid, KeyMaterial keyMaterial) {
-        return encrypt(plainText, policyUid, null, keyMaterial, null, null, null);
+    public String encrypt(String plainText, String policyCode, KeyMaterial keyMaterial) {
+        return encrypt(plainText, policyCode, null, keyMaterial, null, null, null);
     }
 
-    public String encrypt(String plainText, String policyUid, KeyMaterial keyMaterial,
+    public String encrypt(String plainText, String policyCode, KeyMaterial keyMaterial,
                           Boolean usePlain, Integer plainStart, Integer plainLength) {
-        return encrypt(plainText, policyUid, null, keyMaterial, usePlain, plainStart, plainLength);
+        return encrypt(plainText, policyCode, null, keyMaterial, usePlain, plainStart, plainLength);
     }
 
-    public String encrypt(String plainText, String policyUid, String policyAlgorithm, KeyMaterial keyMaterial,
+    public String encrypt(String plainText, String policyCode, String policyAlgorithm, KeyMaterial keyMaterial,
                           Boolean usePlain, Integer plainStart, Integer plainLength) {
         if (plainText == null) {
             return null;
         }
         try {
-            CryptoMaterial material = toMaterial(policyUid, policyAlgorithm, keyMaterial, usePlain, plainStart, plainLength);
-            log.trace("Local core encrypt start: policyUid={}, algorithm={}, keyAlias={}, keyVersion={}, plainLength={}, usePlain={}, plainStart={}, plainLengthSegment={}",
-                    material.getPolicyUid(), material.getAlgorithm(), material.getKeyAlias(), material.getKeyVersion(),
+            CryptoMaterial material = toMaterial(policyCode, policyAlgorithm, keyMaterial, usePlain, plainStart, plainLength);
+            log.trace("Local core encrypt start: policyCode={}, algorithm={}, keyAlias={}, keyVersion={}, plainLength={}, usePlain={}, plainStart={}, plainLengthSegment={}",
+                    material.getPolicyCode(), material.getAlgorithm(), material.getKeyAlias(), material.getKeyVersion(),
                     plainText.length(), material.getUsePlain(), material.getPlainStart(), material.getPlainLength());
             String encrypted = core.encrypt(plainText, material);
-            log.trace("Local core encrypt completed: policyUid={}, encryptedLength={}, encryptedPrefix={}",
-                    material.getPolicyUid(), encrypted != null ? encrypted.length() : 0, WrapperLocalCryptoDebug.preview(encrypted));
+            log.trace("Local core encrypt completed: policyCode={}, encryptedLength={}, encryptedPrefix={}",
+                    material.getPolicyCode(), encrypted != null ? encrypted.length() : 0, WrapperLocalCryptoDebug.preview(encrypted));
             return encrypted;
         } catch (com.dadp.crypto.core.UnsupportedCryptoMaterialException e) {
             throw new UnsupportedCryptoMaterialException(e.getMessage());
@@ -68,15 +68,15 @@ public final class LocalAesGcmCrypto {
             return null;
         }
         try {
-            String policyUid = DadpCryptoCore.extractPolicyUid(encryptedData);
-            CryptoMaterial material = toMaterial(policyUid, policyAlgorithm, keyMaterial, null, plainStart, plainLength);
-            log.trace("Local core decrypt start: extractedPolicyUid={}, algorithm={}, keyAlias={}, keyVersion={}, encryptedLength={}, encryptedPrefix={}, plainStart={}, plainLengthSegment={}",
-                    material.getPolicyUid(), material.getAlgorithm(), material.getKeyAlias(), material.getKeyVersion(),
+            String policyCode = DadpCryptoCore.extractPolicyCode(encryptedData);
+            CryptoMaterial material = toMaterial(policyCode, policyAlgorithm, keyMaterial, null, plainStart, plainLength);
+            log.trace("Local core decrypt start: extractedPolicyCode={}, algorithm={}, keyAlias={}, keyVersion={}, encryptedLength={}, encryptedPrefix={}, plainStart={}, plainLengthSegment={}",
+                    material.getPolicyCode(), material.getAlgorithm(), material.getKeyAlias(), material.getKeyVersion(),
                     encryptedData.length(), WrapperLocalCryptoDebug.preview(encryptedData),
                     material.getPlainStart(), material.getPlainLength());
             String decrypted = core.decrypt(encryptedData, material);
-            log.trace("Local core decrypt completed: extractedPolicyUid={}, decryptedLength={}, decryptedPrefix={}",
-                    material.getPolicyUid(), decrypted != null ? decrypted.length() : 0, WrapperLocalCryptoDebug.preview(decrypted));
+            log.trace("Local core decrypt completed: extractedPolicyCode={}, decryptedLength={}, decryptedPrefix={}",
+                    material.getPolicyCode(), decrypted != null ? decrypted.length() : 0, WrapperLocalCryptoDebug.preview(decrypted));
             return decrypted;
         } catch (com.dadp.crypto.core.UnsupportedCryptoMaterialException e) {
             throw new UnsupportedCryptoMaterialException(e.getMessage());
@@ -85,11 +85,11 @@ public final class LocalAesGcmCrypto {
         }
     }
 
-    public static String extractPolicyUid(String encryptedData) {
-        return DadpCryptoCore.extractPolicyUid(encryptedData);
+    public static String extractPolicyCode(String encryptedData) {
+        return DadpCryptoCore.extractPolicyCode(encryptedData);
     }
 
-    private static CryptoMaterial toMaterial(String policyUid, String policyAlgorithm, KeyMaterial keyMaterial,
+    private static CryptoMaterial toMaterial(String policyCode, String policyAlgorithm, KeyMaterial keyMaterial,
                                              Boolean usePlain, Integer plainStart, Integer plainLength) {
         if (keyMaterial == null) {
             throw new IllegalArgumentException("key material is required");
@@ -99,7 +99,7 @@ public final class LocalAesGcmCrypto {
                 ? policyAlgorithm
                 : metadata.getAlgorithm();
         return new CryptoMaterial(
-                policyUid,
+                policyCode,
                 metadata.getKeyAlias(),
                 metadata.getKeyVersion(),
                 metadata.getProvider(),

@@ -19,8 +19,8 @@ class DadpCryptoCoreTest {
 
         String encrypted = crypto.encrypt("hello-core", material);
 
-        assertTrue(encrypted.startsWith("hub:123e4567-e89b-12d3-a456-426614174000:"));
-        assertEquals("123e4567-e89b-12d3-a456-426614174000", DadpCryptoCore.extractPolicyUid(encrypted));
+        assertTrue(encrypted.startsWith("hub:ABCD1234:"));
+        assertEquals("ABCD1234", DadpCryptoCore.extractPolicyCode(encrypted));
         assertEquals("hello-core", crypto.decrypt(encrypted, material));
     }
 
@@ -31,7 +31,7 @@ class DadpCryptoCoreTest {
 
         String encrypted = crypto.encrypt("1234567812345678", material);
 
-        assertTrue(encrypted.startsWith("123::ENC::hub:123e4567-e89b-12d3-a456-426614174000:"));
+        assertTrue(encrypted.startsWith("123::ENC::hub:ABCD1234:"));
         assertEquals("1234567812345678", crypto.decrypt(encrypted, material));
     }
 
@@ -42,8 +42,8 @@ class DadpCryptoCoreTest {
 
         String encrypted = crypto.encrypt("hello-ecb-core", material);
 
-        assertTrue(encrypted.startsWith("hub:123e4567-e89b-12d3-a456-426614174000:"));
-        assertEquals("123e4567-e89b-12d3-a456-426614174000", DadpCryptoCore.extractPolicyUid(encrypted));
+        assertTrue(encrypted.startsWith("hub:ABCD1234:"));
+        assertEquals("ABCD1234", DadpCryptoCore.extractPolicyCode(encrypted));
         assertEquals("hello-ecb-core", crypto.decrypt(encrypted, material));
     }
 
@@ -54,7 +54,7 @@ class DadpCryptoCoreTest {
 
         String encrypted = crypto.encrypt("1234567812345678", material);
 
-        assertTrue(encrypted.startsWith("123::ENC::hub:123e4567-e89b-12d3-a456-426614174000:"));
+        assertTrue(encrypted.startsWith("123::ENC::hub:ABCD1234:"));
         assertEquals("1234567812345678", crypto.decrypt(encrypted, material));
     }
 
@@ -98,7 +98,7 @@ class DadpCryptoCoreTest {
             key[i] = (byte) (i + 1);
         }
         return new CryptoMaterial(
-                "123e4567-e89b-12d3-a456-426614174000",
+                "ABCD1234",
                 "customer-key",
                 1,
                 provider,

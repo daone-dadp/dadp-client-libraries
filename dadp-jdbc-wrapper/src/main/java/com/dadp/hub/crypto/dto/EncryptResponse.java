@@ -32,8 +32,8 @@ public class EncryptResponse {
     @JsonProperty("processingTime")
     private Long processingTime;
 
-    @JsonProperty("policyUid")
-    private String policyUid;
+    @JsonProperty("policyCode")
+    private String policyCode;
 
     public EncryptResponse() {}
 
@@ -55,6 +55,6 @@ public class EncryptResponse {
     public Long getProcessingTime() { return processingTime; }
     public void setProcessingTime(Long processingTime) { this.processingTime = processingTime; }
 
-    public String getPolicyUid() { return policyUid; }
-    public void setPolicyUid(String policyUid) { this.policyUid = policyUid; }
+    public String getPolicyCode() { return policyCode; }
+    public void setPolicyCode(String policyCode) { this.policyCode = policyCode; }
 }

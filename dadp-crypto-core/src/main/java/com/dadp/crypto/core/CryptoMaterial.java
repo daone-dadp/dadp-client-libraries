@@ -2,7 +2,7 @@ package com.dadp.crypto.core;
 
 public final class CryptoMaterial {
 
-    private final String policyUid;
+    private final String policyCode;
     private final String keyAlias;
     private final int keyVersion;
     private final String provider;
@@ -12,15 +12,15 @@ public final class CryptoMaterial {
     private final Integer plainStart;
     private final Integer plainLength;
 
-    public CryptoMaterial(String policyUid, String keyAlias, int keyVersion, String provider, String algorithm,
+    public CryptoMaterial(String policyCode, String keyAlias, int keyVersion, String provider, String algorithm,
                           String keyData, Boolean usePlain, Integer plainStart, Integer plainLength) {
-        if (policyUid == null || policyUid.trim().isEmpty()) {
-            throw new IllegalArgumentException("policyUid is required");
+        if (policyCode == null || policyCode.trim().isEmpty()) {
+            throw new IllegalArgumentException("policyCode is required");
         }
         if (keyData == null || keyData.trim().isEmpty()) {
             throw new IllegalArgumentException("keyData is required");
         }
-        this.policyUid = policyUid;
+        this.policyCode = policyCode;
         this.keyAlias = keyAlias;
         this.keyVersion = keyVersion;
         this.provider = provider != null && !provider.trim().isEmpty() ? provider : "HUB";
@@ -31,8 +31,8 @@ public final class CryptoMaterial {
         this.plainLength = plainLength;
     }
 
-    public String getPolicyUid() {
-        return policyUid;
+    public String getPolicyCode() {
+        return policyCode;
     }
 
     public String getKeyAlias() {
