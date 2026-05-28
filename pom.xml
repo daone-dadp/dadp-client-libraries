@@ -92,13 +92,13 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>5.6.0</version>
+                <version>6.0.0</version>
             </dependency>
             <!-- dadp-hub-crypto-lib with java8 classifier (for wrapper module) -->
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-hub-crypto-lib</artifactId>
-                <version>5.6.0</version>
+                <version>6.0.0</version>
                 <classifier>java8</classifier>
             </dependency>
             <dependency>
@@ -119,12 +119,12 @@
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-core</artifactId>
-                <version>5.6.0</version>
+                <version>6.0.0</version>
             </dependency>
             <dependency>
                 <groupId>io.github.daone-dadp</groupId>
                 <artifactId>dadp-common-sync-lib-j8</artifactId>
-                <version>5.6.0</version>
+                <version>6.0.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
