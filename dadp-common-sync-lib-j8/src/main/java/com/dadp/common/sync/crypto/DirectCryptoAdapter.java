@@ -256,7 +256,7 @@ public class DirectCryptoAdapter {
         if (isLocalCryptoEnabled()) {
             try {
                 log.trace("Local encryption request: policy={}, dataLength={}", policyName, data.length());
-                String encrypted = localCryptoService.encrypt(data, policyName);
+                String encrypted = localCryptoService.encryptByPolicyCode(data, policyName);
                 log.trace("Local encryption completed");
                 endpointAvailable = true;
                 return encrypted;

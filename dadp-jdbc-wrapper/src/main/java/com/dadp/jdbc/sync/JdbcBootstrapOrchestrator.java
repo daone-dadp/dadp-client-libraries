@@ -131,7 +131,7 @@ public class JdbcBootstrapOrchestrator {
         this.schemaSyncService = new JdbcSchemaSyncService(
             config.getHubUrl(),
             schemaCollector,
-            "/hub/api/v1/proxy",  
+            "/hub/api/v1/runtime/wrappers",
             config,
             policyResolver,
             hubIdManager,
@@ -459,7 +459,9 @@ public class JdbcBootstrapOrchestrator {
             hubId,
             instanceId,
             endpointStorageDir,
-            endpointFileName
+            endpointFileName,
+            config.getRuntimeAuthKey(),
+            config.getRuntimeAuthSecret()
         );
         
         
@@ -563,8 +565,13 @@ public class JdbcBootstrapOrchestrator {
                 currentVersion = 0L;
             }
             
-            DatasourceRegistrationService registrationService = 
-                new DatasourceRegistrationService(config.getHubUrl(), instanceIdProvider.getInstanceId(), caCertPath);
+            DatasourceRegistrationService registrationService =
+                new DatasourceRegistrationService(
+                    config.getHubUrl(),
+                    instanceIdProvider.getInstanceId(),
+                    caCertPath,
+                    config.getRuntimeAuthKey(),
+                    config.getRuntimeAuthSecret());
             DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
                 dbVendor, host, port, database, schema, currentVersion, hubIdManager.getCachedHubId()
             );
@@ -863,8 +870,10 @@ public class JdbcBootstrapOrchestrator {
             hubId,
             instanceId,
             cachedDatasourceId,
-            "/hub/api/v1/proxy",  
-            policyResolver
+            "/hub/api/v1/runtime/wrappers",
+            policyResolver,
+            config.getRuntimeAuthKey(),
+            config.getRuntimeAuthSecret()
         );
         
         
@@ -912,8 +921,8 @@ public class JdbcBootstrapOrchestrator {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
-            String effectiveHubAuthId = hubIdManager.getCachedHubId();
-            String effectiveHubAuthSecret = hubIdManager.getCachedWrapperAuthSecret();
+            String effectiveHubAuthId = config.getRuntimeAuthKey();
+            String effectiveHubAuthSecret = config.getRuntimeAuthSecret();
             if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
                 effectiveHubAuthId = config.getCryptoLocalHubAuthId();
             }

@@ -64,6 +64,38 @@ public class WrapperLocalCryptoService {
     }
 
     public String encrypt(String data, String policyName) {
+        return encryptByPolicyName(data, policyName);
+    }
+
+    public String encryptByPolicyCode(String data, String policyCode) {
+        if (data == null) {
+            return null;
+        }
+        try {
+            PolicyMaterial policy = resolvePolicyByCode(policyCode);
+            KeyMaterial keyMaterial = keyMaterial(policy);
+            log.trace("Local encrypt material resolved: policyName={}, policyCode={}, algorithm={}, keyAlias={}, keyVersion={}, keyFingerprint={}, usePlain={}, plainStart={}, plainLength={}",
+                    policy.getPolicyName(), policy.getPolicyCode(), policy.getAlgorithm(),
+                    policy.getKeyAlias(), policy.getKeyVersion(), WrapperLocalCryptoDebug.fingerprint(keyMaterial.getKeyData()),
+                    policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            String encrypted = localCrypto.encrypt(data, policy.getPolicyCode(), policy.getAlgorithm(), keyMaterial,
+                    policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
+            log.trace("Local encrypt result: policyCode={}, encryptedLength={}, encryptedPrefix={}",
+                    policy.getPolicyCode(), encrypted != null ? encrypted.length() : 0, WrapperLocalCryptoDebug.preview(encrypted));
+            if (statsSender != null) {
+                statsSender.recordEncryptSuccess();
+            }
+            return encrypted;
+        } catch (RuntimeException e) {
+            log.trace("Local encrypt failed: policyCode={}, error={}", policyCode, e.getMessage());
+            if (statsSender != null) {
+                statsSender.recordEncryptFailure();
+            }
+            throw e;
+        }
+    }
+
+    private String encryptByPolicyName(String data, String policyName) {
         if (data == null) {
             return null;
         }

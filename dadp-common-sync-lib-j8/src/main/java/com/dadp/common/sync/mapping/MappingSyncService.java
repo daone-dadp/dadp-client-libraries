@@ -1,13 +1,16 @@
 package com.dadp.common.sync.mapping;
 
+import com.dadp.common.sync.auth.HubInternalAuthSigner;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.policy.PolicyResolver.PolicyAttributes;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +43,8 @@ public class MappingSyncService {
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final PolicyResolver policyResolver;
+    private final String runtimeAuthKey;
+    private final String runtimeAuthSecret;
     
     // 마지막으로 받은 정책 스냅샷 (엔드포인트 정보 포함)
     private volatile PolicySnapshot lastSnapshot = null;
@@ -54,6 +59,11 @@ public class MappingSyncService {
     }
     
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath, PolicyResolver policyResolver) {
+        this(hubUrl, hubId, alias, datasourceId, apiBasePath, policyResolver, null, null);
+    }
+
+    public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath,
+                              PolicyResolver policyResolver, String runtimeAuthKey, String runtimeAuthSecret) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
@@ -71,6 +81,8 @@ public class MappingSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.policyResolver = policyResolver;
+        this.runtimeAuthKey = runtimeAuthKey;
+        this.runtimeAuthSecret = runtimeAuthSecret;
     }
     
     /**
@@ -95,6 +107,9 @@ public class MappingSyncService {
      * @return 변경사항이 있으면 true, 없으면 false
      */
     public boolean checkMappingChange(Long version, String[] reregisteredHubId) {
+        if (isRuntimeWrapper()) {
+            return true;
+        }
         // checkUrl을 try 블록 밖에서 선언하여 catch 블록에서도 접근 가능하도록 함
         String checkUrl = null;
         try {
@@ -226,6 +241,9 @@ public class MappingSyncService {
      * @return 로드된 매핑 개수
      */
     public int loadPolicySnapshotFromHub(Long currentVersion) {
+        if (isRuntimeWrapper()) {
+            return loadRuntimeWrapperSnapshotFromHub();
+        }
         try {
             log.trace("Loading policy snapshot from Hub: hubId={}, alias={}, currentVersion={}",
                 hubId, alias, currentVersion);
@@ -378,6 +396,111 @@ public class MappingSyncService {
             policyResolver.reloadFromStorage();
             return 0;
         }
+    }
+
+    private int loadRuntimeWrapperSnapshotFromHub() {
+        try {
+            String snapshotUrl = hubUrl + apiBasePath + "/" + hubId + "/snapshot";
+            URI uri = URI.create(snapshotUrl);
+            HttpClientAdapter.HttpResponse response = httpClient.get(uri, signedHeaders("GET", uri));
+            int statusCode = response.getStatusCode();
+
+            if (statusCode == 404) {
+                log.warn("Hub runtime wrapper snapshot returned 404 for tenantId={}, re-registration required", hubId);
+                return -1;
+            }
+            if (statusCode < 200 || statusCode >= 300 || response.getBody() == null) {
+                log.warn("Failed to load Hub runtime wrapper snapshot: HTTP {}", statusCode);
+                return 0;
+            }
+
+            PolicySnapshot snapshot = parseRuntimeWrapperSnapshot(response.getBody());
+            Map<String, String> policyMap = new HashMap<>();
+            List<PolicyMapping> mappings = snapshot.getMappings();
+            if (mappings != null) {
+                for (PolicyMapping mapping : mappings) {
+                    if (mapping.isEnabled() && mapping.getPolicyName() != null
+                            && !mapping.getPolicyName().trim().isEmpty()) {
+                        String key = mapping.getSchemaName() + "."
+                                + mapping.getTableName() + "."
+                                + mapping.getColumnName();
+                        policyMap.put(key, mapping.getPolicyName());
+                        log.trace("Runtime policy binding loaded: {} -> {}", key, mapping.getPolicyName());
+                    }
+                }
+            }
+
+            Long version = snapshot.getVersion() != null ? snapshot.getVersion() : 1L;
+            policyResolver.refreshMappings(policyMap, version);
+            this.lastSnapshot = snapshot;
+            log.info("Hub runtime wrapper snapshot loaded: version={}, {} policy bindings", version, policyMap.size());
+            return policyMap.size();
+        } catch (IOException e) {
+            log.warn("Failed to load Hub runtime wrapper snapshot: {}", e.getMessage());
+            policyResolver.reloadFromStorage();
+            return 0;
+        }
+    }
+
+    private PolicySnapshot parseRuntimeWrapperSnapshot(String responseBody) throws IOException {
+        JsonNode root = objectMapper.readTree(responseBody);
+        PolicySnapshot snapshot = new PolicySnapshot();
+        JsonNode schemaSnapshot = root.path("schemaSnapshot");
+        if (!schemaSnapshot.isMissingNode() && !schemaSnapshot.isNull()) {
+            JsonNode versionNode = schemaSnapshot.path("version");
+            if (!versionNode.isMissingNode() && !versionNode.isNull()) {
+                snapshot.setVersion(versionNode.asLong());
+            }
+            JsonNode updatedAt = schemaSnapshot.path("updatedAt");
+            if (!updatedAt.isMissingNode() && !updatedAt.isNull()) {
+                snapshot.setUpdatedAt(updatedAt.asText());
+            }
+        }
+
+        List<PolicyMapping> mappings = new ArrayList<>();
+        JsonNode bindings = root.path("policyBindings");
+        if (bindings.isArray()) {
+            for (JsonNode binding : bindings) {
+                String status = text(binding.path("status"));
+                if (status != null && !"ACTIVE".equalsIgnoreCase(status)) {
+                    continue;
+                }
+                String policyCode = text(binding.path("policyCode"));
+                if (policyCode == null || policyCode.trim().isEmpty()) {
+                    continue;
+                }
+                PolicyMapping mapping = new PolicyMapping();
+                mapping.setDatasourceId(text(binding.path("sharedDatasourceId")));
+                mapping.setSchemaName(text(binding.path("schemaName")));
+                mapping.setTableName(text(binding.path("tableName")));
+                mapping.setColumnName(text(binding.path("columnName")));
+                mapping.setPolicyName(policyCode);
+                mapping.setEnabled(true);
+                mappings.add(mapping);
+            }
+        }
+        snapshot.setMappings(mappings);
+        return snapshot;
+    }
+
+    private boolean isRuntimeWrapper() {
+        return apiBasePath != null && apiBasePath.contains("/runtime/wrappers");
+    }
+
+    private Map<String, String> signedHeaders(String method, URI uri) {
+        if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
+                || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
+            throw new IllegalStateException("DADP 6.0 wrapper snapshot requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+        }
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Accept", "application/json");
+        HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
+        headers.putAll(signer.sign(method, uri, new byte[0]));
+        return headers;
+    }
+
+    private static String text(JsonNode node) {
+        return node != null && !node.isMissingNode() && !node.isNull() ? node.asText() : null;
     }
 
     /**

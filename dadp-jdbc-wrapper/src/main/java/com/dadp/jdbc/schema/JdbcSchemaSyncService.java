@@ -93,7 +93,7 @@ public class JdbcSchemaSyncService {
         this.schemaSyncService = new RetryableSchemaSyncService(
             hubUrl,
             schemaCollector,
-            createExecutor(hubUrl, apiBasePath),
+            createExecutor(hubUrl, apiBasePath, proxyConfig),
             hubIdSaver,
             maxRetries,
             initialDelayMs,
@@ -101,12 +101,17 @@ public class JdbcSchemaSyncService {
         );
     }
     
-    private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath) {
+    private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig) {
         // 공통 인터페이스 사용 (Java 8용 HTTP 클라이언트)
         com.dadp.common.sync.http.HttpClientAdapter httpClient = com.dadp.common.sync.http.Java8HttpClientAdapterFactory.create(5000, 10000);
-        // V1 API (/api/v1/proxy) 사용 시 instanceType 전달
-        String instanceType = (apiBasePath != null && apiBasePath.startsWith("/hub/api/v1/proxy")) ? "PROXY" : null;
-        return new com.dadp.common.sync.schema.HttpClientSchemaSyncExecutor(hubUrl, apiBasePath, instanceType, httpClient);
+        String instanceType = (apiBasePath != null && apiBasePath.contains("/runtime/wrappers")) ? "JDBC" : null;
+        return new com.dadp.common.sync.schema.HttpClientSchemaSyncExecutor(
+                hubUrl,
+                apiBasePath,
+                instanceType,
+                httpClient,
+                proxyConfig != null ? proxyConfig.getRuntimeAuthKey() : null,
+                proxyConfig != null ? proxyConfig.getRuntimeAuthSecret() : null);
     }
     
     /**
@@ -179,7 +184,8 @@ public class JdbcSchemaSyncService {
         
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송 (AOP와 동일한 구조)
-            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath);
+            enrichPolicyCodes(schemas);
+            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig);
             boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getAlias(), currentVersion);
             
             if (synced) {
@@ -190,6 +196,25 @@ public class JdbcSchemaSyncService {
         } catch (Exception e) {
             log.warn("Failed to send specific schemas: {}", e.getMessage());
             return false;
+        }
+    }
+
+    private void enrichPolicyCodes(List<SchemaMetadata> schemas) {
+        if (policyResolver == null || schemas == null) {
+            return;
+        }
+        for (SchemaMetadata schema : schemas) {
+            if (schema == null || (schema.getPolicyName() != null && !schema.getPolicyName().trim().isEmpty())) {
+                continue;
+            }
+            String policyCode = policyResolver.resolvePolicy(
+                    schema.getDatasourceId(),
+                    schema.getSchemaName(),
+                    schema.getTableName(),
+                    schema.getColumnName());
+            if (policyCode != null && !policyCode.trim().isEmpty()) {
+                schema.setPolicyName(policyCode);
+            }
         }
     }
     

@@ -42,6 +42,8 @@ public class ProxyConfig {
     private final String engineTransport;  // Engine transport mode (http | binary-tcp)
     private final int engineBinaryPort;  // Engine binary TCP port
     private final String cryptoMode;  // Wrapper crypto execution mode (remote | local)
+    private final String runtimeAuthKey;  // Hub 6.0 runtime internal-auth caller key
+    private final String runtimeAuthSecret;  // Hub 6.0 runtime internal-auth shared secret
     private final boolean cryptoLocalFallbackRemote;  // Local crypto failure fallback to remote Engine
     private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
     private final String cryptoLocalHubAuthId;  // Manual fallback Hub internal auth id override
@@ -199,6 +201,36 @@ public class ProxyConfig {
             cryptoModeProp = urlParams != null ? urlParams.get("cryptoMode") : null;
         }
         this.cryptoMode = normalizeCryptoMode(cryptoModeProp);
+
+        String runtimeAuthKeyProp = null;
+        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
+            runtimeAuthKeyProp = System.getProperty("dadp.wrapper.runtime-auth.key");
+        }
+        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
+            runtimeAuthKeyProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_KEY");
+        }
+        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
+            runtimeAuthKeyProp = System.getenv("DADP_HUB_INTERNAL_AUTH_KEY");
+        }
+        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
+            runtimeAuthKeyProp = urlParams != null ? urlParams.get("runtimeAuthKey") : null;
+        }
+        this.runtimeAuthKey = trimToNull(runtimeAuthKeyProp);
+
+        String runtimeAuthSecretProp = null;
+        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
+            runtimeAuthSecretProp = System.getProperty("dadp.wrapper.runtime-auth.secret");
+        }
+        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
+            runtimeAuthSecretProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_SECRET");
+        }
+        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
+            runtimeAuthSecretProp = System.getenv("DADP_HUB_INTERNAL_AUTH_SECRET");
+        }
+        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
+            runtimeAuthSecretProp = urlParams != null ? urlParams.get("runtimeAuthSecret") : null;
+        }
+        this.runtimeAuthSecret = trimToNull(runtimeAuthSecretProp);
 
         String localFallbackProp = null;
         if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
@@ -448,6 +480,7 @@ public class ProxyConfig {
         log.trace("   - Engine transport: {}", this.engineTransport);
         log.trace("   - Engine binary port: {}", this.engineBinaryPort);
         log.trace("   - Wrapper crypto mode: {}", this.cryptoMode);
+        log.trace("   - Hub runtime auth configured: {}", this.runtimeAuthSecret != null);
         log.trace("   - Wrapper local crypto fallback remote: {}", this.cryptoLocalFallbackRemote);
         log.trace("   - Wrapper local crypto timeout: {}ms", this.cryptoLocalTimeoutMs);
         log.trace("   - Wrapper local crypto hub auth configured: {}", this.cryptoLocalHubAuthSecret != null);
@@ -593,6 +626,14 @@ public class ProxyConfig {
 
     public String getCryptoMode() {
         return cryptoMode;
+    }
+
+    public String getRuntimeAuthKey() {
+        return runtimeAuthKey;
+    }
+
+    public String getRuntimeAuthSecret() {
+        return runtimeAuthSecret;
     }
 
     public boolean isCryptoLocalFallbackRemote() {

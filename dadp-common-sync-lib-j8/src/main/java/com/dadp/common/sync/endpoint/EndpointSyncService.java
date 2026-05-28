@@ -1,5 +1,6 @@
 package com.dadp.common.sync.endpoint;
 
+import com.dadp.common.sync.auth.HubInternalAuthSigner;
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
@@ -10,6 +11,7 @@ import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 
 import java.net.URI;
+import java.util.HashMap;
 
 /**
  * 암복호화 엔드포인트 동기화 서비스
@@ -31,13 +33,20 @@ public class EndpointSyncService {
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final EndpointStorage endpointStorage;
+    private final String runtimeAuthKey;
+    private final String runtimeAuthSecret;
     
     public EndpointSyncService(String hubUrl, String hubId, String alias) {
-        this(hubUrl, hubId, alias, new EndpointStorage(requireAlias(alias)));
+        this(hubUrl, hubId, alias, new EndpointStorage(requireAlias(alias)), null, null);
     }
     
     public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName) {
-        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName));
+        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), null, null);
+    }
+
+    public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName,
+                               String runtimeAuthKey, String runtimeAuthSecret) {
+        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), runtimeAuthKey, runtimeAuthSecret);
     }
     
     /**
@@ -49,6 +58,11 @@ public class EndpointSyncService {
      * @param endpointStorage EndpointStorage 인스턴스 (싱글톤 재사용)
      */
     public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage) {
+        this(hubUrl, hubId, alias, endpointStorage, null, null);
+    }
+
+    public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage,
+                               String runtimeAuthKey, String runtimeAuthSecret) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
@@ -56,6 +70,8 @@ public class EndpointSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.endpointStorage = endpointStorage;
+        this.runtimeAuthKey = runtimeAuthKey;
+        this.runtimeAuthSecret = runtimeAuthSecret;
     }
 
     private static String requireAlias(String alias) {
@@ -75,21 +91,12 @@ public class EndpointSyncService {
         try {
             log.debug("Querying crypto endpoint info from Hub: hubUrl={}, hubId={}", hubUrl, hubId);
             
-            // V1 API 사용: /hub/api/v1/engines/endpoint
-            String endpointPath = "/hub/api/v1/engines/endpoint";
+            String endpointPath = "/hub/api/v1/runtime/engine-endpoint";
             String endpointUrl = hubUrl + endpointPath;
             log.trace("Hub endpoint query URL: {}", endpointUrl);
             
             URI uri = URI.create(endpointUrl);
-            
-            // X-DADP-TENANT 헤더에 hubId 전송 (Hub가 인스턴스별 설정을 조회하기 위해 필요)
-            java.util.Map<String, String> headers = new java.util.HashMap<>();
-            if (hubId != null && !hubId.trim().isEmpty()) {
-                headers.put("X-DADP-TENANT", hubId);
-                log.trace("Sending X-DADP-TENANT header: hubId={}", hubId);
-            } else {
-                log.warn("No hubId available, X-DADP-TENANT header not sent. Hub cannot query instance-specific settings.");
-            }
+            java.util.Map<String, String> headers = signedHeaders("GET", uri);
             
             HttpClientAdapter.HttpResponse response = httpClient.get(uri, headers);
             
@@ -97,77 +104,35 @@ public class EndpointSyncService {
             String responseBody = response.getBody();
             
             if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
-                // 응답 파싱
                 JsonNode rootNode = objectMapper.readTree(responseBody);
-                // v2: code 기반 (primary), v1: success boolean fallback
-                boolean success;
-                JsonNode codeNode = rootNode.path("code");
-                if (!codeNode.isMissingNode() && codeNode.isTextual()) {
-                    success = "SUCCESS".equals(codeNode.asText());
-                } else {
-                    success = rootNode.path("success").asBoolean(false);
-                }
-
-                if (!success) {
-                    log.warn("Hub endpoint query failed: response success=false");
-                    return false;
-                }
-                
-                JsonNode dataNode = rootNode.path("data");
-                if (dataNode.isMissingNode()) {
-                    log.warn("Hub endpoint query failed: data field missing");
-                    return false;
-                }
-                
-                // 통계 설정 조회
-                JsonNode statsNode = dataNode.path("statsAggregator");
-                Boolean statsAggregatorEnabled = null;
-                String statsAggregatorUrl = null;
-                String statsAggregatorMode = null;
-                Integer slowThresholdMs = null;
-                Boolean includeSqlNormalized = null;
-                if (!statsNode.isMissingNode()) {
-                    statsAggregatorEnabled = statsNode.path("enabled").asBoolean(false);
-                    statsAggregatorUrl = statsNode.path("url").asText(null);
-                    statsAggregatorMode = statsNode.path("mode").asText(null);
-                    JsonNode slowThresholdNode = statsNode.path("slowThresholdMs");
-                    if (!slowThresholdNode.isMissingNode() && !slowThresholdNode.isNull()) {
-                        slowThresholdMs = slowThresholdNode.asInt(500);
-                    }
-                    JsonNode includeSqlNormalizedNode = statsNode.path("includeSqlNormalized");
-                    if (!includeSqlNormalizedNode.isMissingNode() && !includeSqlNormalizedNode.isNull()) {
-                        includeSqlNormalized = includeSqlNormalizedNode.asBoolean(false);
-                    }
-                }
-                
-                // cryptoUrl 조회
-                String cryptoUrl = dataNode.path("cryptoUrl").asText(null);
+                String cryptoUrl = rootNode.path("publicURL").asText(null);
                 if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                    log.warn("Hub response missing cryptoUrl");
+                    log.warn("Hub runtime engine endpoint response missing publicURL");
                     return false;
                 }
                 
                 // 버전 정보 조회 (Hub 응답에 포함되어 있으면 사용, 없으면 null)
                 Long version = null;
-                JsonNode versionNode = dataNode.path("version");
+                JsonNode versionNode = rootNode.path("metadata").path("version");
                 if (!versionNode.isMissingNode()) {
-                    version = versionNode.asLong(0);
+                    String rawVersion = versionNode.asText(null);
+                    version = parseVersion(rawVersion);
                 }
                 
                 // 영구 저장소에 저장
                 boolean saved = endpointStorage.saveEndpoints(
                         cryptoUrl.trim(),
-                        hubId,  // EndpointSyncService에서 사용하는 hubId 사용
+                        hubId,
                         version,
-                        statsAggregatorEnabled,
-                        statsAggregatorUrl,
-                        statsAggregatorMode,
-                        slowThresholdMs,
-                        includeSqlNormalized);
+                        null,
+                        null,
+                        null,
+                        null,
+                        null);
                 
                 if (saved) {
-                    log.debug("Endpoint info synced from Hub: cryptoUrl={}, hubId={}, version={}, statsEnabled={}",
-                            cryptoUrl, hubId, version, statsAggregatorEnabled);
+                    log.debug("Endpoint info synced from Hub runtime: cryptoUrl={}, hubId={}, version={}",
+                            cryptoUrl, hubId, version);
                 }
                 return saved;
                 
@@ -188,6 +153,33 @@ public class EndpointSyncService {
             }
             // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
             return false;
+        }
+    }
+
+    private java.util.Map<String, String> signedHeaders(String method, URI uri) {
+        if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
+                || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
+            throw new IllegalStateException("DADP 6.0 endpoint sync requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+        }
+        java.util.Map<String, String> headers = new HashMap<>();
+        headers.put("Accept", "application/json");
+        HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
+        headers.putAll(signer.sign(method, uri, new byte[0]));
+        return headers;
+    }
+
+    private static Long parseVersion(String version) {
+        if (version == null || version.trim().isEmpty()) {
+            return null;
+        }
+        String digits = version.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(digits);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
     
