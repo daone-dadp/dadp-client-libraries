@@ -23,7 +23,12 @@ public class HubIdManager {
     
     // 캐시된 hubId (volatile로 변경 감지)
     private volatile String cachedHubId = null;
+    private volatile String cachedDatasourceId = null;
+    private volatile String cachedWrapperAuthKey = null;
     private volatile String cachedWrapperAuthSecret = null;
+    private volatile String cachedRefreshUrl = null;
+    private volatile String cachedSchemaSyncUrl = null;
+    private volatile String cachedRuntimeVersion = null;
     
     // hubId 변경 콜백 (각 모듈에서 MappingSyncService 재생성 등 처리)
     private final HubIdChangeCallback changeCallback;
@@ -69,9 +74,15 @@ public class HubIdManager {
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(hubUrl, instanceId);
         if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
             String loadedHubId = config.getHubId();
+            this.cachedDatasourceId = trimToNull(config.getDatasourceId());
+            this.cachedWrapperAuthKey = trimToNull(config.getWrapperAuthKey());
             this.cachedWrapperAuthSecret = config.getWrapperAuthSecret();
+            this.cachedRefreshUrl = trimToNull(config.getRefreshUrl());
+            this.cachedSchemaSyncUrl = trimToNull(config.getSchemaSyncUrl());
+            this.cachedRuntimeVersion = trimToNull(config.getRuntimeVersion());
             setHubId(loadedHubId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
-            log.debug("HubId loaded from persistent storage: hubId={}", loadedHubId);
+            log.debug("HubId loaded from persistent storage: hubId={}, datasourceId={}, wrapperAuthConfigured={}",
+                    loadedHubId, cachedDatasourceId, cachedWrapperAuthSecret != null);
             return loadedHubId;
         }
         log.debug("No hubId in persistent storage");
@@ -99,7 +110,9 @@ public class HubIdManager {
         // 영구저장소에 저장
         if (saveToStorage && hubId != null && !hubId.trim().isEmpty()) {
             String instanceId = instanceIdProvider.getInstanceId();
-            configStorage.saveConfig(hubId, hubUrl, instanceId, null, cachedWrapperAuthSecret);
+            configStorage.saveConfig(hubId, hubUrl, instanceId, null,
+                    cachedDatasourceId, cachedWrapperAuthKey, cachedWrapperAuthSecret,
+                    cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
             log.debug("HubId saved: hubId={}", hubId);
         }
         
@@ -125,23 +138,81 @@ public class HubIdManager {
     }
 
     public void setWrapperAuthSecret(String hubId, String wrapperAuthSecret, boolean saveToStorage) {
+        setWrapperEnrollment(hubId, null, null, wrapperAuthSecret, null, null, null, saveToStorage);
+    }
+
+    public void setWrapperEnrollment(String hubId,
+                                     String datasourceId,
+                                     String wrapperAuthKey,
+                                     String wrapperAuthSecret,
+                                     String refreshUrl,
+                                     String schemaSyncUrl,
+                                     String runtimeVersion,
+                                     boolean saveToStorage) {
         if (hubId == null || hubId.trim().isEmpty() || wrapperAuthSecret == null || wrapperAuthSecret.trim().isEmpty()) {
             return;
         }
         if (cachedHubId != null && !cachedHubId.equals(hubId)) {
-            log.warn("Wrapper auth secret ignored due to hubId mismatch: cachedHubId={}, requestedHubId={}", cachedHubId, hubId);
+            log.warn("Wrapper enrollment ignored due to hubId mismatch: cachedHubId={}, requestedHubId={}", cachedHubId, hubId);
             return;
         }
+        setHubId(hubId, false);
+        if (datasourceId != null && !datasourceId.trim().isEmpty()) {
+            this.cachedDatasourceId = datasourceId.trim();
+        }
+        if (wrapperAuthKey != null && !wrapperAuthKey.trim().isEmpty()) {
+            this.cachedWrapperAuthKey = wrapperAuthKey.trim();
+        }
         this.cachedWrapperAuthSecret = wrapperAuthSecret.trim();
+        if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
+            this.cachedRefreshUrl = refreshUrl.trim();
+        }
+        if (schemaSyncUrl != null && !schemaSyncUrl.trim().isEmpty()) {
+            this.cachedSchemaSyncUrl = schemaSyncUrl.trim();
+        }
+        if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
+            this.cachedRuntimeVersion = runtimeVersion.trim();
+        }
         if (saveToStorage) {
             String instanceId = instanceIdProvider.getInstanceId();
-            configStorage.saveConfig(hubId, hubUrl, instanceId, null, this.cachedWrapperAuthSecret);
-            log.debug("Wrapper auth secret saved: hubId={}", hubId);
+            configStorage.saveConfig(hubId, hubUrl, instanceId, null,
+                    cachedDatasourceId, cachedWrapperAuthKey, cachedWrapperAuthSecret,
+                    cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
+            log.debug("Wrapper enrollment saved: hubId={}, datasourceId={}", hubId, cachedDatasourceId);
         }
     }
 
     public String getCachedWrapperAuthSecret() {
         return cachedWrapperAuthSecret;
+    }
+
+    public String getCachedDatasourceId() {
+        return cachedDatasourceId;
+    }
+
+    public String getCachedWrapperAuthKey() {
+        return cachedWrapperAuthKey;
+    }
+
+    public String getCachedRefreshUrl() {
+        return cachedRefreshUrl;
+    }
+
+    public String getCachedSchemaSyncUrl() {
+        return cachedSchemaSyncUrl;
+    }
+
+    public String getCachedRuntimeVersion() {
+        return cachedRuntimeVersion;
+    }
+
+    public boolean hasRuntimeEnrollment() {
+        return hasHubId()
+                && cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()
+                && cachedWrapperAuthKey != null && !cachedWrapperAuthKey.trim().isEmpty()
+                && cachedWrapperAuthSecret != null && !cachedWrapperAuthSecret.trim().isEmpty()
+                && cachedRefreshUrl != null && !cachedRefreshUrl.trim().isEmpty()
+                && cachedSchemaSyncUrl != null && !cachedSchemaSyncUrl.trim().isEmpty();
     }
     
     /**
@@ -159,7 +230,12 @@ public class HubIdManager {
     public void clear() {
         String oldHubId = this.cachedHubId;
         this.cachedHubId = null;
+        this.cachedDatasourceId = null;
+        this.cachedWrapperAuthKey = null;
         this.cachedWrapperAuthSecret = null;
+        this.cachedRefreshUrl = null;
+        this.cachedSchemaSyncUrl = null;
+        this.cachedRuntimeVersion = null;
         if (changeCallback != null && oldHubId != null) {
             try {
                 changeCallback.onHubIdChanged(oldHubId, null);
@@ -167,5 +243,9 @@ public class HubIdManager {
                 log.warn("HubId clear callback failed: {}", e.getMessage());
             }
         }
+    }
+
+    private static String trimToNull(String value) {
+        return value != null && !value.trim().isEmpty() ? value.trim() : null;
     }
 }

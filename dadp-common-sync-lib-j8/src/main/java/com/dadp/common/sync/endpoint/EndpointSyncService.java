@@ -88,78 +88,14 @@ public class EndpointSyncService {
      * @return 동기화 성공 여부
      */
     public boolean syncEndpointsFromHub() {
-        try {
-            log.debug("Querying crypto endpoint info from Hub: hubUrl={}, hubId={}", hubUrl, hubId);
-            
-            String endpointPath = "/hub/api/v1/runtime/engine-endpoint";
-            String endpointUrl = hubUrl + endpointPath;
-            log.trace("Hub endpoint query URL: {}", endpointUrl);
-            
-            URI uri = URI.create(endpointUrl);
-            java.util.Map<String, String> headers = signedHeaders("GET", uri);
-            
-            HttpClientAdapter.HttpResponse response = httpClient.get(uri, headers);
-            
-            int statusCode = response.getStatusCode();
-            String responseBody = response.getBody();
-            
-            if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
-                JsonNode rootNode = objectMapper.readTree(responseBody);
-                String cryptoUrl = rootNode.path("publicURL").asText(null);
-                if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                    log.warn("Hub runtime engine endpoint response missing publicURL");
-                    return false;
-                }
-                
-                // 버전 정보 조회 (Hub 응답에 포함되어 있으면 사용, 없으면 null)
-                Long version = null;
-                JsonNode versionNode = rootNode.path("metadata").path("version");
-                if (!versionNode.isMissingNode()) {
-                    String rawVersion = versionNode.asText(null);
-                    version = parseVersion(rawVersion);
-                }
-                
-                // 영구 저장소에 저장
-                boolean saved = endpointStorage.saveEndpoints(
-                        cryptoUrl.trim(),
-                        hubId,
-                        version,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null);
-                
-                if (saved) {
-                    log.debug("Endpoint info synced from Hub runtime: cryptoUrl={}, hubId={}, version={}",
-                            cryptoUrl, hubId, version);
-                }
-                return saved;
-                
-            } else {
-                log.warn("Hub endpoint query failed: HTTP {}", statusCode);
-                // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
-                return false;
-            }
-            
-        } catch (Exception e) {
-            // 연결 실패는 예측 가능한 문제이므로 WARN 레벨로 처리 (정책 준수)
-            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            if (errorMsg.contains("Connection refused") || errorMsg.contains("ConnectException")) {
-                log.warn("Failed to query endpoint info from Hub: {} (Hub unreachable)", errorMsg);
-            } else {
-                // 기타 예외도 Hub 통신 장애이므로 WARN 레벨로 처리
-                log.warn("Failed to query endpoint info from Hub: {}", errorMsg, e);
-            }
-            // Hub 통신 장애는 알림 제거 (받는 주체가 Hub이므로)
-            return false;
-        }
+        log.debug("Standalone runtime engine endpoint sync is disabled in DADP 6.0; use refresh response engine.wrapperEngineUrl.");
+        return false;
     }
 
     private java.util.Map<String, String> signedHeaders(String method, URI uri) {
         if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
                 || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 endpoint sync requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+            throw new IllegalStateException("DADP 6.0 endpoint sync requires wrapper enrollment auth.");
         }
         java.util.Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");

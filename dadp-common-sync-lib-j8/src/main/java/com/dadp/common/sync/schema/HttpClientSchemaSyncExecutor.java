@@ -35,6 +35,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private final ObjectMapper objectMapper;
     private final String runtimeAuthKey;
     private final String runtimeAuthSecret;
+    private final String runtimeSchemaSyncUrl;
     
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, HttpClientAdapter httpClient) {
         this(hubUrl, apiBasePath, null, httpClient);
@@ -47,12 +48,20 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
                                         HttpClientAdapter httpClient,
                                         String runtimeAuthKey, String runtimeAuthSecret) {
+        this(hubUrl, apiBasePath, instanceType, httpClient, runtimeAuthKey, runtimeAuthSecret, null);
+    }
+
+    public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
+                                        HttpClientAdapter httpClient,
+                                        String runtimeAuthKey, String runtimeAuthSecret,
+                                        String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.instanceType = instanceType;
         this.httpClient = httpClient;
         this.runtimeAuthKey = runtimeAuthKey;
         this.runtimeAuthSecret = runtimeAuthSecret;
+        this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -64,19 +73,13 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         boolean isRuntimeWrapper = apiBasePath != null && apiBasePath.contains("/runtime/wrappers");
         String syncPath = isAop ? "/schemas/sync" : "/schema/sync";
         String syncUrl = isRuntimeWrapper
-                ? hubUrl + apiBasePath + "/" + hubId + "/schema-sync"
+                ? resolveRuntimeSchemaSyncUrl(hubId)
                 : hubUrl + apiBasePath + syncPath;
         log.trace("Hub schema sync URL: {}", syncUrl);
 
         String requestBody;
         if (isRuntimeWrapper) {
-            List<Map<String, Object>> bindings = toRuntimeBindings(schemas);
-            if (bindings.isEmpty()) {
-                log.warn("Skipping Hub 6.0 schema-sync because no policy bindings are available locally. This prevents accidental binding deletion: tenantId={}, alias={}, schemaCount={}",
-                        hubId, alias, schemas != null ? schemas.size() : 0);
-                return true;
-            }
-            requestBody = objectMapper.writeValueAsString(toRuntimeSchemaSyncRequest(schemas, bindings, currentVersion));
+            requestBody = objectMapper.writeValueAsString(toRuntimeSchemaSyncRequest(schemas, currentVersion));
         } else {
             SchemaSyncRequest request = new SchemaSyncRequest();
             request.setInstanceId(alias);
@@ -176,15 +179,25 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         }
     }
 
+    private String resolveRuntimeSchemaSyncUrl(String tenantId) {
+        if (runtimeSchemaSyncUrl != null && !runtimeSchemaSyncUrl.trim().isEmpty()) {
+            if (runtimeSchemaSyncUrl.startsWith("http://") || runtimeSchemaSyncUrl.startsWith("https://")) {
+                return runtimeSchemaSyncUrl;
+            }
+            String base = hubUrl != null && hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
+            String path = runtimeSchemaSyncUrl.startsWith("/") ? runtimeSchemaSyncUrl : "/" + runtimeSchemaSyncUrl;
+            return base + path;
+        }
+        return hubUrl + apiBasePath + "/" + tenantId + "/schema-sync";
+    }
+
     private Map<String, Object> toRuntimeSchemaSyncRequest(List<SchemaMetadata> schemas,
-                                                           List<Map<String, Object>> bindings,
                                                            Long currentVersion) throws Exception {
         Map<String, Object> request = new HashMap<>();
         long version = currentVersion != null && currentVersion > 0 ? currentVersion : 1L;
         request.put("version", version);
         request.put("capturedAt", Instant.now().toString());
         request.put("schemaJson", objectMapper.writeValueAsString(toRuntimeSchemaDocument(schemas)));
-        request.put("bindings", bindings);
         return request;
     }
 
@@ -194,31 +207,10 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         return root;
     }
 
-    private List<Map<String, Object>> toRuntimeBindings(List<SchemaMetadata> schemas) {
-        List<Map<String, Object>> bindings = new ArrayList<>();
-        if (schemas == null) {
-            return bindings;
-        }
-        for (SchemaMetadata schema : schemas) {
-            if (schema == null || schema.getPolicyName() == null || schema.getPolicyName().trim().isEmpty()) {
-                continue;
-            }
-            Map<String, Object> binding = new HashMap<>();
-            binding.put("schemaName", schema.getSchemaName());
-            binding.put("tableName", schema.getTableName());
-            binding.put("columnName", schema.getColumnName());
-            binding.put("policyCode", schema.getPolicyName().trim());
-            binding.put("bindingType", "ENCRYPT");
-            binding.put("status", "ACTIVE");
-            bindings.add(binding);
-        }
-        return bindings;
-    }
-
     private Map<String, String> signedHeaders(String method, URI uri, String body) {
         if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
                 || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 wrapper schema-sync requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+            throw new IllegalStateException("DADP 6.0 wrapper schema-sync requires wrapper enrollment auth. Run CLI schema-register and store wrapperAuth.authKey/authSecret.");
         }
         HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
         return signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0]);

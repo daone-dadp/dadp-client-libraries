@@ -104,28 +104,50 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            // Validate export version
+            boolean runtimeEnrollmentConfig = config.containsKey("tenantId")
+                    || config.containsKey("wrapperAuth")
+                    || config.containsKey("runtime");
+
+            // Validate export version. Hub 6 CLI enrollment payload may be data-only.
             Object exportVersionObj = config.get("exportVersion");
             int exportVersion = exportVersionObj instanceof Number ? ((Number) exportVersionObj).intValue() : 0;
-            if (exportVersion < 1) {
+            if (exportVersion < 1 && !runtimeEnrollmentConfig) {
                 log.warn("Exported config has invalid exportVersion: {}", exportVersion);
                 return null;
             }
 
             // Validate required fields
-            String hubId = (String) config.get("hubId");
+            String hubId = getStringValue(config, "tenantId");
+            if (hubId == null || hubId.trim().isEmpty()) {
+                hubId = getStringValue(config, "hubId");
+            }
             String datasourceId = (String) config.get("datasourceId");
             String cryptoUrl = (String) config.get("cryptoUrl");
+            Map<String, Object> wrapperAuth = (Map<String, Object>) config.get("wrapperAuth");
+            Map<String, Object> runtime = (Map<String, Object>) config.get("runtime");
+            String wrapperAuthKey = getStringValue(wrapperAuth, "authKey");
+            String wrapperAuthSecret = getStringValue(wrapperAuth, "authSecret");
+            if (wrapperAuthSecret == null) {
+                wrapperAuthSecret = getStringValue(config, "wrapperAuthSecret");
+            }
+            String refreshUrl = getStringValue(runtime, "refreshUrl");
+            String schemaSyncUrl = getStringValue(runtime, "schemaSyncUrl");
+            if (refreshUrl == null) {
+                refreshUrl = getStringValue(config, "refreshUrl");
+            }
+            if (schemaSyncUrl == null) {
+                schemaSyncUrl = getStringValue(config, "schemaSyncUrl");
+            }
 
             if (hubId == null || hubId.trim().isEmpty()) {
-                log.warn("Exported config missing required field: hubId");
+                log.warn("Exported config missing required field: tenantId");
                 return null;
             }
             if (datasourceId == null || datasourceId.trim().isEmpty()) {
                 log.warn("Exported config missing required field: datasourceId");
                 return null;
             }
-            if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
+            if (!runtimeEnrollmentConfig && (cryptoUrl == null || cryptoUrl.trim().isEmpty())) {
                 log.warn("Exported config missing required field: cryptoUrl");
                 return null;
             }
@@ -145,10 +167,10 @@ public class ExportedConfigLoader {
             // Version comparison: skip if current version is same or newer
             Object policyVersionObj = config.get("policyVersion");
             Long filePolicyVersion = policyVersionObj instanceof Number
-                    ? ((Number) policyVersionObj).longValue() : 0L;
+                    ? ((Number) policyVersionObj).longValue() : getLongValue(config, "snapshotVersion", 0L);
             Long currentPolicyVersion = policyResolver.getCurrentVersion();
 
-            if (currentPolicyVersion != null && currentPolicyVersion >= filePolicyVersion) {
+            if (!runtimeEnrollmentConfig && currentPolicyVersion != null && currentPolicyVersion >= filePolicyVersion) {
                 log.info("Exported config skipped: current policyVersion({}) >= file policyVersion({})",
                         currentPolicyVersion, filePolicyVersion);
                 return null;
@@ -159,14 +181,18 @@ public class ExportedConfigLoader {
 
             // 3. Save hubId via hubIdManager
             hubIdManager.setHubId(hubId, true);
-            String wrapperAuthSecret = getStringValue(config, "wrapperAuthSecret");
             String wrapperHubId = getStringValue(config, "wrapperHubId");
             if (wrapperHubId == null || wrapperHubId.trim().isEmpty()) {
                 wrapperHubId = hubId;
             }
             if (wrapperAuthSecret != null && !wrapperAuthSecret.trim().isEmpty()) {
-                hubIdManager.setWrapperAuthSecret(wrapperHubId, wrapperAuthSecret, true);
-                log.info("Exported config: wrapper auth secret applied: hubId={}", wrapperHubId);
+                if (wrapperAuthKey == null || wrapperAuthKey.trim().isEmpty()) {
+                    wrapperAuthKey = wrapperHubId;
+                }
+                hubIdManager.setWrapperEnrollment(wrapperHubId, datasourceId, wrapperAuthKey, wrapperAuthSecret,
+                        refreshUrl, schemaSyncUrl, "6.0", true);
+                log.info("Exported config: wrapper enrollment applied: tenantId={}, datasourceId={}",
+                        wrapperHubId, datasourceId);
             }
             log.info("Exported config: hubId applied: {}", hubId);
 
@@ -242,10 +268,14 @@ public class ExportedConfigLoader {
                 includeSqlNormalized = getBooleanValue(config, "includeSqlNormalized");
             }
 
-            endpointStorage.saveEndpoints(cryptoUrl, hubId, filePolicyVersion,
-                    statsAggregatorEnabled, statsAggregatorUrl, statsAggregatorMode,
-                    slowThresholdMs, includeSqlNormalized);
-            log.info("Exported config: endpoint info applied: cryptoUrl={}", cryptoUrl);
+            if (cryptoUrl != null && !cryptoUrl.trim().isEmpty()) {
+                endpointStorage.saveEndpoints(cryptoUrl, hubId, filePolicyVersion,
+                        statsAggregatorEnabled, statsAggregatorUrl, statsAggregatorMode,
+                        slowThresholdMs, includeSqlNormalized);
+                log.info("Exported config: endpoint info applied: cryptoUrl={}", cryptoUrl);
+            } else {
+                log.info("Exported config: endpoint info deferred to runtime refresh");
+            }
 
             // 6. Save datasourceId via DatasourceStorage (requires DB metadata, skip if not available)
             // The datasourceId is returned and the caller (JdbcBootstrapOrchestrator) handles caching
@@ -322,6 +352,24 @@ public class ExportedConfigLoader {
         }
         Object value = map.get(key);
         return value instanceof Number ? ((Number) value).intValue() : null;
+    }
+
+    private static Long getLongValue(Map<String, Object> map, String key, Long defaultValue) {
+        if (map == null) {
+            return defaultValue;
+        }
+        Object value = map.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String && !((String) value).trim().isEmpty()) {
+            try {
+                return Long.parseLong(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
     }
 
     @SuppressWarnings("unchecked")

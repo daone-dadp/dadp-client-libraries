@@ -210,9 +210,6 @@ public class ProxyConfig {
             runtimeAuthKeyProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_KEY");
         }
         if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
-            runtimeAuthKeyProp = System.getenv("DADP_HUB_INTERNAL_AUTH_KEY");
-        }
-        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
             runtimeAuthKeyProp = urlParams != null ? urlParams.get("runtimeAuthKey") : null;
         }
         this.runtimeAuthKey = trimToNull(runtimeAuthKeyProp);
@@ -223,9 +220,6 @@ public class ProxyConfig {
         }
         if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
             runtimeAuthSecretProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_SECRET");
-        }
-        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
-            runtimeAuthSecretProp = System.getenv("DADP_HUB_INTERNAL_AUTH_SECRET");
         }
         if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
             runtimeAuthSecretProp = urlParams != null ? urlParams.get("runtimeAuthSecret") : null;

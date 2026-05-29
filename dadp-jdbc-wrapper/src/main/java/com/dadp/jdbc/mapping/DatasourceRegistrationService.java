@@ -66,81 +66,7 @@ public class DatasourceRegistrationService {
     public DatasourceInfo registerOrGetDatasource(
             String dbVendor, String host, int port,
             String database, String schema, Long currentVersion, String hubId) {
-
-        String cachedDatasourceId = DatasourceStorage.loadDatasourceId(alias, dbVendor, host, port, database, schema);
-        if (cachedDatasourceId != null) {
-            log.debug("Canonical datasourceId found in local storage: alias={}, datasourceId={}", alias, cachedDatasourceId);
-        }
-
-        String registerUrl = hubUrl + "/hub/api/v1/runtime/wrappers/register";
-        String tenantId = hubId != null && !hubId.trim().isEmpty()
-                ? hubId.trim()
-                : "pi_" + UUID.randomUUID().toString().replace("-", "");
-
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("tenantId", tenantId);
-        request.put("alias", alias);
-        request.put("wrapperType", "JDBC");
-        request.put("appName", alias);
-        request.put("version", "6.0.1");
-
-        Map<String, Object> datasource = new LinkedHashMap<>();
-        String datasourceKey = buildDatasourceKey(dbVendor, host, port, database, schema);
-        datasource.put("datasourceKey", datasourceKey);
-        datasource.put("vendor", dbVendor);
-        putIfNotBlank(datasource, "host", host);
-        if (port > 0) {
-            datasource.put("port", port);
-        }
-        putIfNotBlank(datasource, "databaseName", database);
-        putIfNotBlank(datasource, "schemaName", schema);
-        datasource.put("displayName", datasourceKey);
-        request.put("datasource", datasource);
-
-        try {
-            URI uri = URI.create(registerUrl);
-            String requestBody = objectMapper.writeValueAsString(request);
-            HttpClientAdapter.HttpResponse response = httpClient.post(
-                uri,
-                requestBody,
-                signedHeaders("POST", uri, requestBody)
-            );
-
-            int statusCode = response.getStatusCode();
-            String responseBody = response.getBody();
-            log.debug("Hub wrapper registration response: statusCode={}, responseBody={}", statusCode, responseBody);
-
-            if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
-                try {
-                    DatasourceInfo info = parseRuntimeRegistrationResponse(responseBody);
-                    if (info != null && info.getHubId() != null && !info.getHubId().trim().isEmpty()) {
-                        DatasourceStorage.saveDatasource(alias, info.getDatasourceId(), dbVendor, host, port, database, schema);
-                        log.info("Wrapper registered with Hub runtime: alias={}, datasourceId={}, displayName={}, tenantId={}",
-                            alias, info.getDatasourceId(), info.getDisplayName(), info.getHubId());
-                        return info;
-                    }
-
-                    log.warn("Hub runtime wrapper registration failed: invalid response format. statusCode={}, responseBody={}",
-                        statusCode, responseBody);
-                } catch (Exception parseEx) {
-                    log.warn("Hub runtime wrapper registration failed: response parsing error. statusCode={}, responseBody={}, error={}",
-                        statusCode, responseBody, parseEx.getMessage());
-                }
-            } else {
-                log.warn("Hub runtime wrapper registration failed: HTTP error. statusCode={}, responseBody={}", statusCode, responseBody);
-            }
-        } catch (IOException e) {
-            String errorMessage = e.getMessage();
-            if (errorMessage == null || errorMessage.trim().isEmpty()) {
-                errorMessage = e.getClass().getSimpleName();
-            }
-            log.warn("Hub runtime wrapper registration failed: hubUrl={}, registerUrl={}, error={}",
-                hubUrl, registerUrl, errorMessage);
-        } catch (RuntimeException e) {
-            log.warn("Hub runtime wrapper registration failed: hubUrl={}, registerUrl={}, error={}",
-                hubUrl, registerUrl, e.getMessage());
-        }
-
+        log.warn("Datasource registration is disabled in DADP 6.0. Use CLI schema-register enrollment and persist the returned datasourceId.");
         return null;
     }
 
@@ -168,7 +94,7 @@ public class DatasourceRegistrationService {
         headers.put("Accept", "application/json");
         if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
                 || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 wrapper runtime registration requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+            throw new IllegalStateException("DADP 6.0 wrapper runtime calls require wrapper enrollment auth.");
         }
         HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
         headers.putAll(signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0]));

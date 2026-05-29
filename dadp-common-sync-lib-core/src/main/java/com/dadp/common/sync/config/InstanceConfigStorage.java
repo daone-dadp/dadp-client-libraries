@@ -76,6 +76,22 @@ public class InstanceConfigStorage {
      * Save instance config including wrapper auth secret when available.
      */
     public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen, String wrapperAuthSecret) {
+        return saveConfig(hubId, hubUrl, instanceId, failOpen, null, null, wrapperAuthSecret, null, null, null);
+    }
+
+    /**
+     * Save Hub 6 runtime wrapper enrollment data issued by the CLI schema-register flow.
+     */
+    public boolean saveConfig(String hubId,
+                              String hubUrl,
+                              String instanceId,
+                              Boolean failOpen,
+                              String datasourceId,
+                              String wrapperAuthKey,
+                              String wrapperAuthSecret,
+                              String refreshUrl,
+                              String schemaSyncUrl,
+                              String runtimeVersion) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save instance config");
             return false;
@@ -102,13 +118,29 @@ public class InstanceConfigStorage {
             if (wrapperAuthSecret != null) {
                 data.setWrapperAuthSecret(wrapperAuthSecret);
             }
+            if (datasourceId != null) {
+                data.setDatasourceId(datasourceId);
+            }
+            if (wrapperAuthKey != null) {
+                data.setWrapperAuthKey(wrapperAuthKey);
+            }
+            if (refreshUrl != null) {
+                data.setRefreshUrl(refreshUrl);
+            }
+            if (schemaSyncUrl != null) {
+                data.setSchemaSyncUrl(schemaSyncUrl);
+            }
+            if (runtimeVersion != null) {
+                data.setRuntimeVersion(runtimeVersion);
+            }
             
             // 파일에 저장
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: hubId={}, hubUrl={}, instanceId={}, wrapperAuthConfigured={} -> {}",
-                    data.getHubId(), data.getHubUrl(), data.getInstanceId(), data.getWrapperAuthSecret() != null, storagePath);
+            log.debug("Instance config saved: hubId={}, datasourceId={}, hubUrl={}, instanceId={}, wrapperAuthConfigured={} -> {}",
+                    data.getHubId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(),
+                    data.getWrapperAuthSecret() != null, storagePath);
             return true;
 
         } catch (IOException e) {
@@ -238,7 +270,12 @@ public class InstanceConfigStorage {
         private String hubUrl;  // Hub URL
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open 모드 여부 (WRAPPER용, AOP는 null 가능)
+        private String datasourceId;  // Hub-owned shared datasource ID
+        private String wrapperAuthKey;  // Wrapper runtime auth key issued by Hub
         private String wrapperAuthSecret;  // Wrapper internal Hub API auth secret
+        private String refreshUrl;  // Hub 6 runtime refresh URL
+        private String schemaSyncUrl;  // Hub 6 runtime schema-sync URL
+        private String runtimeVersion;  // Hub runtime contract version
         
         public long getTimestamp() {
             return timestamp;
@@ -254,6 +291,14 @@ public class InstanceConfigStorage {
         
         public void setHubId(String hubId) {
             this.hubId = hubId;
+        }
+
+        public String getTenantId() {
+            return hubId;
+        }
+
+        public void setTenantId(String tenantId) {
+            this.hubId = tenantId;
         }
         
         public String getHubUrl() {
@@ -286,6 +331,46 @@ public class InstanceConfigStorage {
 
         public void setWrapperAuthSecret(String wrapperAuthSecret) {
             this.wrapperAuthSecret = wrapperAuthSecret;
+        }
+
+        public String getDatasourceId() {
+            return datasourceId;
+        }
+
+        public void setDatasourceId(String datasourceId) {
+            this.datasourceId = datasourceId;
+        }
+
+        public String getWrapperAuthKey() {
+            return wrapperAuthKey;
+        }
+
+        public void setWrapperAuthKey(String wrapperAuthKey) {
+            this.wrapperAuthKey = wrapperAuthKey;
+        }
+
+        public String getRefreshUrl() {
+            return refreshUrl;
+        }
+
+        public void setRefreshUrl(String refreshUrl) {
+            this.refreshUrl = refreshUrl;
+        }
+
+        public String getSchemaSyncUrl() {
+            return schemaSyncUrl;
+        }
+
+        public void setSchemaSyncUrl(String schemaSyncUrl) {
+            this.schemaSyncUrl = schemaSyncUrl;
+        }
+
+        public String getRuntimeVersion() {
+            return runtimeVersion;
+        }
+
+        public void setRuntimeVersion(String runtimeVersion) {
+            this.runtimeVersion = runtimeVersion;
         }
     }
 }

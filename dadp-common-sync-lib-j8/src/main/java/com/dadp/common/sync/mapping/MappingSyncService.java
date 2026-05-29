@@ -45,6 +45,7 @@ public class MappingSyncService {
     private final PolicyResolver policyResolver;
     private final String runtimeAuthKey;
     private final String runtimeAuthSecret;
+    private final String runtimeRefreshUrl;
     
     // 마지막으로 받은 정책 스냅샷 (엔드포인트 정보 포함)
     private volatile PolicySnapshot lastSnapshot = null;
@@ -64,6 +65,12 @@ public class MappingSyncService {
 
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath,
                               PolicyResolver policyResolver, String runtimeAuthKey, String runtimeAuthSecret) {
+        this(hubUrl, hubId, alias, datasourceId, apiBasePath, policyResolver, runtimeAuthKey, runtimeAuthSecret, null);
+    }
+
+    public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath,
+                              PolicyResolver policyResolver, String runtimeAuthKey, String runtimeAuthSecret,
+                              String runtimeRefreshUrl) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
@@ -83,6 +90,7 @@ public class MappingSyncService {
         this.policyResolver = policyResolver;
         this.runtimeAuthKey = runtimeAuthKey;
         this.runtimeAuthSecret = runtimeAuthSecret;
+        this.runtimeRefreshUrl = runtimeRefreshUrl;
     }
     
     /**
@@ -400,21 +408,26 @@ public class MappingSyncService {
 
     private int loadRuntimeWrapperSnapshotFromHub() {
         try {
-            String snapshotUrl = hubUrl + apiBasePath + "/" + hubId + "/snapshot";
-            URI uri = URI.create(snapshotUrl);
+            String refreshUrl = resolveRuntimeRefreshUrl();
+            URI uri = URI.create(refreshUrl);
             HttpClientAdapter.HttpResponse response = httpClient.get(uri, signedHeaders("GET", uri));
             int statusCode = response.getStatusCode();
 
             if (statusCode == 404) {
-                log.warn("Hub runtime wrapper snapshot returned 404 for tenantId={}, re-registration required", hubId);
+                log.warn("Hub runtime wrapper refresh returned 404 for tenantId={}, CLI enrollment is required", hubId);
                 return -1;
             }
             if (statusCode < 200 || statusCode >= 300 || response.getBody() == null) {
-                log.warn("Failed to load Hub runtime wrapper snapshot: HTTP {}", statusCode);
+                log.warn("Failed to load Hub runtime wrapper refresh: HTTP {}", statusCode);
                 return 0;
             }
 
             PolicySnapshot snapshot = parseRuntimeWrapperSnapshot(response.getBody());
+            if (Boolean.TRUE.equals(snapshot.getUnchanged())) {
+                this.lastSnapshot = snapshot;
+                log.debug("Hub runtime wrapper refresh unchanged: version={}", snapshot.getVersion());
+                return 0;
+            }
             Map<String, String> policyMap = new HashMap<>();
             List<PolicyMapping> mappings = snapshot.getMappings();
             if (mappings != null) {
@@ -433,22 +446,51 @@ public class MappingSyncService {
             Long version = snapshot.getVersion() != null ? snapshot.getVersion() : 1L;
             policyResolver.refreshMappings(policyMap, version);
             this.lastSnapshot = snapshot;
-            log.info("Hub runtime wrapper snapshot loaded: version={}, {} policy bindings", version, policyMap.size());
+            log.info("Hub runtime wrapper refresh loaded: version={}, {} policy bindings", version, policyMap.size());
             return policyMap.size();
         } catch (IOException e) {
-            log.warn("Failed to load Hub runtime wrapper snapshot: {}", e.getMessage());
+            log.warn("Failed to load Hub runtime wrapper refresh: {}", e.getMessage());
             policyResolver.reloadFromStorage();
             return 0;
         }
     }
 
+    private String resolveRuntimeRefreshUrl() {
+        if (runtimeRefreshUrl != null && !runtimeRefreshUrl.trim().isEmpty()) {
+            if (runtimeRefreshUrl.startsWith("http://") || runtimeRefreshUrl.startsWith("https://")) {
+                return appendVersion(runtimeRefreshUrl);
+            }
+            String base = hubUrl != null && hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
+            String path = runtimeRefreshUrl.startsWith("/") ? runtimeRefreshUrl : "/" + runtimeRefreshUrl;
+            return appendVersion(base + path);
+        }
+        return appendVersion(hubUrl + apiBasePath + "/" + hubId + "/refresh");
+    }
+
+    private String appendVersion(String url) {
+        Long version = policyResolver != null ? policyResolver.getCurrentVersion() : null;
+        if (version == null || version <= 0) {
+            return url;
+        }
+        return url + (url.contains("?") ? "&" : "?") + "version=" + version;
+    }
+
     private PolicySnapshot parseRuntimeWrapperSnapshot(String responseBody) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         PolicySnapshot snapshot = new PolicySnapshot();
+        JsonNode unchanged = root.path("unchanged");
+        if (!unchanged.isMissingNode() && !unchanged.isNull()) {
+            snapshot.setUnchanged(unchanged.asBoolean(false));
+        }
+        JsonNode runtimeVersion = root.path("runtimeVersion");
+        if (!runtimeVersion.isMissingNode() && !runtimeVersion.isNull()) {
+            snapshot.setVersion(runtimeVersion.asLong());
+        }
         JsonNode schemaSnapshot = root.path("schemaSnapshot");
         if (!schemaSnapshot.isMissingNode() && !schemaSnapshot.isNull()) {
             JsonNode versionNode = schemaSnapshot.path("version");
-            if (!versionNode.isMissingNode() && !versionNode.isNull()) {
+            if ((snapshot.getVersion() == null || snapshot.getVersion() <= 0)
+                    && !versionNode.isMissingNode() && !versionNode.isNull()) {
                 snapshot.setVersion(versionNode.asLong());
             }
             JsonNode updatedAt = schemaSnapshot.path("updatedAt");
@@ -480,6 +522,35 @@ public class MappingSyncService {
             }
         }
         snapshot.setMappings(mappings);
+        JsonNode engine = root.path("engine");
+        String wrapperEngineUrl = text(engine.path("wrapperEngineUrl"));
+        if (wrapperEngineUrl != null && !wrapperEngineUrl.trim().isEmpty()) {
+            EndpointInfo endpointInfo = new EndpointInfo();
+            endpointInfo.setCryptoUrl(wrapperEngineUrl);
+            endpointInfo.setApiBasePath("/api");
+            snapshot.setEndpoint(endpointInfo);
+        }
+        JsonNode wrapper = root.path("wrapper");
+        if (!wrapper.isMissingNode() && !wrapper.isNull()) {
+            WrapperConfig wrapperConfig = new WrapperConfig();
+            JsonNode enabled = wrapper.path("enabled");
+            if (!enabled.isMissingNode() && !enabled.isNull()) {
+                wrapperConfig.setEnabled(enabled.asBoolean());
+                snapshot.setWrapperConfig(wrapperConfig);
+            }
+            JsonNode debugEnabled = wrapper.path("debugEnabled");
+            JsonNode debugLevel = wrapper.path("debugLevel");
+            if (!debugEnabled.isMissingNode() || !debugLevel.isMissingNode()) {
+                LogConfig logConfig = new LogConfig();
+                if (!debugEnabled.isMissingNode() && !debugEnabled.isNull()) {
+                    logConfig.setEnabled(debugEnabled.asBoolean());
+                }
+                if (!debugLevel.isMissingNode() && !debugLevel.isNull()) {
+                    logConfig.setLevel(debugLevel.asText());
+                }
+                snapshot.setLogConfig(logConfig);
+            }
+        }
         return snapshot;
     }
 
@@ -490,7 +561,7 @@ public class MappingSyncService {
     private Map<String, String> signedHeaders(String method, URI uri) {
         if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
                 || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 wrapper snapshot requires internal auth. Configure DADP_WRAPPER_RUNTIME_AUTH_KEY/SECRET or DADP_HUB_INTERNAL_AUTH_KEY/SECRET.");
+            throw new IllegalStateException("DADP 6.0 wrapper refresh requires wrapper enrollment auth. Run CLI schema-register and store wrapperAuth.authKey/authSecret.");
         }
         Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
@@ -744,6 +815,7 @@ public class MappingSyncService {
         private EndpointInfo endpoint;      // 엔드포인트 정보 (정책 매핑과 함께 받아옴)
         private LogConfig logConfig;        // 로그 설정 (Hub에서 동적으로 수신)
         private WrapperConfig wrapperConfig; // Wrapper 활성화 설정 (Hub에서 동적으로 수신)
+        private Boolean unchanged;
 
         public Long getVersion() {
             return version;
@@ -791,6 +863,14 @@ public class MappingSyncService {
 
         public void setWrapperConfig(WrapperConfig wrapperConfig) {
             this.wrapperConfig = wrapperConfig;
+        }
+
+        public Boolean getUnchanged() {
+            return unchanged;
+        }
+
+        public void setUnchanged(Boolean unchanged) {
+            this.unchanged = unchanged;
         }
 
         private Map<String, Map<String, Object>> policyAttributes;

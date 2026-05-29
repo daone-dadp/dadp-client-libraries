@@ -110,6 +110,7 @@ public class JdbcPolicyMappingSyncService {
                 }
             }
         );
+        this.hubIdManager.loadFromStorage();
         
         
         this.syncOrchestrator = new PolicyMappingSyncOrchestrator(
@@ -120,7 +121,7 @@ public class JdbcPolicyMappingSyncService {
             new PolicyMappingSyncOrchestrator.SyncCallbacks() {
                 @Override
                 public void onRegistrationNeeded() {
-                    registerWithHub();
+                    log.warn("Policy mapping sync requires CLI schema-register enrollment in DADP 6.0.");
                 }
                 
                 @Override
@@ -238,9 +239,17 @@ public class JdbcPolicyMappingSyncService {
     
     private void updateMappingSyncService(String hubId, String instanceId) {
         String hubUrl = config.getHubUrl();
-        String apiBasePath = "/hub/api/v1/proxy";  
+        String apiBasePath = "/hub/api/v1/runtime/wrappers";
         this.mappingSyncService = new MappingSyncService(
-            hubUrl, hubId, instanceId, datasourceId, apiBasePath, policyResolver);
+            hubUrl,
+            hubId,
+            instanceId,
+            datasourceId,
+            apiBasePath,
+            policyResolver,
+            hubIdManager.getCachedWrapperAuthKey(),
+            hubIdManager.getCachedWrapperAuthSecret(),
+            hubIdManager.getCachedRefreshUrl());
         log.info("MappingSyncService recreated: hubId={}", hubId);
     }
     
@@ -309,6 +318,9 @@ public class JdbcPolicyMappingSyncService {
     
     
     private void syncEndpointsAfterPolicyMapping() {
+        log.debug("Skipping standalone endpoint sync in DADP 6.0; refresh response owns engine URL.");
+        return;
+        /*
         
         String currentHubId = hubIdManager.getCachedHubId();
         if (currentHubId != null && endpointSyncService != null) {
@@ -338,6 +350,7 @@ public class JdbcPolicyMappingSyncService {
                 log.warn("Endpoint sync failed: {}", e.getMessage());
             }
         }
+        */
     }
     
     

@@ -33,6 +33,9 @@ public class JdbcSchemaSyncService {
     private final ProxyConfig proxyConfig;
     private final com.dadp.common.sync.policy.PolicyResolver policyResolver;
     private final HubIdManager hubIdManager; // HubIdManager (null 가능, 있으면 사용)
+    private final String runtimeAuthKey;
+    private final String runtimeAuthSecret;
+    private final String runtimeSchemaSyncUrl;
     
     public JdbcSchemaSyncService(String hubUrl, 
                                 SchemaCollector schemaCollector,
@@ -71,11 +74,30 @@ public class JdbcSchemaSyncService {
                                 int maxRetries,
                                 long initialDelayMs,
                                 long backoffMs) {
+        this(hubUrl, schemaCollector, apiBasePath, proxyConfig, policyResolver, hubIdManager,
+                maxRetries, initialDelayMs, backoffMs, null, null, null);
+    }
+
+    public JdbcSchemaSyncService(String hubUrl,
+                                SchemaCollector schemaCollector,
+                                String apiBasePath,
+                                ProxyConfig proxyConfig,
+                                com.dadp.common.sync.policy.PolicyResolver policyResolver,
+                                HubIdManager hubIdManager,
+                                int maxRetries,
+                                long initialDelayMs,
+                                long backoffMs,
+                                String runtimeAuthKey,
+                                String runtimeAuthSecret,
+                                String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.proxyConfig = proxyConfig;
         this.policyResolver = policyResolver;
         this.hubIdManager = hubIdManager;
+        this.runtimeAuthKey = runtimeAuthKey;
+        this.runtimeAuthSecret = runtimeAuthSecret;
+        this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         
         // HubIdSaver 구현 (hubId 저장 콜백)
         HubIdSaver hubIdSaver = (receivedHubId, instanceId) -> {
@@ -93,7 +115,7 @@ public class JdbcSchemaSyncService {
         this.schemaSyncService = new RetryableSchemaSyncService(
             hubUrl,
             schemaCollector,
-            createExecutor(hubUrl, apiBasePath, proxyConfig),
+            createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeAuthKey, runtimeAuthSecret, runtimeSchemaSyncUrl),
             hubIdSaver,
             maxRetries,
             initialDelayMs,
@@ -102,6 +124,15 @@ public class JdbcSchemaSyncService {
     }
     
     private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig) {
+        return createExecutor(hubUrl, apiBasePath, proxyConfig,
+                proxyConfig != null ? proxyConfig.getRuntimeAuthKey() : null,
+                proxyConfig != null ? proxyConfig.getRuntimeAuthSecret() : null,
+                null);
+    }
+
+    private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig,
+                                                     String runtimeAuthKey, String runtimeAuthSecret,
+                                                     String runtimeSchemaSyncUrl) {
         // 공통 인터페이스 사용 (Java 8용 HTTP 클라이언트)
         com.dadp.common.sync.http.HttpClientAdapter httpClient = com.dadp.common.sync.http.Java8HttpClientAdapterFactory.create(5000, 10000);
         String instanceType = (apiBasePath != null && apiBasePath.contains("/runtime/wrappers")) ? "JDBC" : null;
@@ -110,8 +141,9 @@ public class JdbcSchemaSyncService {
                 apiBasePath,
                 instanceType,
                 httpClient,
-                proxyConfig != null ? proxyConfig.getRuntimeAuthKey() : null,
-                proxyConfig != null ? proxyConfig.getRuntimeAuthSecret() : null);
+                runtimeAuthKey,
+                runtimeAuthSecret,
+                runtimeSchemaSyncUrl);
     }
     
     /**
@@ -185,7 +217,8 @@ public class JdbcSchemaSyncService {
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송 (AOP와 동일한 구조)
             enrichPolicyCodes(schemas);
-            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig);
+            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig,
+                    runtimeAuthKey, runtimeAuthSecret, runtimeSchemaSyncUrl);
             boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getAlias(), currentVersion);
             
             if (synced) {
