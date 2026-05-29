@@ -30,6 +30,7 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.wrapper.crypto-stats.enabled");
         System.clearProperty("dadp.wrapper.crypto-stats.aggregation-level");
         System.clearProperty("dadp.wrapper.sql-mapping-debug.enabled");
+        System.clearProperty("dadp.wrapper.policy-sync.auto.enabled");
     }
 
     @Test
@@ -46,6 +47,7 @@ class ProxyConfigCryptoProfileTest {
         assertFalse(config.isWrapperCryptoStatsEnabled());
         assertTrue("1hour".equals(config.getWrapperCryptoStatsAggregationLevel()));
         assertFalse(config.isSqlMappingDebugEnabled());
+        assertFalse(config.isAutoPolicyMappingSyncEnabled());
         assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
@@ -179,5 +181,19 @@ class ProxyConfigCryptoProfileTest {
         ProxyConfig config = new ProxyConfig(urlParams);
 
         assertTrue(config.isSqlMappingDebugEnabled());
+    }
+
+    @Test
+    void autoPolicyMappingSyncIsOptInOnly() {
+        Map<String, String> defaultParams = new HashMap<>();
+        defaultParams.put("alias", "shared-db-group");
+        ProxyConfig defaultConfig = new ProxyConfig(defaultParams);
+        assertFalse(defaultConfig.isAutoPolicyMappingSyncEnabled());
+
+        Map<String, String> enabledParams = new HashMap<>();
+        enabledParams.put("alias", "shared-db-group");
+        enabledParams.put("policySyncAutoEnabled", "true");
+        ProxyConfig enabledConfig = new ProxyConfig(enabledParams);
+        assertTrue(enabledConfig.isAutoPolicyMappingSyncEnabled());
     }
 }

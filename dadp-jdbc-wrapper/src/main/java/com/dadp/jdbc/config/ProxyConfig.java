@@ -51,6 +51,7 @@ public class ProxyConfig {
     private final boolean wrapperCryptoStatsEnabled;  // Wrapper local crypto aggregated stats enabled
     private final String wrapperCryptoStatsAggregationLevel;  // Wrapper local crypto aggregated stats level
     private final boolean sqlMappingDebugEnabled;  // SQL -> column mapping debug enabled
+    private final boolean autoPolicyMappingSyncEnabled;  // 6.0 default: manual mapping refresh
     private final boolean cryptoProfileEnabled;  // Wrapper 암복호화 stage profiling 활성화 (기본값: false)
     private final String cryptoProfilePath;  // Wrapper 암복호화 stage profiling 출력 경로
     private final Map<String, String> urlParams;  // JDBC URL 파라미터 (InstanceIdProvider용)
@@ -318,6 +319,20 @@ public class ProxyConfig {
                 && !sqlMappingDebugEnabledProp.trim().isEmpty()
                 && ("true".equalsIgnoreCase(sqlMappingDebugEnabledProp) || "1".equals(sqlMappingDebugEnabledProp));
 
+        String autoPolicyMappingSyncEnabledProp = null;
+        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
+            autoPolicyMappingSyncEnabledProp = System.getProperty("dadp.wrapper.policy-sync.auto.enabled");
+        }
+        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
+            autoPolicyMappingSyncEnabledProp = System.getenv("DADP_WRAPPER_POLICY_SYNC_AUTO_ENABLED");
+        }
+        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
+            autoPolicyMappingSyncEnabledProp = urlParams != null ? urlParams.get("policySyncAutoEnabled") : null;
+        }
+        this.autoPolicyMappingSyncEnabled = autoPolicyMappingSyncEnabledProp != null
+                && !autoPolicyMappingSyncEnabledProp.trim().isEmpty()
+                && ("true".equalsIgnoreCase(autoPolicyMappingSyncEnabledProp) || "1".equals(autoPolicyMappingSyncEnabledProp));
+
         // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
         String cryptoProfileEnabledProp = null;
         if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
@@ -481,6 +496,7 @@ public class ProxyConfig {
         log.trace("   - Wrapper local crypto stats enabled: {}", this.wrapperCryptoStatsEnabled);
         log.trace("   - Wrapper local crypto stats aggregation level: {}", this.wrapperCryptoStatsAggregationLevel);
         log.trace("   - SQL mapping debug enabled: {}", this.sqlMappingDebugEnabled);
+        log.trace("   - Auto policy mapping sync enabled: {}", this.autoPolicyMappingSyncEnabled);
         log.trace("   - Wrapper crypto profile enabled: {}", this.cryptoProfileEnabled);
         log.trace("   - Wrapper crypto profile path: {}", this.cryptoProfilePath);
         log.trace("   - Schema collection timeout: {}ms", this.schemaCollectionTimeoutMs);
@@ -656,6 +672,10 @@ public class ProxyConfig {
 
     public boolean isSqlMappingDebugEnabled() {
         return sqlMappingDebugEnabled;
+    }
+
+    public boolean isAutoPolicyMappingSyncEnabled() {
+        return autoPolicyMappingSyncEnabled;
     }
 
     /**

@@ -2,7 +2,6 @@ package com.dadp.jdbc;
 
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
-import com.dadp.jdbc.mapping.DatasourceRegistrationService;
 import com.dadp.jdbc.notification.HubNotificationService;
 import com.dadp.jdbc.policy.SqlParser;
 import com.dadp.jdbc.resolution.JdbcVendorResolutionStrategies;
@@ -193,8 +192,7 @@ public class DadpProxyConnection implements Connection {
         // Hub 알림 서비스: 오케스트레이터에서 instanceId당 1개 공유 (커넥션마다 생성하지 않음)
         this.notificationService = this.orchestrator.getNotificationService();
         
-        // 주기적 동기화는 오케스트레이터에서 처리하므로 여기서는 제거
-        // 기존 loadMappingsFromHub()와 startMappingPolling()은 오케스트레이터에서 처리됨
+        // Runtime synchronization is owned by JdbcBootstrapOrchestrator.
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("DADP Proxy Connection created");
@@ -255,155 +253,6 @@ public class DadpProxyConnection implements Connection {
             schemaSyncService.clearSchemaHash(hubId);
         }
         log.debug("Local data reset completed: hubId={}", hubId);
-    }
-    
-    /**
-     * Hub에 등록 및 DB 스키마 전송
-     * 
-     * @param connection DB 연결
-     * @param originalUrl 원본 JDBC URL
-     * @return 등록된 hubId (실패 시 null)
-     */
-    private String registerAndSyncSchema(Connection connection, String originalUrl) {
-        // 1. Hub에 등록
-        String datasourceId = registerDatasource(connection, originalUrl);
-        if (datasourceId == null) {
-            log.warn("Hub registration failed");
-            return null;
-        }
-        this.datasourceId = datasourceId;
-        
-        // 2. hubId 확인
-        String hubId = config.getHubId();
-        if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("hubId not available, attempting Hub re-registration: alias={}", config.getAlias());
-            String retryHubId = retryRegisterProxyInstance(connection, originalUrl);
-            if (retryHubId != null && !retryHubId.trim().isEmpty()) {
-                hubId = retryHubId;
-                // hubId는 HubIdManager에서 전역으로 관리되므로 config.setHubId() 제거
-                log.info("Hub re-registration completed: hubId={}", hubId);
-            } else {
-                // fail-open 모드에서만 허용
-                if (config.isFailOpen()) {
-                    log.warn("Hub connection failed (fail-open mode): continuing without hubId. Alias must not be used as a temporary runtime hubId: alias={}", config.getAlias());
-                } else {
-                    log.error("Failed to obtain hubId from Hub. Check Hub connection or enable fail-open mode.");
-                    return null;
-                }
-            }
-        }
-        
-        // 3. DB 스키마 전송
-        syncSchemaMetadata();
-        
-        return hubId;
-    }
-    
-    /**
-     * Datasource 등록 (Hub에서 datasourceId 받아오기)
-     * 
-     * @param connection DB 연결
-     * @param originalUrl 원본 JDBC URL
-     * @return Datasource ID (Hub 연결 실패 시 null)
-     */
-    private String registerDatasource(Connection connection, String originalUrl) {
-        try {
-            DatabaseMetaData metaData = connection.getMetaData();
-            String dbVendor = metaData.getDatabaseProductName().toLowerCase();
-            String normalizedVendor = normalizeDbVendor(dbVendor);
-            String host = extractHostFromUrl(originalUrl, normalizedVendor);
-            int port = extractPortFromUrl(originalUrl, normalizedVendor);
-            String database = connection.getCatalog();
-            String schema = extractSchemaName(connection, dbVendor);
-
-            // Oracle: getCatalog()이 null을 반환하므로 서비스명 또는 스키마로 대체
-            if ((database == null || database.trim().isEmpty()) && "oracle".equals(normalizedVendor)) {
-                database = extractDatabaseFromOracleUrl(originalUrl);
-                if (database == null || database.trim().isEmpty()) {
-                    database = schema;
-                }
-            }
-
-            // Hub에 Datasource 등록/조회 요청
-            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
-            Long currentVersion = policyResolver.getCurrentVersion();
-            if (currentVersion == null) {
-                currentVersion = 0L;
-            }
-
-            DatasourceRegistrationService registrationService =
-                new DatasourceRegistrationService(config.getHubUrl(), config.getAlias());
-            DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
-            );
-
-            if (datasourceInfo != null && datasourceInfo.getDatasourceId() != null) {
-                // hubId는 HubIdManager에서 전역으로 관리되므로 config.setHubId() 제거
-                if (datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {
-                    log.debug("Hub-issued unique ID: hubId={} (managed by HubIdManager)", datasourceInfo.getHubId());
-                }
-                log.info("Datasource registration completed: datasourceId={}, displayName={}, hubId={}",
-                    datasourceInfo.getDatasourceId(), datasourceInfo.getDisplayName(), datasourceInfo.getHubId());
-                return datasourceInfo.getDatasourceId();
-            } else {
-                // Hub 연결 실패 시 datasourceId 없음
-                // 정책이 없으면 암호화/복호화 대상이 없으므로 평문 그대로 통과
-                log.debug("Datasource registration failed: Hub unreachable");
-                return null;
-            }
-        } catch (Exception e) {
-            log.warn("Datasource registration failed: {}", e.getMessage());
-            return null;
-        }
-    }
-    
-    /**
-     * Proxy Instance 재등록 (hubId가 없을 때)
-     * 
-     * @param connection DB 연결
-     * @param originalUrl 원본 JDBC URL
-     * @return hubId (등록 실패 시 null)
-     */
-    private String retryRegisterProxyInstance(Connection connection, String originalUrl) {
-        try {
-            DatabaseMetaData metaData = connection.getMetaData();
-            String dbVendor = metaData.getDatabaseProductName().toLowerCase();
-            String normalizedVendor = normalizeDbVendor(dbVendor);
-            String host = extractHostFromUrl(originalUrl, normalizedVendor);
-            int port = extractPortFromUrl(originalUrl, normalizedVendor);
-            String database = connection.getCatalog();
-            String schema = extractSchemaName(connection, dbVendor);
-
-            // Oracle: getCatalog()이 null을 반환하므로 서비스명 또는 스키마로 대체
-            if ((database == null || database.trim().isEmpty()) && "oracle".equals(normalizedVendor)) {
-                database = extractDatabaseFromOracleUrl(originalUrl);
-                if (database == null || database.trim().isEmpty()) {
-                    database = schema;
-                }
-            }
-
-            // Hub에 Datasource 등록/조회 요청 (hubId 받기)
-            // 재등록 시 Hub가 hubVersion = currentVersion + 1로 설정할 수 있도록 currentVersion 전송
-            Long currentVersion = policyResolver.getCurrentVersion();
-            if (currentVersion == null) {
-                currentVersion = 0L;
-            }
-
-            DatasourceRegistrationService registrationService =
-                new DatasourceRegistrationService(config.getHubUrl(), config.getAlias());
-            DatasourceRegistrationService.DatasourceInfo datasourceInfo = registrationService.registerOrGetDatasource(
-                normalizedVendor, host, port, database, schema, currentVersion, config.getHubId()
-            );
-            
-            if (datasourceInfo != null && datasourceInfo.getHubId() != null && !datasourceInfo.getHubId().trim().isEmpty()) {
-                return datasourceInfo.getHubId();
-            }
-            
-            return null;
-        } catch (Exception e) {
-            log.warn("Proxy Instance re-registration failed: {}", e.getMessage());
-            return null;
-        }
     }
     
     /**
@@ -576,50 +425,6 @@ public class DadpProxyConnection implements Connection {
      */
     public String getDatasourceId() {
         return datasourceId;
-    }
-    
-    /**
-     * 스키마 메타데이터를 Hub로 동기화 (비동기)
-     * Proxy Instance별로 한 번만 실행됩니다.
-     * @deprecated 오케스트레이터에서 처리됨
-     */
-    @Deprecated
-    private void syncSchemaMetadata() {
-        // 오케스트레이터에서 이미 처리됨
-        log.trace("Schema sync handled by orchestrator");
-    }
-    
-    /**
-     * Hub에서 정책 매핑 정보를 로드 (비동기, 완료 대기 가능)
-     * Proxy Instance별로 한 번만 실행되고, 이후 주기적으로 폴링합니다.
-     * @deprecated 오케스트레이터에서 처리됨
-     */
-    @Deprecated
-    private void loadMappingsFromHub() {
-        // 오케스트레이터에서 이미 처리됨
-        log.trace("Policy mapping load handled by orchestrator");
-    }
-    
-    /**
-     * 정책 매핑 로드가 완료될 때까지 대기
-     * @return 정책 로드 완료 여부 (타임아웃 시 false)
-     * @deprecated 오케스트레이터에서 처리됨
-     */
-    @Deprecated
-    private boolean waitForMappingsLoaded() {
-        // 오케스트레이터에서 이미 처리됨
-        return true;
-    }
-    
-    /**
-     * 주기적으로 Hub에서 매핑 정보를 폴링
-     * Proxy Instance별로 한 번만 스케줄러가 시작됩니다.
-     * @deprecated 오케스트레이터에서 처리됨
-     */
-    @Deprecated
-    private void startMappingPolling(String hubId) {
-        // 오케스트레이터에서 이미 처리됨
-        log.trace("Periodic sync handled by orchestrator");
     }
     
     /**

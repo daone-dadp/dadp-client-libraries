@@ -58,12 +58,6 @@ public class JdbcPolicyMappingSyncService {
     
     private ScheduledExecutorService scheduler;
     
-    
-    private Runnable reregistrationCallback;
-
-    
-    private Runnable schemaReloadCallback;
-    
     public JdbcPolicyMappingSyncService(
             MappingSyncService mappingSyncService,
             EndpointSyncService endpointSyncService,
@@ -152,13 +146,7 @@ public class JdbcPolicyMappingSyncService {
 
                 @Override
                 public void onSchemaReloadRequested() {
-                    
-                    if (schemaReloadCallback != null) {
-                        log.info("Schema force reload callback invoked from Hub");
-                        schemaReloadCallback.run();
-                    } else {
-                        log.warn("Schema force reload requested but callback not set");
-                    }
+                    log.info("Schema reload requested by Hub but ignored in DADP 6.0 runtime. Run the CLI/manual schema-sync flow.");
                 }
             }
         );
@@ -183,13 +171,14 @@ public class JdbcPolicyMappingSyncService {
         }
         
         
+        if (!config.isAutoPolicyMappingSyncEnabled()) {
+            setEnabled(false);
+            log.info("Automatic policy mapping sync disabled by default in DADP 6.0: hubId={}, alias={}", hubId, instanceId);
+            return;
+        }
+
         setEnabled(true);
-        
-        
         startPeriodicSync();
-        
-        
-        
         log.info("Periodic version check started: hubId={} (first check immediately)", hubId);
     }
     
@@ -408,35 +397,6 @@ public class JdbcPolicyMappingSyncService {
         }
     }
 
-    /**
-     * 재등록 콜백 설정 (JdbcBootstrapOrchestrator에서 호출)
-     */
-    public void setReregistrationCallback(Runnable callback) {
-        this.reregistrationCallback = callback;
-    }
-
-    
-    public void setSchemaReloadCallback(Runnable callback) {
-        this.schemaReloadCallback = callback;
-    }
-    
-    
-    private void registerWithHub() {
-        try {
-            if (reregistrationCallback != null) {
-                log.info("Hub re-registration starting (using stored metadata): alias={}", instanceId);
-                reregistrationCallback.run();
-                String hubId = hubIdManager.hasHubId() ? "hubId set" : "hubId not available";
-                log.info("Hub registration completed: {} (re-registration, schema re-send skipped)", hubId);
-            } else {
-                log.warn("Hub re-registration needed but reregistrationCallback is not set.");
-            }
-        } catch (Exception e) {
-            log.error("Hub re-registration failed: {}", e.getMessage(), e);
-        }
-    }
-    
-    
     public void setEnabled(boolean enabled) {
         this.enabled.set(enabled);
         if (enabled) {

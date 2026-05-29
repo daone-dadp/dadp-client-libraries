@@ -15,7 +15,6 @@ import com.dadp.jdbc.config.ExportedConfigLoader;
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
-import com.dadp.jdbc.mapping.DatasourceRegistrationService;
 import com.dadp.jdbc.notification.HubNotificationService;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
@@ -315,14 +314,15 @@ public class JdbcBootstrapOrchestrator {
             }
 
             
-            log.info("Step 3: Hub 6 runtime enrollment validation and schema sync");
-            boolean schemaRegistrationCompleted = false;
+            log.info("Step 3: Hub 6 runtime enrollment validation");
+            boolean runtimeEnrollmentAvailable = false;
 
             if (hubIdManager.hasRuntimeEnrollment()) {
                 hubId = hubIdManager.getCachedHubId();
                 this.cachedDatasourceId = hubIdManager.getCachedDatasourceId();
                 recreateSchemaRuntimeServices();
-                schemaRegistrationCompleted = ensureSchemasSyncedToHub(hubId);
+                runtimeEnrollmentAvailable = true;
+                log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", hubId, cachedDatasourceId);
             } else {
                 log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and store tenantId, datasourceId, wrapperAuth, refreshUrl and schemaSyncUrl before wrapper runtime sync.");
             }
@@ -343,7 +343,7 @@ public class JdbcBootstrapOrchestrator {
             initializeServicesWithHubId(hubId);
             
             
-            if (schemaRegistrationCompleted) {
+            if (runtimeEnrollmentAvailable) {
                 log.info("Step 5: Policy mapping sync service initialization");
                 initializePolicyMappingSyncService(hubId);
                 
@@ -356,7 +356,7 @@ public class JdbcBootstrapOrchestrator {
             } else {
                 
                 
-                log.warn("Hub registration failed: crypto service initialized but policy mapping sync not started. Will retry when Hub connection is restored.");
+                log.warn("Runtime enrollment unavailable: crypto service initialized but policy mapping sync not started.");
                 initialized = true; 
                 log.info("JDBC Wrapper bootstrap flow completed (limited): hubId={}, datasourceId={}, crypto available",
                         hubIdManager.getCachedHubId(), cachedDatasourceId);
@@ -416,29 +416,6 @@ public class JdbcBootstrapOrchestrator {
             }
         }
     }
-    
-    
-    private boolean registerWithHub() {
-        log.warn("Hub datasource self-registration is removed in DADP 6.0. Use CLI schema-register enrollment instead.");
-        return false;
-    }
-    
-    
-    private String registerInstance(String hubUrl, String instanceId) {
-        
-        
-        
-        
-        log.warn("registerInstance() is deprecated. Use registerDatasource() to obtain hubId.");
-            return null;
-    }
-    
-    
-    private DatasourceRegistrationService.DatasourceInfo registerDatasource(String caCertPath) {
-        log.warn("Datasource self-registration is removed in DADP 6.0. Use CLI schema-register enrollment.");
-        return null;
-    }
-    
     
     private String ensureRootCACertificate(String hubUrl, String instanceId) {
         log.info("Root CA certificate verification starting: hubUrl={}, alias={}", hubUrl, instanceId);
@@ -633,35 +610,6 @@ public class JdbcBootstrapOrchestrator {
         }
     }
     
-    
-    private boolean ensureSchemasSyncedToHub(String hubId) {
-        
-        List<SchemaMetadata> createdSchemas = schemaStorage.getCreatedSchemas();
-        if (!createdSchemas.isEmpty()) {
-            log.info("Sending CREATED schemas to Hub: hubId={}, schemaCount={}", hubId, createdSchemas.size());
-            boolean synced = syncCreatedSchemasToHub(hubId, createdSchemas);
-            if (synced) {
-                
-                List<String> schemaKeys = new java.util.ArrayList<>();
-                for (SchemaMetadata schema : createdSchemas) {
-                    if (schema != null) {
-                        schemaKeys.add(schema.getKey());
-                    }
-                }
-                schemaStorage.updateSchemasStatus(schemaKeys, SchemaMetadata.Status.REGISTERED);
-                log.info("CREATED schemas sent and status updated: {} schemas (CREATED -> REGISTERED)",
-                        createdSchemas.size());
-                return true;  
-            } else {
-                log.warn("CREATED schemas send failed: tenantId={}. Re-run CLI schema-register or check wrapperAuth/schemaSyncUrl.", hubId);
-                return false;
-            }
-        } else {
-            log.debug("No schemas to send, assumed already synced with Hub");
-            return true;  
-        }
-    }
-
     private void recreateSchemaRuntimeServices() {
         if (cachedDatasourceId == null || cachedDatasourceId.trim().isEmpty()) {
             log.warn("Cannot recreate runtime schema services without datasourceId.");
@@ -696,39 +644,6 @@ public class JdbcBootstrapOrchestrator {
                     cachedDatasourceId, allStoredSchemas.size());
         }
     }
-    
-    
-    private boolean syncCreatedSchemasToHub(String hubId, List<SchemaMetadata> createdSchemas) {
-        if (createdSchemas == null || createdSchemas.isEmpty()) {
-            return false;
-        }
-        
-        
-        if (cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()) {
-            for (SchemaMetadata schema : createdSchemas) {
-                if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
-                    schema.setDatasourceId(cachedDatasourceId);
-                    log.trace("Set datasourceId on schema before sending: schema={}.{}.{}, datasourceId={}",
-                        schema.getSchemaName(), schema.getTableName(), schema.getColumnName(), cachedDatasourceId);
-                }
-            }
-        }
-        
-        
-        
-        boolean success = schemaSyncService.syncSpecificSchemasToHub(createdSchemas);
-        
-        
-        if (!success) {
-            
-            
-            log.info("Schema sync failed (possible 404), re-registration required");
-        }
-        
-        return success;
-    }
-    
-    
     private void initializeServicesWithHubId(String hubId) {
         
         
@@ -839,17 +754,6 @@ public class JdbcBootstrapOrchestrator {
             );
             
             
-            final JdbcBootstrapOrchestrator self = this;
-            policyMappingSyncService.setReregistrationCallback(() -> {
-                log.warn("Re-registration callback ignored in DADP 6.0 runtime. Run CLI schema-register enrollment.");
-            });
-
-            
-            policyMappingSyncService.setSchemaReloadCallback(() -> {
-                log.info("Schema force reload callback invoked");
-                self.forceReloadSchemas();
-            });
-
             log.info("JdbcPolicyMappingSyncService initialized: hubId={}", hubId);
         } catch (Exception e) {
             log.warn("JdbcPolicyMappingSyncService initialization failed: {}", e.getMessage());

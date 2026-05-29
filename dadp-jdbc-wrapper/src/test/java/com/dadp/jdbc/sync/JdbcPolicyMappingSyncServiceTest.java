@@ -1,7 +1,9 @@
 package com.dadp.jdbc.sync;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
@@ -130,5 +132,42 @@ class JdbcPolicyMappingSyncServiceTest {
 
         assertTrue(configStorage.getStoragePath().replace('\\', '/').contains("/proxy-config.json"));
         assertNotNull(configStorage.loadConfig("http://hub:9004", "alias-only-wrapper"));
+    }
+
+    @Test
+    void automaticPolicyMappingSyncDoesNotStartUnlessExplicitlyEnabled() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("manual-sync-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+        when(proxyConfig.isAutoPolicyMappingSyncEnabled()).thenReturn(false);
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage,
+                "ds-test");
+
+        service.setInitialized(true, "pi_manual_sync");
+
+        Field schedulerField = JdbcPolicyMappingSyncService.class.getDeclaredField("scheduler");
+        schedulerField.setAccessible(true);
+        assertNull(schedulerField.get(service));
+        assertFalse(service.isEnabled());
     }
 }
