@@ -29,9 +29,10 @@ import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
-import java.security.cert.X509Certificate;
 
 /**
  * Hub 암복호화 서비스
@@ -456,7 +457,7 @@ public class HubCryptoService {
             
             String requestBody;
             try {
-                requestBody = objectMapper.writeValueAsString(request);
+                requestBody = buildEncryptRequestBody(data, policy);
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
@@ -601,11 +602,10 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policyName);
-            request.setForSearch(true);
 
             String requestBody;
             try {
-                requestBody = objectMapper.writeValueAsString(request);
+                requestBody = buildEncryptRequestBody(data, policyName);
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
@@ -752,7 +752,7 @@ public class HubCryptoService {
             
             String requestBody;
             try {
-                requestBody = objectMapper.writeValueAsString(request);
+                requestBody = buildDecryptRequestBody(encryptedData, policyName, maskPolicyName, maskPolicyUid);
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
@@ -1387,6 +1387,28 @@ public class HubCryptoService {
         if (enableLogging && (endpointUsageCount == 1 || endpointUsageCount % 100 == 0)) {
             log.debug("Telemetry: crypto endpoint usage - endpoint={}, usageCount={}",
                     endpoint, endpointUsageCount);
+        }
+    }
+
+    private String buildEncryptRequestBody(String data, String policyName) throws com.fasterxml.jackson.core.JsonProcessingException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("data", data);
+        putIfNotBlank(body, "policyName", policyName);
+        return objectMapper.writeValueAsString(body);
+    }
+
+    private String buildDecryptRequestBody(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid) throws com.fasterxml.jackson.core.JsonProcessingException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("data", encryptedData);
+        putIfNotBlank(body, "policyName", policyName);
+        putIfNotBlank(body, "maskPolicyName", maskPolicyName);
+        putIfNotBlank(body, "maskPolicyUid", maskPolicyUid);
+        return objectMapper.writeValueAsString(body);
+    }
+
+    private static void putIfNotBlank(Map<String, Object> body, String key, String value) {
+        if (value != null && !value.trim().isEmpty()) {
+            body.put(key, value);
         }
     }
     

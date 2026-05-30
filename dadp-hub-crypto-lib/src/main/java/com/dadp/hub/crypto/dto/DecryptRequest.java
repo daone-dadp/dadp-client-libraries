@@ -1,5 +1,7 @@
 package com.dadp.hub.crypto.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,13 +17,14 @@ import lombok.AllArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DecryptRequest {
     
     /**
      * 복호화할 암호화된 데이터
      */
-    @JsonProperty("encryptedData")
-    private String encryptedData;
+    @JsonProperty("data")
+    private String data;
 
     /**
      * 암호화 정책명 (FPE 등 prefix 없는 암호문 복호화 시 필수)
@@ -40,5 +43,14 @@ public class DecryptRequest {
      */
     @JsonProperty("maskPolicyUid")
     private String maskPolicyUid;
+
+    @JsonIgnore
+    public String getEncryptedData() {
+        return data;
+    }
+
+    public void setEncryptedData(String encryptedData) {
+        this.data = encryptedData;
+    }
     
 }

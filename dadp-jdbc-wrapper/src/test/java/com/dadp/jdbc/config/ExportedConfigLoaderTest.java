@@ -177,6 +177,46 @@ class ExportedConfigLoaderTest {
         assertEquals("secret-test-value", hubIdManager.getCachedWrapperAuthSecret());
     }
 
+    @Test
+    void emptyExportedMappingsDoNotOverwriteExistingLocalMappings() throws Exception {
+        Path storageDir = tempDir.resolve("wrapper-empty-mapping");
+        Files.createDirectories(storageDir);
+
+        String json = "{\n"
+                + "  \"exportVersion\": 1,\n"
+                + "  \"tenantId\": \"wtenant_test\",\n"
+                + "  \"wrapperAuthSecret\": \"secret-test-value\",\n"
+                + "  \"instanceId\": \"wrapper-test\",\n"
+                + "  \"datasourceId\": \"ds-test\",\n"
+                + "  \"policyVersion\": 2,\n"
+                + "  \"mappings\": {}\n"
+                + "}\n";
+        Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
+
+        InstanceConfigStorage configStorage =
+                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
+        HubIdManager hubIdManager =
+                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
+        HashMap<String, String> existingMappings = new HashMap<>();
+        existingMappings.put("users.email", "dadp");
+        existingMappings.put("users.phone", "dadp");
+        policyResolver.refreshMappings(existingMappings, 6L);
+        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
+
+        String datasourceId = ExportedConfigLoader.loadIfExists(
+                storageDir.toString(),
+                "wrapper-test",
+                hubIdManager,
+                policyResolver,
+                endpointStorage);
+
+        assertEquals("ds-test", datasourceId);
+        assertEquals(Long.valueOf(6L), policyResolver.getCurrentVersion());
+        assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "email"));
+        assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "phone"));
+    }
+
     private void setStaticField(String fieldName, Object value) throws Exception {
         Field field = DadpLoggerFactory.class.getDeclaredField(fieldName);
         field.setAccessible(true);

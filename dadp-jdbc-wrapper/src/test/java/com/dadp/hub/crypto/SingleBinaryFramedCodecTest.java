@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
@@ -55,12 +56,42 @@ class SingleBinaryFramedCodecTest {
         encryptRequest.setPolicyName("policy-email");
         String encryptJson = objectMapper.writeValueAsString(encryptRequest);
         assertFalse(encryptJson.contains("includeStats"));
+        assertFalse(encryptJson.contains("forSearch"));
+        assertFalse(encryptJson.contains("policyVersion"));
 
         DecryptRequest decryptRequest = new DecryptRequest();
         decryptRequest.setEncryptedData("hub:policy-email:cipher");
         decryptRequest.setPolicyName("policy-email");
         String decryptJson = objectMapper.writeValueAsString(decryptRequest);
         assertFalse(decryptJson.contains("includeStats"));
+        assertFalse(decryptJson.contains("encryptedData"));
+        assertTrue(decryptJson.contains("\"data\""));
+    }
+
+    @Test
+    void jsonEngineRequestBuildersEmitOnlyGoEngineFields() throws Exception {
+        HubCryptoService service = new HubCryptoService();
+
+        Method encryptBuilder = HubCryptoService.class.getDeclaredMethod("buildEncryptRequestBody", String.class, String.class);
+        encryptBuilder.setAccessible(true);
+        JsonNode encrypt = objectMapper.readTree((String) encryptBuilder.invoke(service, "alice", "policy-email"));
+        assertEquals("alice", encrypt.get("data").asText());
+        assertEquals("policy-email", encrypt.get("policyName").asText());
+        assertFalse(encrypt.has("includeStats"));
+        assertFalse(encrypt.has("forSearch"));
+        assertFalse(encrypt.has("policyVersion"));
+
+        Method decryptBuilder = HubCryptoService.class.getDeclaredMethod(
+                "buildDecryptRequestBody", String.class, String.class, String.class, String.class);
+        decryptBuilder.setAccessible(true);
+        JsonNode decrypt = objectMapper.readTree((String) decryptBuilder.invoke(
+                service, "hub:policy-email:cipher", "policy-email", null, ""));
+        assertEquals("hub:policy-email:cipher", decrypt.get("data").asText());
+        assertEquals("policy-email", decrypt.get("policyName").asText());
+        assertFalse(decrypt.has("encryptedData"));
+        assertFalse(decrypt.has("maskPolicyName"));
+        assertFalse(decrypt.has("maskPolicyCode"));
+        assertFalse(decrypt.has("includeStats"));
     }
 
     @Test

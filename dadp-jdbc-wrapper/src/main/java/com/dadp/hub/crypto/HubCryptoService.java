@@ -732,7 +732,7 @@ public class HubCryptoService {
             } else {
                 String requestBody;
                 try {
-                    requestBody = objectMapper.writeValueAsString(request);
+                    requestBody = buildEncryptRequestBody(data, policy);
                 } catch (Exception e) {
                     throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
                 }
@@ -804,12 +804,11 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policyName);
-            request.setForSearch(true);
 
             String requestBody;
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             try {
-                requestBody = objectMapper.writeValueAsString(request);
+                requestBody = buildEncryptRequestBody(data, policyName);
             } catch (Exception e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
@@ -996,7 +995,7 @@ public class HubCryptoService {
             } else {
                 String requestBody;
                 try {
-                    requestBody = objectMapper.writeValueAsString(request);
+                    requestBody = buildDecryptRequestBody(encryptedData, policyName, maskPolicyName, maskPolicyCode);
                 } catch (Exception e) {
                     throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
                 }
@@ -1721,6 +1720,28 @@ public class HubCryptoService {
             this.processingTime = processingTime;
             this.engineTraceId = engineTraceId;
             this.engineStats = engineStats;
+        }
+    }
+
+    private String buildEncryptRequestBody(String data, String policyName) throws IOException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("data", data);
+        putIfNotBlank(body, "policyName", policyName);
+        return objectMapper.writeValueAsString(body);
+    }
+
+    private String buildDecryptRequestBody(String encryptedData, String policyName, String maskPolicyName, String maskPolicyCode) throws IOException {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("data", encryptedData);
+        putIfNotBlank(body, "policyName", policyName);
+        putIfNotBlank(body, "maskPolicyName", maskPolicyName);
+        putIfNotBlank(body, "maskPolicyCode", maskPolicyCode);
+        return objectMapper.writeValueAsString(body);
+    }
+
+    private static void putIfNotBlank(Map<String, Object> body, String key, String value) {
+        if (value != null && !value.trim().isEmpty()) {
+            body.put(key, value);
         }
     }
 

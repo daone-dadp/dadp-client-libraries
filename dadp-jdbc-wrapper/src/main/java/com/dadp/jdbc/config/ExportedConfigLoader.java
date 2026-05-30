@@ -198,13 +198,17 @@ public class ExportedConfigLoader {
 
             // 4. Save policy mappings via policyResolver.refreshMappings()
             Map<String, String> mappings = (Map<String, String>) config.get("mappings");
+            boolean hasMappings = mappings != null && !mappings.isEmpty();
             if (mappings == null) {
                 mappings = new HashMap<>();
             }
 
             // Load policy attributes if present
             Map<String, Object> rawPolicyAttributes = (Map<String, Object>) config.get("policyAttributes");
-            if (rawPolicyAttributes != null && !rawPolicyAttributes.isEmpty()) {
+            if (!hasMappings) {
+                log.info("Exported config: empty mappings ignored to preserve existing local policy mappings, fileVersion={}, currentVersion={}",
+                        filePolicyVersion, currentPolicyVersion);
+            } else if (rawPolicyAttributes != null && !rawPolicyAttributes.isEmpty()) {
                 Map<String, PolicyResolver.PolicyAttributes> policyAttributes = new HashMap<>();
                 for (Map.Entry<String, Object> entry : rawPolicyAttributes.entrySet()) {
                     if (entry.getValue() instanceof Map) {

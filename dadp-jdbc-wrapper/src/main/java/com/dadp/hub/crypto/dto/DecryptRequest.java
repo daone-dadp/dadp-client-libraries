@@ -1,5 +1,7 @@
 package com.dadp.hub.crypto.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -10,10 +12,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @author DADP Development Team
  * @version 5.5.5
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DecryptRequest {
 
-    @JsonProperty("encryptedData")
-    private String encryptedData;
+    @JsonProperty("data")
+    private String data;
 
     @JsonProperty("policyName")
     private String policyName;
@@ -26,8 +29,12 @@ public class DecryptRequest {
 
     public DecryptRequest() {}
 
-    public String getEncryptedData() { return encryptedData; }
-    public void setEncryptedData(String encryptedData) { this.encryptedData = encryptedData; }
+    public String getData() { return data; }
+    public void setData(String data) { this.data = data; }
+
+    @JsonIgnore
+    public String getEncryptedData() { return data; }
+    public void setEncryptedData(String encryptedData) { this.data = encryptedData; }
 
     public String getPolicyName() { return policyName; }
     public void setPolicyName(String policyName) { this.policyName = policyName; }
@@ -40,7 +47,7 @@ public class DecryptRequest {
 
     @Override
     public String toString() {
-        return "DecryptRequest{encryptedData=" + (encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null") +
+        return "DecryptRequest{data=" + (data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null") +
                ", policyName=" + policyName + ", maskPolicyName=" + maskPolicyName + "}";
     }
 }

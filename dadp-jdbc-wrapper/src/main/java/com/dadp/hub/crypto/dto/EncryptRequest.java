@@ -1,5 +1,6 @@
 package com.dadp.hub.crypto.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -10,6 +11,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @author DADP Development Team
  * @version 5.5.5
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class EncryptRequest {
 
     @JsonProperty("data")
@@ -17,12 +19,6 @@ public class EncryptRequest {
 
     @JsonProperty("policyName")
     private String policyName;
-
-    @JsonProperty("policyVersion")
-    private String policyVersion;
-
-    @JsonProperty("forSearch")
-    private Boolean forSearch;
 
     public EncryptRequest() {}
 
@@ -32,15 +28,9 @@ public class EncryptRequest {
     public String getPolicyName() { return policyName; }
     public void setPolicyName(String policyName) { this.policyName = policyName; }
 
-    public String getPolicyVersion() { return policyVersion; }
-    public void setPolicyVersion(String policyVersion) { this.policyVersion = policyVersion; }
-
-    public Boolean getForSearch() { return forSearch; }
-    public void setForSearch(Boolean forSearch) { this.forSearch = forSearch; }
-
     @Override
     public String toString() {
         return "EncryptRequest{data=" + (data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null") +
-               ", policyName=" + policyName + ", forSearch=" + forSearch + "}";
+               ", policyName=" + policyName + "}";
     }
 }

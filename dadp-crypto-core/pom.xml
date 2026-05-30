@@ -8,13 +8,13 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>6.0.4</version>
+        <version>6.0.5</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-crypto-core</artifactId>
-    <version>6.0.4</version>
+    <version>6.0.5</version>
     <packaging>jar</packaging>
 
     <name>DADP Crypto Core</name>

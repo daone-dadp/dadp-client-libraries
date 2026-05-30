@@ -1,5 +1,6 @@
 package com.dadp.hub.crypto.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,6 +16,7 @@ import lombok.AllArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class EncryptRequest {
     
     /**
@@ -29,16 +31,4 @@ public class EncryptRequest {
     @JsonProperty("policyName")
     private String policyName;
     
-    /**
-     * 정책 버전 (선택사항)
-     */
-    @JsonProperty("policyVersion")
-    private String policyVersion;
-    
-    /**
-     * 검색용 암호화 여부
-     * true: Engine이 정책(useIv/usePlain)에 따라 암호화 또는 평문 반환
-     */
-    @JsonProperty("forSearch")
-    private Boolean forSearch;
 }
