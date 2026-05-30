@@ -870,8 +870,8 @@ public class HubCryptoService {
         boolean useBinaryFramed = useSingleBinaryFramedTransport();
 
         if (enableLogging && log.isDebugEnabled()) {
-            log.debug("Wrapper decrypt request: encryptedLength={}, maskPolicyName={}, maskPolicyCode={}",
-                    encryptedData != null ? encryptedData.length() : 0, maskPolicyName, maskPolicyCode);
+            log.debug("Wrapper decrypt request: encryptedLength={} (Engine 6.0 payload sends data only)",
+                    encryptedData != null ? encryptedData.length() : 0);
         }
 
         try {
@@ -880,9 +880,6 @@ public class HubCryptoService {
 
             DecryptRequest request = new DecryptRequest();
             request.setEncryptedData(encryptedData);
-            request.setPolicyName(policyName);
-            request.setMaskPolicyName(maskPolicyName);
-            request.setMaskPolicyCode(maskPolicyCode);
 
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             ParsedDecryptResult parsed;
@@ -995,7 +992,7 @@ public class HubCryptoService {
             } else {
                 String requestBody;
                 try {
-                    requestBody = buildDecryptRequestBody(encryptedData, policyName, maskPolicyName, maskPolicyCode);
+                    requestBody = buildDecryptRequestBody(encryptedData);
                 } catch (Exception e) {
                     throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
                 }
@@ -1210,8 +1207,8 @@ public class HubCryptoService {
         }
 
         if (enableLogging && log.isDebugEnabled()) {
-            log.debug("Wrapper batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyCode={}",
-                    encryptedDataList.size(), maskPolicyName, maskPolicyCode);
+            log.debug("Wrapper batch decrypt request: itemsCount={} (Engine 6.0 item payload sends data only)",
+                    encryptedDataList.size());
         }
 
         try {
@@ -1227,12 +1224,6 @@ public class HubCryptoService {
             for (String ed : encryptedDataList) {
                 java.util.Map<String, Object> item = new java.util.HashMap<>();
                 item.put("data", ed);
-                if (maskPolicyName != null && !maskPolicyName.trim().isEmpty()) {
-                    item.put("maskPolicyName", maskPolicyName);
-                }
-                if (maskPolicyCode != null && !maskPolicyCode.trim().isEmpty()) {
-                    item.put("maskPolicyCode", maskPolicyCode);
-                }
                 items.add(item);
             }
             batchRequest.put("items", items);
@@ -1730,12 +1721,9 @@ public class HubCryptoService {
         return objectMapper.writeValueAsString(body);
     }
 
-    private String buildDecryptRequestBody(String encryptedData, String policyName, String maskPolicyName, String maskPolicyCode) throws IOException {
+    private String buildDecryptRequestBody(String encryptedData) throws IOException {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("data", encryptedData);
-        putIfNotBlank(body, "policyName", policyName);
-        putIfNotBlank(body, "maskPolicyName", maskPolicyName);
-        putIfNotBlank(body, "maskPolicyCode", maskPolicyCode);
         return objectMapper.writeValueAsString(body);
     }
 

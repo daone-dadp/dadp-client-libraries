@@ -27,21 +27,21 @@ public class DecryptRequest {
     private String data;
 
     /**
-     * 암호화 정책명 (FPE 등 prefix 없는 암호문 복호화 시 필수)
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize policyName.
      */
-    @JsonProperty("policyName")
+    @JsonIgnore
     private String policyName;
 
     /**
-     * 마스킹 정책명 (복호화 시 마스킹 적용을 위해 사용)
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize mask policy data.
      */
-    @JsonProperty("maskPolicyName")
+    @JsonIgnore
     private String maskPolicyName;
     
     /**
-     * 마스킹 정책 UID (복호화 시 마스킹 적용을 위해 사용)
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize mask policy data.
      */
-    @JsonProperty("maskPolicyUid")
+    @JsonIgnore
     private String maskPolicyUid;
 
     @JsonIgnore

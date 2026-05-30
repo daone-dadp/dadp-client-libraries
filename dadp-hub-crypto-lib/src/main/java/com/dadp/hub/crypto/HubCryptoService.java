@@ -687,12 +687,12 @@ public class HubCryptoService {
     }
 
     /**
-     * 데이터 복호화 (마스킹 정책 포함)
+     * 데이터 복호화.
      *
      * @param encryptedData 복호화할 암호화된 데이터
-     * @param maskPolicyName 마스킹 정책명 (선택사항)
-     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
-     * @return 복호화된 데이터 (마스킹 정책이 지정된 경우 마스킹 적용)
+     * @param maskPolicyName legacy parameter ignored for Engine 6.0 payloads
+     * @param maskPolicyUid legacy parameter ignored for Engine 6.0 payloads
+     * @return 복호화된 데이터
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
@@ -700,13 +700,13 @@ public class HubCryptoService {
     }
 
     /**
-     * 데이터 복호화 (마스킹 정책 및 통계 정보 포함 옵션)
+     * 데이터 복호화.
      *
      * @param encryptedData 복호화할 암호화된 데이터
-     * @param maskPolicyName 마스킹 정책명 (선택사항)
-     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
-     * @param includeStats 통계 정보 포함 여부
-     * @return 복호화된 데이터 (마스킹 정책이 지정된 경우 마스킹 적용)
+     * @param maskPolicyName legacy parameter ignored for Engine 6.0 payloads
+     * @param maskPolicyUid legacy parameter ignored for Engine 6.0 payloads
+     * @param includeStats legacy parameter ignored for Engine 6.0 payloads
+     * @return 복호화된 데이터
      * @throws HubCryptoException 복호화 실패 시
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
@@ -714,13 +714,13 @@ public class HubCryptoService {
     }
 
     /**
-     * 데이터 복호화 (정책명 + 마스킹 정책 + 통계 정보)
+     * 데이터 복호화.
      *
      * @param encryptedData 복호화할 암호화된 데이터
-     * @param policyName 암호화 정책명 (FPE 등 prefix 없는 암호문 복호화 시 필수)
-     * @param maskPolicyName 마스킹 정책명 (선택사항)
-     * @param maskPolicyUid 마스킹 정책 UID (선택사항)
-     * @param includeStats 통계 정보 포함 여부
+     * @param policyName legacy parameter ignored for Engine 6.0 payloads
+     * @param maskPolicyName legacy parameter ignored for Engine 6.0 payloads
+     * @param maskPolicyUid legacy parameter ignored for Engine 6.0 payloads
+     * @param includeStats legacy parameter ignored for Engine 6.0 payloads
      * @return 복호화된 데이터
      * @throws HubCryptoException 복호화 실패 시
      */
@@ -732,9 +732,8 @@ public class HubCryptoService {
         validateNotHubPath();
         
         if (enableLogging) {
-            log.trace("Engine decrypt request: encryptedData={}, maskPolicyName={}, maskPolicyUid={}",
-                    encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null",
-                    maskPolicyName, maskPolicyUid);
+            log.trace("Engine decrypt request: encryptedData={} (Engine 6.0 payload sends data only)",
+                    encryptedData != null ? encryptedData.substring(0, Math.min(20, encryptedData.length())) + "..." : "null");
         }
         
         try {
@@ -745,14 +744,11 @@ public class HubCryptoService {
             
             DecryptRequest request = new DecryptRequest();
             request.setEncryptedData(encryptedData);
-            request.setPolicyName(policyName);
-            request.setMaskPolicyName(maskPolicyName);
-            request.setMaskPolicyUid(maskPolicyUid);
             // includeStats는 엔진에서 제거되었으므로 전달하지 않음
             
             String requestBody;
             try {
-                requestBody = buildDecryptRequestBody(encryptedData, policyName, maskPolicyName, maskPolicyUid);
+                requestBody = buildDecryptRequestBody(encryptedData);
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                 throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
             }
@@ -942,9 +938,9 @@ public class HubCryptoService {
      * 배치 복호화 (여러 개의 암호화된 데이터를 일괄 복호화)
      * 
      * @param encryptedDataList 복호화할 암호화된 데이터 목록
-     * @param maskPolicyName 마스킹 정책명 (선택사항, 모든 항목에 공통 적용)
-     * @param maskPolicyUid 마스킹 정책 UID (선택사항, 모든 항목에 공통 적용)
-     * @param includeStats 통계 정보 포함 여부
+     * @param maskPolicyName legacy parameter ignored for Engine 6.0 payloads
+     * @param maskPolicyUid legacy parameter ignored for Engine 6.0 payloads
+     * @param includeStats legacy parameter ignored for Engine 6.0 payloads
      * @return 복호화된 데이터 목록 (순서 보장)
      * @throws HubCryptoException 복호화 실패 시
      */
@@ -960,8 +956,8 @@ public class HubCryptoService {
         }
         
         if (enableLogging) {
-            log.trace("Engine batch decrypt request: itemsCount={}, maskPolicyName={}, maskPolicyUid={}",
-                    encryptedDataList.size(), maskPolicyName, maskPolicyUid);
+            log.trace("Engine batch decrypt request: itemsCount={} (Engine 6.0 item payload sends data only)",
+                    encryptedDataList.size());
         }
         
         try {
@@ -981,12 +977,6 @@ public class HubCryptoService {
             for (String encryptedData : encryptedDataList) {
                 java.util.Map<String, Object> item = new java.util.HashMap<>();
                 item.put("data", encryptedData);
-                if (maskPolicyName != null && !maskPolicyName.trim().isEmpty()) {
-                    item.put("maskPolicyName", maskPolicyName);
-                }
-                if (maskPolicyUid != null && !maskPolicyUid.trim().isEmpty()) {
-                    item.put("maskPolicyUid", maskPolicyUid);
-                }
                 items.add(item);
             }
             
@@ -1397,12 +1387,9 @@ public class HubCryptoService {
         return objectMapper.writeValueAsString(body);
     }
 
-    private String buildDecryptRequestBody(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid) throws com.fasterxml.jackson.core.JsonProcessingException {
+    private String buildDecryptRequestBody(String encryptedData) throws com.fasterxml.jackson.core.JsonProcessingException {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("data", encryptedData);
-        putIfNotBlank(body, "policyName", policyName);
-        putIfNotBlank(body, "maskPolicyName", maskPolicyName);
-        putIfNotBlank(body, "maskPolicyUid", maskPolicyUid);
         return objectMapper.writeValueAsString(body);
     }
 

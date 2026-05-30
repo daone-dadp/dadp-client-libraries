@@ -18,13 +18,22 @@ public class DecryptRequest {
     @JsonProperty("data")
     private String data;
 
-    @JsonProperty("policyName")
+    /**
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize policyName.
+     */
+    @JsonIgnore
     private String policyName;
 
-    @JsonProperty("maskPolicyName")
+    /**
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize mask policy data.
+     */
+    @JsonIgnore
     private String maskPolicyName;
 
-    @JsonProperty("maskPolicyCode")
+    /**
+     * Legacy caller field. Engine 6.0 decrypt requests must not serialize mask policy data.
+     */
+    @JsonIgnore
     private String maskPolicyCode;
 
     public DecryptRequest() {}
