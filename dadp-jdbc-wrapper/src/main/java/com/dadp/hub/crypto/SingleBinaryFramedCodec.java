@@ -34,10 +34,10 @@ final class SingleBinaryFramedCodec {
 
     static byte[] writeEncryptRequest(EncryptRequest request) {
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-             DataOutputStream output = new DataOutputStream(bytes)) {
+            DataOutputStream output = new DataOutputStream(bytes)) {
             writeHeader(output, OP_SINGLE_ENCRYPT_REQUEST);
             writeString(output, request.getData());
-            writeString(output, null);
+            writeString(output, request.getPolicyCode());
             writeString(output, request.getPolicyName());
             writeNullableBoolean(output, null);
             writeNullableInt(output, null);

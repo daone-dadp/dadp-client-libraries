@@ -30,5 +30,11 @@ public class EncryptRequest {
      */
     @JsonProperty("policyName")
     private String policyName;
+
+    /**
+     * Runtime policy code. Must not be combined with policyName.
+     */
+    @JsonProperty("policyCode")
+    private String policyCode;
     
 }

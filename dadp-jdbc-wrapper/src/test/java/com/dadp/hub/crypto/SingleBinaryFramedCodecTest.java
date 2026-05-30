@@ -36,6 +36,33 @@ class SingleBinaryFramedCodecTest {
 
         assertEquals('D', encoded[0]);
         assertEquals(OP_SINGLE_ENCRYPT_RESPONSE - 2, encoded[8]);
+
+        DataInputStream input = new DataInputStream(new ByteArrayInputStream(encoded));
+        byte[] magic = new byte[MAGIC.length];
+        input.readFully(magic);
+        input.readByte();
+        input.readInt();
+        assertEquals("alice", readString(input));
+        assertEquals(null, readString(input));
+        assertEquals("policy-email", readString(input));
+    }
+
+    @Test
+    void encryptRequestCanCarryRuntimePolicyCodeWithoutPolicyName() throws Exception {
+        EncryptRequest request = new EncryptRequest();
+        request.setData("alice");
+        request.setPolicyCode("WZD4KTMA");
+
+        byte[] encoded = SingleBinaryFramedCodec.writeEncryptRequest(request);
+
+        DataInputStream input = new DataInputStream(new ByteArrayInputStream(encoded));
+        byte[] magic = new byte[MAGIC.length];
+        input.readFully(magic);
+        input.readByte();
+        input.readInt();
+        assertEquals("alice", readString(input));
+        assertEquals("WZD4KTMA", readString(input));
+        assertEquals(null, readString(input));
     }
 
     @Test
@@ -68,6 +95,7 @@ class SingleBinaryFramedCodecTest {
         encryptRequest.setData("alice");
         encryptRequest.setPolicyName("policy-email");
         String encryptJson = objectMapper.writeValueAsString(encryptRequest);
+        assertTrue(encryptJson.contains("\"policyName\""));
         assertFalse(encryptJson.contains("includeStats"));
         assertFalse(encryptJson.contains("forSearch"));
         assertFalse(encryptJson.contains("policyVersion"));
@@ -95,6 +123,11 @@ class SingleBinaryFramedCodecTest {
         JsonNode encrypt = objectMapper.readTree((String) encryptBuilder.invoke(service, "alice", "policy-email"));
         assertEquals("alice", encrypt.get("data").asText());
         assertEquals("policy-email", encrypt.get("policyName").asText());
+        assertFalse(encrypt.has("policyCode"));
+        JsonNode encryptByCode = objectMapper.readTree((String) encryptBuilder.invoke(service, "alice", "WZD4KTMA"));
+        assertEquals("alice", encryptByCode.get("data").asText());
+        assertEquals("WZD4KTMA", encryptByCode.get("policyCode").asText());
+        assertFalse(encryptByCode.has("policyName"));
         assertFalse(encrypt.has("includeStats"));
         assertFalse(encrypt.has("forSearch"));
         assertFalse(encrypt.has("policyVersion"));

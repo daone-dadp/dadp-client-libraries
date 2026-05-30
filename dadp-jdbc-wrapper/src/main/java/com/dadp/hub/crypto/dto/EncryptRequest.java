@@ -20,6 +20,9 @@ public class EncryptRequest {
     @JsonProperty("policyName")
     private String policyName;
 
+    @JsonProperty("policyCode")
+    private String policyCode;
+
     public EncryptRequest() {}
 
     public String getData() { return data; }
@@ -28,9 +31,12 @@ public class EncryptRequest {
     public String getPolicyName() { return policyName; }
     public void setPolicyName(String policyName) { this.policyName = policyName; }
 
+    public String getPolicyCode() { return policyCode; }
+    public void setPolicyCode(String policyCode) { this.policyCode = policyCode; }
+
     @Override
     public String toString() {
         return "EncryptRequest{data=" + (data != null ? data.substring(0, Math.min(20, data.length())) + "..." : "null") +
-               ", policyName=" + policyName + "}";
+               ", policyName=" + policyName + ", policyCode=" + policyCode + "}";
     }
 }

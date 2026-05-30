@@ -452,7 +452,7 @@ public class HubCryptoService {
             
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
-            request.setPolicyName(policy);
+            applyPolicyIdentifier(request, policy);
             // includeStats는 엔진에서 제거되었으므로 전달하지 않음
             
             String requestBody;
@@ -601,7 +601,7 @@ public class HubCryptoService {
 
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
-            request.setPolicyName(policyName);
+            applyPolicyIdentifier(request, policyName);
 
             String requestBody;
             try {
@@ -1128,7 +1128,7 @@ public class HubCryptoService {
                 item.put("data", dataList.get(i));
                 String policy = policyList.get(i);
                 if (policy != null && !policy.trim().isEmpty()) {
-                    item.put("policyName", policy);
+                    putPolicyIdentifier(item, policy);
                 }
                 items.add(item);
             }
@@ -1383,7 +1383,7 @@ public class HubCryptoService {
     private String buildEncryptRequestBody(String data, String policyName) throws com.fasterxml.jackson.core.JsonProcessingException {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("data", data);
-        putIfNotBlank(body, "policyName", policyName);
+        putPolicyIdentifier(body, policyName);
         return objectMapper.writeValueAsString(body);
     }
 
@@ -1397,6 +1397,30 @@ public class HubCryptoService {
         if (value != null && !value.trim().isEmpty()) {
             body.put(key, value);
         }
+    }
+
+    private static void applyPolicyIdentifier(EncryptRequest request, String policyIdentifier) {
+        if (policyIdentifier == null || policyIdentifier.trim().isEmpty()) {
+            return;
+        }
+        String trimmed = policyIdentifier.trim();
+        if (isRuntimePolicyCode(trimmed)) {
+            request.setPolicyCode(trimmed);
+        } else {
+            request.setPolicyName(trimmed);
+        }
+    }
+
+    private static void putPolicyIdentifier(Map<String, Object> body, String policyIdentifier) {
+        if (policyIdentifier == null || policyIdentifier.trim().isEmpty()) {
+            return;
+        }
+        String trimmed = policyIdentifier.trim();
+        body.put(isRuntimePolicyCode(trimmed) ? "policyCode" : "policyName", trimmed);
+    }
+
+    private static boolean isRuntimePolicyCode(String value) {
+        return value != null && value.matches("[A-Z0-9]{8}");
     }
     
     /**
