@@ -24,9 +24,6 @@ public class DecryptRequest {
     @JsonProperty("maskPolicyCode")
     private String maskPolicyCode;
 
-    @JsonProperty("includeStats")
-    private Boolean includeStats = false;
-
     public DecryptRequest() {}
 
     public String getEncryptedData() { return encryptedData; }
@@ -40,9 +37,6 @@ public class DecryptRequest {
 
     public String getMaskPolicyCode() { return maskPolicyCode; }
     public void setMaskPolicyCode(String maskPolicyCode) { this.maskPolicyCode = maskPolicyCode; }
-
-    public Boolean getIncludeStats() { return includeStats; }
-    public void setIncludeStats(Boolean includeStats) { this.includeStats = includeStats; }
 
     @Override
     public String toString() {

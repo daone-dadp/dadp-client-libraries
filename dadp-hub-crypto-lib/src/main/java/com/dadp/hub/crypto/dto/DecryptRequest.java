@@ -41,10 +41,4 @@ public class DecryptRequest {
     @JsonProperty("maskPolicyUid")
     private String maskPolicyUid;
     
-    /**
-     * 통계 정보 포함 여부
-     * 기본값: false
-     */
-    @JsonProperty("includeStats")
-    private Boolean includeStats = false;
 }

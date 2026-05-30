@@ -1,6 +1,7 @@
 package com.dadp.hub.crypto;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dadp.hub.crypto.dto.DecryptRequest;
@@ -45,6 +46,21 @@ class SingleBinaryFramedCodecTest {
 
         assertEquals('D', encoded[0]);
         assertEquals(OP_SINGLE_DECRYPT_RESPONSE - 2, encoded[8]);
+    }
+
+    @Test
+    void jsonEngineRequestsDoNotContainRemovedIncludeStatsField() throws Exception {
+        EncryptRequest encryptRequest = new EncryptRequest();
+        encryptRequest.setData("alice");
+        encryptRequest.setPolicyName("policy-email");
+        String encryptJson = objectMapper.writeValueAsString(encryptRequest);
+        assertFalse(encryptJson.contains("includeStats"));
+
+        DecryptRequest decryptRequest = new DecryptRequest();
+        decryptRequest.setEncryptedData("hub:policy-email:cipher");
+        decryptRequest.setPolicyName("policy-email");
+        String decryptJson = objectMapper.writeValueAsString(decryptRequest);
+        assertFalse(decryptJson.contains("includeStats"));
     }
 
     @Test

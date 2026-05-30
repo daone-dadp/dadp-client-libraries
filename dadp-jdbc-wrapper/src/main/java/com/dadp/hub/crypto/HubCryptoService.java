@@ -630,7 +630,6 @@ public class HubCryptoService {
             EncryptRequest request = new EncryptRequest();
             request.setData(data);
             request.setPolicyName(policy);
-            request.setIncludeStats(includeStats || captureProfile);
 
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             ParsedEncryptResult parsed;
@@ -806,7 +805,6 @@ public class HubCryptoService {
             request.setData(data);
             request.setPolicyName(policyName);
             request.setForSearch(true);
-            request.setIncludeStats(captureProfile);
 
             String requestBody;
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
@@ -886,7 +884,6 @@ public class HubCryptoService {
             request.setPolicyName(policyName);
             request.setMaskPolicyName(maskPolicyName);
             request.setMaskPolicyCode(maskPolicyCode);
-            request.setIncludeStats(includeStats || captureProfile);
 
             long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
             ParsedDecryptResult parsed;

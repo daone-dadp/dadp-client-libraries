@@ -8,12 +8,12 @@
     <parent>
         <groupId>io.github.daone-dadp</groupId>
         <artifactId>dadp-client-libraries</artifactId>
-        <version>6.0.3</version>
+        <version>6.0.4</version>
     </parent>
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-common-sync-lib-core</artifactId>
-    <version>6.0.3</version>
+    <version>6.0.4</version>
     <packaging>jar</packaging>
 
     <name>DADP Common Sync Library Core</name>

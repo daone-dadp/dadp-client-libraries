@@ -21,9 +21,6 @@ public class EncryptRequest {
     @JsonProperty("policyVersion")
     private String policyVersion;
 
-    @JsonProperty("includeStats")
-    private Boolean includeStats = false;
-
     @JsonProperty("forSearch")
     private Boolean forSearch;
 
@@ -37,9 +34,6 @@ public class EncryptRequest {
 
     public String getPolicyVersion() { return policyVersion; }
     public void setPolicyVersion(String policyVersion) { this.policyVersion = policyVersion; }
-
-    public Boolean getIncludeStats() { return includeStats; }
-    public void setIncludeStats(Boolean includeStats) { this.includeStats = includeStats; }
 
     public Boolean getForSearch() { return forSearch; }
     public void setForSearch(Boolean forSearch) { this.forSearch = forSearch; }
