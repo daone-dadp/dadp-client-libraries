@@ -713,12 +713,6 @@ public class JdbcBootstrapOrchestrator {
             if (hubIdManager.getCachedWrapperAuthSecret() != null) {
                 effectiveHubAuthSecret = hubIdManager.getCachedWrapperAuthSecret();
             }
-            if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
-                effectiveHubAuthId = config.getCryptoLocalHubAuthId();
-            }
-            if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
-                effectiveHubAuthSecret = config.getCryptoLocalHubAuthSecret();
-            }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
                     config.getHubUrl(),

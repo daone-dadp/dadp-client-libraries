@@ -24,7 +24,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
  * Java 버전에 따라 적절한 HTTP 클라이언트를 자동으로 선택합니다.
  * 
  * WRAPPER와 AOP 모두 사용 가능하도록 설계되었습니다.
- * - WRAPPER: apiBasePath = "/hub/api/v1/proxy", datasourceId 사용
+ * - WRAPPER: apiBasePath = "/hub/api/v1/runtime/wrappers", datasourceId 사용
  * - AOP: apiBasePath = "/hub/api/v1/aop", datasourceId = null
  * 
  * @author DADP Development Team
@@ -36,9 +36,9 @@ public class MappingSyncService {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(MappingSyncService.class);
     
     private final String hubUrl;
-    private final String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용)
+    private final String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
-    private final String apiBasePath;  // API Base Path: "/hub/api/v1/aop" 또는 "/hub/api/v1/proxy"
+    private final String apiBasePath;  // API Base Path: "/hub/api/v1/runtime/wrappers" 또는 "/hub/api/v1/aop"
     private final String datasourceId;  // Datasource ID (재등록을 위해 필요)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
@@ -51,10 +51,10 @@ public class MappingSyncService {
     private volatile PolicySnapshot lastSnapshot = null;
     
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, PolicyResolver policyResolver) {
-        // 기본값: datasourceId가 있으면 Wrapper(/hub/api/v1/proxy), 없으면 AOP(/hub/api/v1/aop)
+        // 기본값: datasourceId가 있으면 Wrapper runtime, 없으면 AOP
         this(hubUrl, hubId, alias, datasourceId, 
             (datasourceId != null && !datasourceId.trim().isEmpty()) 
-                ? "/hub/api/v1/proxy" 
+                ? "/hub/api/v1/runtime/wrappers"
                 : "/hub/api/v1/aop", 
             policyResolver);
     }
@@ -75,10 +75,10 @@ public class MappingSyncService {
         this.hubId = hubId;
         this.alias = alias;
         this.datasourceId = datasourceId;
-        // 기본값: datasourceId가 있으면 Wrapper(/hub/api/v1/proxy), 없으면 AOP(/hub/api/v1/aop)
+        // 기본값: datasourceId가 있으면 Wrapper runtime, 없으면 AOP
         if (apiBasePath == null || apiBasePath.trim().isEmpty()) {
             this.apiBasePath = (datasourceId != null && !datasourceId.trim().isEmpty()) 
-                ? "/hub/api/v1/proxy" 
+                ? "/hub/api/v1/runtime/wrappers"
                 : "/hub/api/v1/aop";
         } else {
             this.apiBasePath = apiBasePath;
@@ -144,10 +144,10 @@ public class MappingSyncService {
             
             log.trace("Hub mapping change check URL: {}", checkUrl);
             
-            // 헤더에 hubId와 버전 포함 (Hub는 헤더에서 hubId와 버전을 읽음)
+            // 헤더에 tenantId와 버전 포함
             java.util.Map<String, String> headers = new java.util.HashMap<>();
             if (hubId != null && !hubId.trim().isEmpty()) {
-                headers.put("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
+                headers.put("X-DADP-Tenant-Id", hubId);
             }
             if (version != null) {
                 headers.put("X-Current-Version", String.valueOf(version));  // 버전은 헤더로 전송
@@ -274,10 +274,10 @@ public class MappingSyncService {
                 policiesUrl += "&alias=" + java.net.URLEncoder.encode(alias, "UTF-8");
             }
             
-            // 헤더에 hubId와 버전 포함 (버전은 헤더로 전송)
+            // 헤더에 tenantId와 버전 포함
             Map<String, String> headers = new HashMap<>();
             if (hubId != null && !hubId.trim().isEmpty()) {
-                headers.put("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
+                headers.put("X-DADP-Tenant-Id", hubId);
             }
             if (currentVersion != null) {
                 headers.put("X-Current-Version", String.valueOf(currentVersion));  // 버전은 헤더로 전송
@@ -559,14 +559,14 @@ public class MappingSyncService {
     }
 
     private Map<String, String> signedHeaders(String method, URI uri) {
-        if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
-                || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 wrapper refresh requires wrapper enrollment auth. Run CLI schema-register and store wrapperAuth.authKey/authSecret.");
-        }
         Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
-        HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-        headers.putAll(signer.sign(method, uri, new byte[0], hubId));
+        headers.put("X-DADP-Tenant-Id", hubId);
+        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
+                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
+            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
+            headers.putAll(signer.sign(method, uri, new byte[0], hubId));
+        }
         return headers;
     }
 

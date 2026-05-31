@@ -106,7 +106,8 @@ public class ExportedConfigLoader {
 
             boolean runtimeEnrollmentConfig = config.containsKey("tenantId")
                     || config.containsKey("wrapperAuth")
-                    || config.containsKey("runtime");
+                    || config.containsKey("runtime")
+                    || config.containsKey("wrapperAuthSecret");
 
             // Validate export version. Hub 6 CLI enrollment payload may be data-only.
             Object exportVersionObj = config.get("exportVersion");
@@ -185,10 +186,7 @@ public class ExportedConfigLoader {
             if (wrapperHubId == null || wrapperHubId.trim().isEmpty()) {
                 wrapperHubId = hubId;
             }
-            if (wrapperAuthSecret != null && !wrapperAuthSecret.trim().isEmpty()) {
-                if (wrapperAuthKey == null || wrapperAuthKey.trim().isEmpty()) {
-                    wrapperAuthKey = wrapperHubId;
-                }
+            if (runtimeEnrollmentConfig) {
                 hubIdManager.setWrapperEnrollment(wrapperHubId, datasourceId, wrapperAuthKey, wrapperAuthSecret,
                         refreshUrl, schemaSyncUrl, "6.0", true);
                 log.info("Exported config: wrapper enrollment applied: tenantId={}, datasourceId={}",

@@ -28,7 +28,7 @@ public class EndpointSyncService {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointSyncService.class);
     
     private final String hubUrl;
-    private final String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용)
+    private final String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
@@ -93,14 +93,14 @@ public class EndpointSyncService {
     }
 
     private java.util.Map<String, String> signedHeaders(String method, URI uri) {
-        if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
-                || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 endpoint sync requires wrapper enrollment auth.");
-        }
         java.util.Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
-        HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-        headers.putAll(signer.sign(method, uri, new byte[0], hubId));
+        headers.put("X-DADP-Tenant-Id", hubId);
+        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
+                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
+            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
+            headers.putAll(signer.sign(method, uri, new byte[0], hubId));
+        }
         return headers;
     }
 

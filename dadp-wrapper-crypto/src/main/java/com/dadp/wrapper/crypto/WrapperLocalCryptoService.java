@@ -262,6 +262,11 @@ public class WrapperLocalCryptoService {
     }
 
     private static HubAuthHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
+        if (tenantId != null && !tenantId.trim().isEmpty()
+                && (hubAuthId == null || hubAuthId.trim().isEmpty())
+                && (hubAuthSecret == null || hubAuthSecret.trim().isEmpty())) {
+            return new HubTenantHeaderProvider(tenantId);
+        }
         if (hubAuthId == null || hubAuthId.trim().isEmpty()
                 || hubAuthSecret == null || hubAuthSecret.trim().isEmpty()) {
             return null;

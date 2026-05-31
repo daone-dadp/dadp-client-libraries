@@ -22,7 +22,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(RestTemplateSchemaSyncExecutor.class);
     
     private final String hubUrl;
-    private final String apiBasePath;  // "/hub/api/v1/aop" 또는 "/hub/api/v1/proxy"
+    private final String apiBasePath;  // "/hub/api/v1/runtime/wrappers" 또는 "/hub/api/v1/aop"
     private final String instanceType;  // "PROXY" 또는 "AOP" (새 API 사용 시 필수)
     private final RestTemplate restTemplate;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
@@ -68,7 +68,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-DADP-TENANT", hubId);  // hubId 필수
+        headers.set("X-DADP-Tenant-Id", hubId);
         /**
          * X-Instance-Id 헤더 추가
          * 
@@ -164,7 +164,7 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
      * AOP 스키마 동기화 요청 DTO
      * 
      * Body에 instanceId와 스키마 정보 포함
-     * hubId는 헤더(X-DADP-TENANT)로 전송됨
+     * tenantId는 헤더(X-DADP-Tenant-Id)로 전송됨
      */
     public static class AopSchemaSyncRequest {
         private String instanceId;  // 인스턴스 별칭 (hubId가 없을 때 자동 생성용)
@@ -228,4 +228,3 @@ public class RestTemplateSchemaSyncExecutor implements SchemaSyncExecutor {
         public void setHubId(String hubId) { this.hubId = hubId; }
     }
 }
-

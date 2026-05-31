@@ -149,7 +149,7 @@ public class HubIdManager {
                                      String schemaSyncUrl,
                                      String runtimeVersion,
                                      boolean saveToStorage) {
-        if (hubId == null || hubId.trim().isEmpty() || wrapperAuthSecret == null || wrapperAuthSecret.trim().isEmpty()) {
+        if (hubId == null || hubId.trim().isEmpty()) {
             return;
         }
         if (cachedHubId != null && !cachedHubId.equals(hubId)) {
@@ -163,7 +163,7 @@ public class HubIdManager {
         if (wrapperAuthKey != null && !wrapperAuthKey.trim().isEmpty()) {
             this.cachedWrapperAuthKey = wrapperAuthKey.trim();
         }
-        this.cachedWrapperAuthSecret = wrapperAuthSecret.trim();
+        this.cachedWrapperAuthSecret = trimToNull(wrapperAuthSecret);
         if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
             this.cachedRefreshUrl = refreshUrl.trim();
         }
@@ -209,8 +209,6 @@ public class HubIdManager {
     public boolean hasRuntimeEnrollment() {
         return hasHubId()
                 && cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()
-                && cachedWrapperAuthKey != null && !cachedWrapperAuthKey.trim().isEmpty()
-                && cachedWrapperAuthSecret != null && !cachedWrapperAuthSecret.trim().isEmpty()
                 && cachedRefreshUrl != null && !cachedRefreshUrl.trim().isEmpty()
                 && cachedSchemaSyncUrl != null && !cachedSchemaSyncUrl.trim().isEmpty();
     }

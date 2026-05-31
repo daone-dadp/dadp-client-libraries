@@ -64,7 +64,7 @@ public class TelemetryStatsSender {
 
     TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String datasourceId, int endpointSnapshotRefreshMillis) {
         this.endpointStorage = endpointStorage;
-        // appId(hubId)가 null이면 통계 전송 비활성화 (X-DADP-TENANT 헤더 필수)
+        // appId(tenantId)가 null이면 통계 전송 비활성화 (X-DADP-Tenant-Id 헤더 필수)
         this.appId = appId != null && !appId.trim().isEmpty() ? appId : null;
         this.datasourceId = datasourceId;
         this.objectMapper = new ObjectMapper();
@@ -110,9 +110,9 @@ public class TelemetryStatsSender {
      */
     public void sendSqlEvent(String sql, String sqlType, long durationMs, boolean errorFlag) {
         try {
-            // hubId(appId)가 없으면 통계 전송 불가 (X-DADP-TENANT 헤더 필수)
+            // tenantId(appId)가 없으면 통계 전송 불가 (X-DADP-Tenant-Id 헤더 필수)
             if (appId == null || appId.trim().isEmpty()) {
-                log.debug("Skipping stats event: hubId not available (X-DADP-TENANT header required)");
+                log.debug("Skipping stats event: tenantId not available (X-DADP-Tenant-Id header required)");
                 return;
             }
             
@@ -292,7 +292,7 @@ public class TelemetryStatsSender {
             String ingestUrl = aggregatorUrl + "/aggregator/api/v1/events/batch";
 
             Map<String, String> headers = new HashMap<>();
-            headers.put("X-DADP-TENANT", appId);
+            headers.put("X-DADP-Tenant-Id", appId);
 
             log.debug("Sending telemetry batch: tenantId={}, sourceId={}, batchSize={}, url={}",
                     appId, appId, batch.size(), ingestUrl);

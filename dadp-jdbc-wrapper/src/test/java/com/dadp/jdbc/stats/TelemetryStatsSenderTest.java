@@ -19,6 +19,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,13 @@ class TelemetryStatsSenderTest {
         AtomicReference<String> tenantHeader = new AtomicReference<>();
         AtomicReference<String> requestBody = new AtomicReference<>();
         server.createContext("/aggregator/api/v1/events/batch", exchange -> {
-            tenantHeader.set(exchange.getRequestHeaders().getFirst("X-DADP-TENANT"));
+            for (Map.Entry<String, List<String>> entry : exchange.getRequestHeaders().entrySet()) {
+                if ("X-DADP-Tenant-Id".equalsIgnoreCase(entry.getKey())
+                        && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    tenantHeader.set(entry.getValue().get(0));
+                    break;
+                }
+            }
             requestBody.set(readBody(exchange.getRequestBody()));
             byte[] response = "{\"acceptedCount\":1}".getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");

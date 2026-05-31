@@ -29,7 +29,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(HttpClientSchemaSyncExecutor.class);
     
     private final String hubUrl;
-    private final String apiBasePath;  // "/hub/api/v1/aop" 또는 "/hub/api/v1/proxy"
+    private final String apiBasePath;  // "/hub/api/v1/runtime/wrappers" 또는 "/hub/api/v1/aop"
     private final String instanceType;  // "PROXY" 또는 "AOP" (새 API 사용 시 필수)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
@@ -91,7 +91,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         if (!isRuntimeWrapper && hubId != null && !hubId.trim().isEmpty()) {
-            headers.put("X-DADP-TENANT", hubId);  // Hub가 헤더에서 hubId를 받을 수 있도록
+            headers.put("X-DADP-Tenant-Id", hubId);
         }
         if (alias != null && !alias.trim().isEmpty()) {
             headers.put("X-Instance-Id", alias);
@@ -208,12 +208,14 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     }
 
     private Map<String, String> signedHeaders(String method, URI uri, String body, String tenantId) {
-        if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
-                || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
-            throw new IllegalStateException("DADP 6.0 wrapper schema-sync requires wrapper enrollment auth. Run CLI schema-register and store wrapperAuth.authKey/authSecret.");
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-DADP-Tenant-Id", tenantId);
+        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
+                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
+            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
+            headers.putAll(signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0], tenantId));
         }
-        HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-        return signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0], tenantId);
+        return headers;
     }
     
     /**

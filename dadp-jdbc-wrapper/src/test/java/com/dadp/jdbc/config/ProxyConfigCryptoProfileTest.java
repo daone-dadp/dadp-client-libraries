@@ -25,8 +25,6 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.wrapper.crypto-mode");
         System.clearProperty("dadp.wrapper.crypto-local.fallback-remote");
         System.clearProperty("dadp.wrapper.crypto-local.timeout-ms");
-        System.clearProperty("dadp.wrapper.crypto-local.hub-auth-id");
-        System.clearProperty("dadp.wrapper.crypto-local.hub-auth-secret");
         System.clearProperty("dadp.wrapper.crypto-stats.enabled");
         System.clearProperty("dadp.wrapper.crypto-stats.aggregation-level");
         System.clearProperty("dadp.wrapper.sql-mapping-debug.enabled");
@@ -156,8 +154,6 @@ class ProxyConfigCryptoProfileTest {
         urlParams.put("cryptoMode", "local");
         urlParams.put("cryptoLocalFallbackRemote", "false");
         urlParams.put("cryptoLocalTimeoutMs", "1234");
-        urlParams.put("cryptoLocalHubAuthId", "hub-default");
-        urlParams.put("cryptoLocalHubAuthSecret", "secret");
         urlParams.put("wrapperCryptoStatsEnabled", "true");
         urlParams.put("wrapperCryptoStatsAggregationLevel", "1day");
 
@@ -166,8 +162,6 @@ class ProxyConfigCryptoProfileTest {
         assertTrue("local".equals(config.getCryptoMode()));
         assertFalse(config.isCryptoLocalFallbackRemote());
         assertTrue(config.getCryptoLocalTimeoutMs() == 1234);
-        assertTrue("hub-default".equals(config.getCryptoLocalHubAuthId()));
-        assertTrue("secret".equals(config.getCryptoLocalHubAuthSecret()));
         assertTrue(config.isWrapperCryptoStatsEnabled());
         assertTrue("1day".equals(config.getWrapperCryptoStatsAggregationLevel()));
     }

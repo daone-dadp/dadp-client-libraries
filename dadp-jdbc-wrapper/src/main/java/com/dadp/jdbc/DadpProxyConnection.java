@@ -215,14 +215,8 @@ public class DadpProxyConnection implements Connection {
             if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
                 effectiveHubAuthId = config.getRuntimeAuthKey();
             }
-            if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
-                effectiveHubAuthId = config.getCryptoLocalHubAuthId();
-            }
             if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
                 effectiveHubAuthSecret = config.getRuntimeAuthSecret();
-            }
-            if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
-                effectiveHubAuthSecret = config.getCryptoLocalHubAuthSecret();
             }
             adapter.setCryptoMode(
                     config.getCryptoMode(),

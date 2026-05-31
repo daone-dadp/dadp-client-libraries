@@ -35,19 +35,17 @@ public class ProxyConfig {
     private final String hubUrl;  // Hub URL (스키마 동기화 + 암복호화 라우팅, Hub가 Engine/Gateway로 자동 라우팅)
     private final String alias;  // 공유 DB 그룹 별칭
     private final boolean aliasConfigured;
-    private volatile String hubId;  // Hub가 발급한 고유 ID (X-DADP-TENANT 헤더에 사용, HubIdManager에서 관리)
+    private volatile String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, HubIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
     private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
     private final String engineTransport;  // Engine transport mode (http | binary-tcp)
     private final int engineBinaryPort;  // Engine binary TCP port
     private final String cryptoMode;  // Wrapper crypto execution mode (remote | local)
-    private final String runtimeAuthKey;  // Hub 6.0 runtime internal-auth caller key
-    private final String runtimeAuthSecret;  // Hub 6.0 runtime internal-auth shared secret
+    private final String runtimeAuthKey;
+    private final String runtimeAuthSecret;
     private final boolean cryptoLocalFallbackRemote;  // Local crypto failure fallback to remote Engine
     private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
-    private final String cryptoLocalHubAuthId;  // Manual fallback Hub internal auth id override
-    private final String cryptoLocalHubAuthSecret;  // Manual fallback Hub internal auth secret override
     private final boolean wrapperCryptoStatsEnabled;  // Wrapper local crypto aggregated stats enabled
     private final String wrapperCryptoStatsAggregationLevel;  // Wrapper local crypto aggregated stats level
     private final boolean sqlMappingDebugEnabled;  // SQL -> column mapping debug enabled
@@ -203,29 +201,8 @@ public class ProxyConfig {
         }
         this.cryptoMode = normalizeCryptoMode(cryptoModeProp);
 
-        String runtimeAuthKeyProp = null;
-        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
-            runtimeAuthKeyProp = System.getProperty("dadp.wrapper.runtime-auth.key");
-        }
-        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
-            runtimeAuthKeyProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_KEY");
-        }
-        if (runtimeAuthKeyProp == null || runtimeAuthKeyProp.trim().isEmpty()) {
-            runtimeAuthKeyProp = urlParams != null ? urlParams.get("runtimeAuthKey") : null;
-        }
-        this.runtimeAuthKey = trimToNull(runtimeAuthKeyProp);
-
-        String runtimeAuthSecretProp = null;
-        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
-            runtimeAuthSecretProp = System.getProperty("dadp.wrapper.runtime-auth.secret");
-        }
-        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
-            runtimeAuthSecretProp = System.getenv("DADP_WRAPPER_RUNTIME_AUTH_SECRET");
-        }
-        if (runtimeAuthSecretProp == null || runtimeAuthSecretProp.trim().isEmpty()) {
-            runtimeAuthSecretProp = urlParams != null ? urlParams.get("runtimeAuthSecret") : null;
-        }
-        this.runtimeAuthSecret = trimToNull(runtimeAuthSecretProp);
+        this.runtimeAuthKey = null;
+        this.runtimeAuthSecret = null;
 
         String localFallbackProp = null;
         if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
@@ -253,30 +230,6 @@ public class ProxyConfig {
             localTimeoutProp = urlParams != null ? urlParams.get("cryptoLocalTimeoutMs") : null;
         }
         this.cryptoLocalTimeoutMs = parsePositiveInt(localTimeoutProp, 30000, "crypto local timeout");
-
-        String localHubAuthIdProp = null;
-        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
-            localHubAuthIdProp = System.getProperty("dadp.wrapper.crypto-local.hub-auth-id");
-        }
-        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
-            localHubAuthIdProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_HUB_AUTH_ID");
-        }
-        if (localHubAuthIdProp == null || localHubAuthIdProp.trim().isEmpty()) {
-            localHubAuthIdProp = urlParams != null ? urlParams.get("cryptoLocalHubAuthId") : null;
-        }
-        this.cryptoLocalHubAuthId = trimToNull(localHubAuthIdProp);
-
-        String localHubAuthSecretProp = null;
-        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
-            localHubAuthSecretProp = System.getProperty("dadp.wrapper.crypto-local.hub-auth-secret");
-        }
-        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
-            localHubAuthSecretProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_HUB_AUTH_SECRET");
-        }
-        if (localHubAuthSecretProp == null || localHubAuthSecretProp.trim().isEmpty()) {
-            localHubAuthSecretProp = urlParams != null ? urlParams.get("cryptoLocalHubAuthSecret") : null;
-        }
-        this.cryptoLocalHubAuthSecret = trimToNull(localHubAuthSecretProp);
 
         String wrapperCryptoStatsEnabledProp = null;
         if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
@@ -489,10 +442,8 @@ public class ProxyConfig {
         log.trace("   - Engine transport: {}", this.engineTransport);
         log.trace("   - Engine binary port: {}", this.engineBinaryPort);
         log.trace("   - Wrapper crypto mode: {}", this.cryptoMode);
-        log.trace("   - Hub runtime auth configured: {}", this.runtimeAuthSecret != null);
         log.trace("   - Wrapper local crypto fallback remote: {}", this.cryptoLocalFallbackRemote);
         log.trace("   - Wrapper local crypto timeout: {}ms", this.cryptoLocalTimeoutMs);
-        log.trace("   - Wrapper local crypto hub auth configured: {}", this.cryptoLocalHubAuthSecret != null);
         log.trace("   - Wrapper local crypto stats enabled: {}", this.wrapperCryptoStatsEnabled);
         log.trace("   - Wrapper local crypto stats aggregation level: {}", this.wrapperCryptoStatsAggregationLevel);
         log.trace("   - SQL mapping debug enabled: {}", this.sqlMappingDebugEnabled);
@@ -652,14 +603,6 @@ public class ProxyConfig {
 
     public int getCryptoLocalTimeoutMs() {
         return cryptoLocalTimeoutMs;
-    }
-
-    public String getCryptoLocalHubAuthId() {
-        return cryptoLocalHubAuthId;
-    }
-
-    public String getCryptoLocalHubAuthSecret() {
-        return cryptoLocalHubAuthSecret;
     }
 
     public boolean isWrapperCryptoStatsEnabled() {
