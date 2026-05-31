@@ -9,24 +9,22 @@ import org.junit.jupiter.api.Test;
 class DadpJdbcUrlSupportTest {
 
     @Test
-    void extractsSqreamProxyParamsAndStripsWrapperOnlyOptions() {
+    void extractsOnlyAliasFromSqreamProxyParamsAndStripsDadpOnlyOptions() {
         String dadpUrl =
             "jdbc:dadp:Sqream://192.168.0.26:3108/master;"
                 + "user=sqream;password=secret;ssl=false;cluster=true;service=sqream;"
-                + "enabled=true;hubUrl=http%3A%2F%2Flocalhost%3A9004;instanceId=wrapper-01;failOpen=true;enableLogging=false";
+                + "alias=shared-sq;enabled=true;hubUrl=http%3A%2F%2Flocalhost%3A9004;instanceId=wrapper-01;failOpen=true;enableLogging=false";
 
         Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
         String actualUrl = DadpJdbcUrlSupport.extractActualUrl(dadpUrl);
 
-        assertEquals("true", proxyParams.get("enabled"));
-        assertEquals("http://localhost:9004", proxyParams.get("hubUrl"));
-        assertEquals("wrapper-01", proxyParams.get("instanceId"));
-        assertEquals("true", proxyParams.get("failOpen"));
-        assertEquals("false", proxyParams.get("enableLogging"));
+        assertEquals(1, proxyParams.size());
+        assertEquals("shared-sq", proxyParams.get("alias"));
         assertEquals(
             "jdbc:Sqream://192.168.0.26:3108/master;user=sqream;password=secret;ssl=false;cluster=true;service=sqream",
             actualUrl
         );
+        assertFalse(actualUrl.contains("alias="));
         assertFalse(actualUrl.contains("hubUrl="));
         assertFalse(actualUrl.contains("instanceId="));
     }
@@ -39,9 +37,7 @@ class DadpJdbcUrlSupportTest {
         Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
         String actualUrl = DadpJdbcUrlSupport.extractActualUrl(dadpUrl);
 
-        assertEquals("http://localhost:9004", proxyParams.get("hubUrl"));
-        assertEquals("test-app", proxyParams.get("instanceId"));
-        assertEquals("true", proxyParams.get("enabled"));
+        assertEquals(0, proxyParams.size());
         assertEquals("jdbc:mysql://localhost:3306/appdb?useSSL=false", actualUrl);
     }
 
@@ -53,11 +49,12 @@ class DadpJdbcUrlSupportTest {
         Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
         String actualUrl = DadpJdbcUrlSupport.extractActualUrl(dadpUrl);
 
-        assertEquals("http://localhost:9004", proxyParams.get("hubUrl"));
+        assertEquals(1, proxyParams.size());
         assertEquals("shared-db-a", proxyParams.get("alias"));
-        assertEquals("true", proxyParams.get("enabled"));
         assertEquals("jdbc:mysql://localhost:3306/appdb?useSSL=false", actualUrl);
         assertFalse(actualUrl.contains("alias="));
+        assertFalse(actualUrl.contains("hubUrl="));
+        assertFalse(actualUrl.contains("enabled="));
     }
 
     @Test
@@ -70,9 +67,10 @@ class DadpJdbcUrlSupportTest {
         Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
         String actualUrl = DadpJdbcUrlSupport.extractActualUrl(dadpUrl);
 
+        assertEquals(1, proxyParams.size());
         assertEquals("shared-db-sq", proxyParams.get("alias"));
-        assertEquals("http://localhost:9004", proxyParams.get("hubUrl"));
-        assertEquals("true", proxyParams.get("enabled"));
         assertFalse(actualUrl.contains("alias="));
+        assertFalse(actualUrl.contains("hubUrl="));
+        assertFalse(actualUrl.contains("enabled="));
     }
 }

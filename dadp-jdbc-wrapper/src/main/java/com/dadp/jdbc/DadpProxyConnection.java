@@ -207,16 +207,8 @@ public class DadpProxyConnection implements Connection {
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
             String effectiveTenantId = orchestrator != null ? orchestrator.getCachedHubId() : null;
-            String effectiveHubAuthId = orchestrator != null ? orchestrator.getWrapperAuthKey() : null;
-            String effectiveHubAuthSecret = orchestrator != null ? orchestrator.getWrapperAuthSecret() : null;
             if (effectiveTenantId == null || effectiveTenantId.trim().isEmpty()) {
                 effectiveTenantId = config.getHubId();
-            }
-            if (effectiveHubAuthId == null || effectiveHubAuthId.trim().isEmpty()) {
-                effectiveHubAuthId = config.getRuntimeAuthKey();
-            }
-            if (effectiveHubAuthSecret == null || effectiveHubAuthSecret.trim().isEmpty()) {
-                effectiveHubAuthSecret = config.getRuntimeAuthSecret();
             }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
@@ -224,8 +216,8 @@ public class DadpProxyConnection implements Connection {
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     effectiveTenantId,
-                    effectiveHubAuthId,
-                    effectiveHubAuthSecret,
+                    null,
+                    null,
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }

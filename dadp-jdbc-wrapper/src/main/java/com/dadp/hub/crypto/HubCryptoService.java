@@ -244,11 +244,7 @@ public class HubCryptoService {
     // Utility helpers
 
     private static boolean isLoggingEnabled() {
-        String val = System.getenv("DADP_ENABLE_LOGGING");
-        if (val == null || val.trim().isEmpty()) {
-            val = System.getProperty("dadp.enable-logging");
-        }
-        return val != null && !val.trim().isEmpty() && ("true".equalsIgnoreCase(val) || "1".equals(val));
+        return com.dadp.jdbc.logging.DadpLoggerFactory.isLoggingEnabled();
     }
 
     private static String extractBaseUrl(String url) {

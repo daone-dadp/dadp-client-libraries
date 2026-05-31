@@ -26,7 +26,6 @@ class WrapperLocalCryptoServiceTest {
         String keyData = Base64.getEncoder().encodeToString(key);
         server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
             assertEquals("POST", exchange.getRequestMethod());
-            assertTrue(exchange.getRequestHeaders().containsKey("X-Hub-Auth-Key"));
             assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
             writeJson(exchange,
                     "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
@@ -59,7 +58,7 @@ class WrapperLocalCryptoServiceTest {
         PolicyMaterial policy = new PolicyMaterial("customer-policy", "ABCD1234", 1, "customer-key", 1,
                 "AES_256", Base64.getEncoder().encodeToString(new byte[32]), 0L, null, null, null);
         RuntimeExecutionKeyClient executionKeyClient = new RuntimeExecutionKeyClient("http://localhost", 1000,
-                new HubInternalAuthHeaderProvider("wrapper-test", "wrapper-secret")) {
+                new HubTenantHeaderProvider("wtenant_test")) {
             @Override
             public RuntimeExecutionKeyMaterial resolveByPolicyName(String policyName) {
                 return new RuntimeExecutionKeyMaterial(policy.getPolicyCode(), policy.getPolicyVersion(),

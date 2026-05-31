@@ -236,8 +236,8 @@ public class JdbcPolicyMappingSyncService {
             datasourceId,
             apiBasePath,
             policyResolver,
-            hubIdManager.getCachedWrapperAuthKey(),
-            hubIdManager.getCachedWrapperAuthSecret(),
+            null,
+            null,
             hubIdManager.getCachedRefreshUrl());
         log.info("MappingSyncService recreated: hubId={}", hubId);
     }

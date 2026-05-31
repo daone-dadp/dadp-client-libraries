@@ -26,7 +26,7 @@ public class HubNotificationService {
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
      * @param hubId Hub가 발급한 고유 ID
      * @param alias 사용자가 설정한 instanceId (별칭)
-     * @param enableLogging 로그 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
+     * @param enableLogging 로그 활성화
      */
     public HubNotificationService(String hubBaseUrl, String hubId, String alias, Boolean enableLogging) {
         this.hubId = hubId;
@@ -36,7 +36,7 @@ public class HubNotificationService {
     }
 
     /**
-     * 생성자 (enableLogging 기본값: null - DADP_ENABLE_LOGGING 환경 변수 확인)
+     * 생성자
      *
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
      * @param hubId Hub가 발급한 고유 ID

@@ -10,9 +10,6 @@ public class InstanceIdProvider {
     private static final String AOP_ENV_VAR = "DADP_AOP_INSTANCE_ID";
     private static final String AOP_DEFAULT = "aop";
 
-    private static final String WRAPPER_ALIAS_SYSTEM_PROP = "dadp.proxy.alias";
-    private static final String WRAPPER_ALIAS_ENV_VAR = "DADP_PROXY_ALIAS";
-
     public enum ModuleType {
         AOP,
         WRAPPER
@@ -53,18 +50,8 @@ public class InstanceIdProvider {
     }
 
     private String getWrapperInstanceId() {
-        String instanceId = System.getProperty(WRAPPER_ALIAS_SYSTEM_PROP);
-        if (instanceId != null && !instanceId.trim().isEmpty()) {
-            return instanceId.trim();
-        }
-
-        instanceId = System.getenv(WRAPPER_ALIAS_ENV_VAR);
-        if (instanceId != null && !instanceId.trim().isEmpty()) {
-            return instanceId.trim();
-        }
-
         if (urlParams != null) {
-            instanceId = urlParams.get("alias");
+            String instanceId = urlParams.get("alias");
             if (instanceId != null && !instanceId.trim().isEmpty()) {
                 return instanceId.trim();
             }
@@ -74,7 +61,7 @@ public class InstanceIdProvider {
     }
 
     private IllegalStateException missingRequiredAlias() {
-        String message = "DADP wrapper startup failed: missing required alias. Configure dadp.proxy.alias, DADP_PROXY_ALIAS, or JDBC URL alias.";
+        String message = "DADP wrapper startup failed: missing required alias. Configure JDBC URL alias.";
         System.err.println(message);
         return new IllegalStateException(message);
     }

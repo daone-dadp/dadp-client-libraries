@@ -211,16 +211,10 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     }
 
     private static HubAuthHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
-        if (tenantId != null && !tenantId.trim().isEmpty()
-                && (hubAuthId == null || hubAuthId.trim().isEmpty())
-                && (hubAuthSecret == null || hubAuthSecret.trim().isEmpty())) {
+        if (tenantId != null && !tenantId.trim().isEmpty()) {
             return new HubTenantHeaderProvider(tenantId);
         }
-        if (hubAuthId == null || hubAuthId.trim().isEmpty()
-                || hubAuthSecret == null || hubAuthSecret.trim().isEmpty()) {
-            return null;
-        }
-        return new HubInternalAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret);
+        return null;
     }
 
     interface TimeProvider {

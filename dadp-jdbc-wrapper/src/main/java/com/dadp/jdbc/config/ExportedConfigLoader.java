@@ -14,9 +14,7 @@ import java.util.Map;
 /**
  * Loads exported configuration file from Hub for offline bootstrap.
  *
- * Checks for an exported config file and applies it in two scenarios:
- * 1. Initial bootstrap: no existing hubId (first-time offline setup)
- * 2. Policy update: exported config has higher policyVersion than current
+ * Checks for an exported config file and applies Hub 6 wrapper enrollment only.
  *
  * File lookup priority:
  * 1. {storageDir}/exported-config.json
@@ -25,22 +23,15 @@ import java.util.Map;
  * The exported config JSON format:
  * <pre>
  * {
- *   "exportVersion": 1,
- *   "hubId": "pi_xxxxxxxxxxxx",
- *   "instanceId": "soe-app-daone2",
+ *   "exportVersion": 6,
+ *   "tenantId": "wtenant_xxxxxxxxxxxx",
  *   "datasourceId": "ds_xxxxxxxxxxxx",
- *   "failOpen": true,
- *   "cryptoUrl": "http://engine:9003",
- *   "hubUrl": "http://192.168.0.21:9004",
- *   "policyVersion": 8,
- *   "mappings": { "ds_xxx:schema.table.column": "policy-name" },
- *   "policyAttributes": { "policy-name": { "useIv": true, "usePlain": false } },
- *   "statsConfig": { ... }
+ *   "runtime": {
+ *     "refreshUrl": "/hub/api/v1/runtime/wrappers/wtenant_xxxxxxxxxxxx/refresh",
+ *     "schemaSyncUrl": "/hub/api/v1/runtime/wrappers/wtenant_xxxxxxxxxxxx/schema-sync"
+ *   }
  * }
  * </pre>
- *
- * The exported `hubUrl` must be the Hub base URL without `/hub`.
- * Wrapper components append `/hub/api/...` internally when calling Hub APIs.
  *
  * @author DADP Development Team
  * @version 5.5.8
@@ -104,33 +95,16 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            boolean runtimeEnrollmentConfig = config.containsKey("tenantId")
-                    || config.containsKey("wrapperAuth")
-                    || config.containsKey("runtime")
-                    || config.containsKey("wrapperAuthSecret");
-
-            // Validate export version. Hub 6 CLI enrollment payload may be data-only.
             Object exportVersionObj = config.get("exportVersion");
             int exportVersion = exportVersionObj instanceof Number ? ((Number) exportVersionObj).intValue() : 0;
-            if (exportVersion < 1 && !runtimeEnrollmentConfig) {
+            if (exportVersion < 6) {
                 log.warn("Exported config has invalid exportVersion: {}", exportVersion);
                 return null;
             }
 
-            // Validate required fields
             String hubId = getStringValue(config, "tenantId");
-            if (hubId == null || hubId.trim().isEmpty()) {
-                hubId = getStringValue(config, "hubId");
-            }
-            String datasourceId = (String) config.get("datasourceId");
-            String cryptoUrl = (String) config.get("cryptoUrl");
-            Map<String, Object> wrapperAuth = (Map<String, Object>) config.get("wrapperAuth");
+            String datasourceId = getStringValue(config, "datasourceId");
             Map<String, Object> runtime = (Map<String, Object>) config.get("runtime");
-            String wrapperAuthKey = getStringValue(wrapperAuth, "authKey");
-            String wrapperAuthSecret = getStringValue(wrapperAuth, "authSecret");
-            if (wrapperAuthSecret == null) {
-                wrapperAuthSecret = getStringValue(config, "wrapperAuthSecret");
-            }
             String refreshUrl = getStringValue(runtime, "refreshUrl");
             String schemaSyncUrl = getStringValue(runtime, "schemaSyncUrl");
             if (refreshUrl == null) {
@@ -148,8 +122,12 @@ public class ExportedConfigLoader {
                 log.warn("Exported config missing required field: datasourceId");
                 return null;
             }
-            if (!runtimeEnrollmentConfig && (cryptoUrl == null || cryptoUrl.trim().isEmpty())) {
-                log.warn("Exported config missing required field: cryptoUrl");
+            if (refreshUrl == null || refreshUrl.trim().isEmpty()) {
+                log.warn("Exported config missing required field: runtime.refreshUrl");
+                return null;
+            }
+            if (schemaSyncUrl == null || schemaSyncUrl.trim().isEmpty()) {
+                log.warn("Exported config missing required field: runtime.schemaSyncUrl");
                 return null;
             }
 
@@ -162,130 +140,11 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            applyWrapperConfig(config, proxyConfig);
-            applyLogConfig(config, policyResolver);
-
-            // Version comparison: skip if current version is same or newer
-            Object policyVersionObj = config.get("policyVersion");
-            Long filePolicyVersion = policyVersionObj instanceof Number
-                    ? ((Number) policyVersionObj).longValue() : getLongValue(config, "snapshotVersion", 0L);
-            Long currentPolicyVersion = policyResolver.getCurrentVersion();
-
-            if (!runtimeEnrollmentConfig && currentPolicyVersion != null && currentPolicyVersion >= filePolicyVersion) {
-                log.info("Exported config skipped: current policyVersion({}) >= file policyVersion({})",
-                        currentPolicyVersion, filePolicyVersion);
-                return null;
-            }
-
-            log.info("Exported config applying: file policyVersion({}) > current policyVersion({})",
-                    filePolicyVersion, currentPolicyVersion);
-
-            // 3. Save hubId via hubIdManager
             hubIdManager.setHubId(hubId, true);
-            String wrapperHubId = getStringValue(config, "wrapperHubId");
-            if (wrapperHubId == null || wrapperHubId.trim().isEmpty()) {
-                wrapperHubId = hubId;
-            }
-            if (runtimeEnrollmentConfig) {
-                hubIdManager.setWrapperEnrollment(wrapperHubId, datasourceId, wrapperAuthKey, wrapperAuthSecret,
-                        refreshUrl, schemaSyncUrl, "6.0", true);
-                log.info("Exported config: wrapper enrollment applied: tenantId={}, datasourceId={}",
-                        wrapperHubId, datasourceId);
-            }
-            log.info("Exported config: hubId applied: {}", hubId);
-
-            // 4. Save policy mappings via policyResolver.refreshMappings()
-            Map<String, String> mappings = (Map<String, String>) config.get("mappings");
-            boolean hasMappings = mappings != null && !mappings.isEmpty();
-            if (mappings == null) {
-                mappings = new HashMap<>();
-            }
-
-            // Load policy attributes if present
-            Map<String, Object> rawPolicyAttributes = (Map<String, Object>) config.get("policyAttributes");
-            if (!hasMappings) {
-                log.info("Exported config: empty mappings ignored to preserve existing local policy mappings, fileVersion={}, currentVersion={}",
-                        filePolicyVersion, currentPolicyVersion);
-            } else if (rawPolicyAttributes != null && !rawPolicyAttributes.isEmpty()) {
-                Map<String, PolicyResolver.PolicyAttributes> policyAttributes = new HashMap<>();
-                for (Map.Entry<String, Object> entry : rawPolicyAttributes.entrySet()) {
-                    if (entry.getValue() instanceof Map) {
-                        Map<String, Object> attrMap = (Map<String, Object>) entry.getValue();
-                        Boolean useIv = attrMap.get("useIv") instanceof Boolean
-                                ? (Boolean) attrMap.get("useIv") : null;
-                        Boolean usePlain = attrMap.get("usePlain") instanceof Boolean
-                                ? (Boolean) attrMap.get("usePlain") : null;
-                        policyAttributes.put(entry.getKey(),
-                                new PolicyResolver.PolicyAttributes(useIv, usePlain));
-                    }
-                }
-                policyResolver.refreshMappings(mappings, policyAttributes, filePolicyVersion);
-                log.info("Exported config: policy mappings applied: {} mappings, {} attributes, version={}",
-                        mappings.size(), policyAttributes.size(), filePolicyVersion);
-            } else {
-                policyResolver.refreshMappings(mappings, filePolicyVersion);
-                log.info("Exported config: policy mappings applied: {} mappings, version={}",
-                        mappings.size(), filePolicyVersion);
-            }
-
-            // 5. Save endpoint info via endpointStorage.saveEndpoints()
-            String hubUrl = (String) config.get("hubUrl");
-
-            // Extract stats config if present
-            Map<String, Object> statsConfig = (Map<String, Object>) config.get("statsConfig");
-            Boolean statsAggregatorEnabled = null;
-            String statsAggregatorUrl = null;
-            String statsAggregatorMode = null;
-            Integer slowThresholdMs = null;
-            Boolean includeSqlNormalized = null;
-
-            statsAggregatorEnabled = getBooleanValue(statsConfig, "enabled");
-            if (statsAggregatorEnabled == null) {
-                statsAggregatorEnabled = getBooleanValue(config, "statsAggregatorEnabled");
-            }
-
-            statsAggregatorUrl = getStringValue(statsConfig, "url");
-            if (statsAggregatorUrl == null) {
-                statsAggregatorUrl = getStringValue(config, "statsAggregatorUrl");
-            }
-
-            statsAggregatorMode = getStringValue(statsConfig, "mode");
-            if (statsAggregatorMode == null) {
-                statsAggregatorMode = getStringValue(config, "statsAggregatorMode");
-            }
-
-            slowThresholdMs = getIntegerValue(statsConfig, "slowThresholdMs");
-            if (slowThresholdMs == null) {
-                slowThresholdMs = getIntegerValue(config, "statsAggregatorSlowThresholdMs");
-            }
-            if (slowThresholdMs == null) {
-                slowThresholdMs = getIntegerValue(config, "slowThresholdMs");
-            }
-
-            includeSqlNormalized = getBooleanValue(statsConfig, "includeSqlNormalized");
-            if (includeSqlNormalized == null) {
-                includeSqlNormalized = getBooleanValue(config, "statsAggregatorIncludeSqlNormalized");
-            }
-            if (includeSqlNormalized == null) {
-                includeSqlNormalized = getBooleanValue(config, "includeSqlNormalized");
-            }
-
-            if (cryptoUrl != null && !cryptoUrl.trim().isEmpty()) {
-                endpointStorage.saveEndpoints(cryptoUrl, hubId, filePolicyVersion,
-                        statsAggregatorEnabled, statsAggregatorUrl, statsAggregatorMode,
-                        slowThresholdMs, includeSqlNormalized);
-                log.info("Exported config: endpoint info applied: cryptoUrl={}", cryptoUrl);
-            } else {
-                log.info("Exported config: endpoint info deferred to runtime refresh");
-            }
-
-            // 6. Save datasourceId via DatasourceStorage (requires DB metadata, skip if not available)
-            // The datasourceId is returned and the caller (JdbcBootstrapOrchestrator) handles caching
-            log.info("Exported config: datasourceId={}", datasourceId);
-
-            log.info("Exported config loaded successfully: hubId={}, datasourceId={}, cryptoUrl={}, " +
-                    "policyVersion={}, mappings={}",
-                    hubId, datasourceId, cryptoUrl, filePolicyVersion, mappings.size());
+            hubIdManager.setWrapperEnrollment(hubId, datasourceId,
+                    refreshUrl, schemaSyncUrl, "6.0", true);
+            log.info("Exported config loaded successfully: tenantId={}, datasourceId={}",
+                    hubId, datasourceId);
 
             return datasourceId;
 

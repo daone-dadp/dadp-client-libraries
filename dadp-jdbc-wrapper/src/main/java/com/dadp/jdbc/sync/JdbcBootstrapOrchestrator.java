@@ -324,7 +324,7 @@ public class JdbcBootstrapOrchestrator {
                 runtimeEnrollmentAvailable = true;
                 log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", hubId, cachedDatasourceId);
             } else {
-                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and store tenantId, datasourceId, wrapperAuth, refreshUrl and schemaSyncUrl before wrapper runtime sync.");
+                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and store tenantId, datasourceId, refreshUrl and schemaSyncUrl before wrapper runtime sync.");
             }
             
             
@@ -626,8 +626,8 @@ public class JdbcBootstrapOrchestrator {
                 5,
                 3000,
                 2000,
-                hubIdManager.getCachedWrapperAuthKey(),
-                hubIdManager.getCachedWrapperAuthSecret(),
+                null,
+                null,
                 hubIdManager.getCachedSchemaSyncUrl()
         );
         List<SchemaMetadata> allStoredSchemas = schemaStorage.loadSchemas();
@@ -655,8 +655,8 @@ public class JdbcBootstrapOrchestrator {
             cachedDatasourceId,
             "/hub/api/v1/runtime/wrappers",
             policyResolver,
-            hubIdManager.getCachedWrapperAuthKey(),
-            hubIdManager.getCachedWrapperAuthSecret(),
+            null,
+            null,
             hubIdManager.getCachedRefreshUrl()
         );
         
@@ -705,36 +705,19 @@ public class JdbcBootstrapOrchestrator {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
-            String effectiveHubAuthId = config.getRuntimeAuthKey();
-            String effectiveHubAuthSecret = config.getRuntimeAuthSecret();
-            if (hubIdManager.getCachedWrapperAuthKey() != null) {
-                effectiveHubAuthId = hubIdManager.getCachedWrapperAuthKey();
-            }
-            if (hubIdManager.getCachedWrapperAuthSecret() != null) {
-                effectiveHubAuthSecret = hubIdManager.getCachedWrapperAuthSecret();
-            }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     hubIdManager.getCachedHubId(),
-                    effectiveHubAuthId,
-                    effectiveHubAuthSecret,
+                    null,
+                    null,
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }
     }
 
-    public String getWrapperAuthSecret() {
-        return hubIdManager.getCachedWrapperAuthSecret();
-    }
-
-    public String getWrapperAuthKey() {
-        return hubIdManager.getCachedWrapperAuthKey();
-    }
-    
-    
     private void initializePolicyMappingSyncService(String hubId) {
         try {
             

@@ -1,6 +1,5 @@
 package com.dadp.common.sync.endpoint;
 
-import com.dadp.common.sync.auth.HubInternalAuthSigner;
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
@@ -33,8 +32,6 @@ public class EndpointSyncService {
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final EndpointStorage endpointStorage;
-    private final String runtimeAuthKey;
-    private final String runtimeAuthSecret;
     
     public EndpointSyncService(String hubUrl, String hubId, String alias) {
         this(hubUrl, hubId, alias, new EndpointStorage(requireAlias(alias)), null, null);
@@ -45,8 +42,8 @@ public class EndpointSyncService {
     }
 
     public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName,
-                               String runtimeAuthKey, String runtimeAuthSecret) {
-        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), runtimeAuthKey, runtimeAuthSecret);
+                               String ignoredAuthKey, String ignoredAuthSecret) {
+        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), ignoredAuthKey, ignoredAuthSecret);
     }
     
     /**
@@ -62,7 +59,7 @@ public class EndpointSyncService {
     }
 
     public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage,
-                               String runtimeAuthKey, String runtimeAuthSecret) {
+                               String ignoredAuthKey, String ignoredAuthSecret) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
         this.alias = alias;
@@ -70,8 +67,6 @@ public class EndpointSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.endpointStorage = endpointStorage;
-        this.runtimeAuthKey = runtimeAuthKey;
-        this.runtimeAuthSecret = runtimeAuthSecret;
     }
 
     private static String requireAlias(String alias) {
@@ -96,11 +91,6 @@ public class EndpointSyncService {
         java.util.Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
         headers.put("X-DADP-Tenant-Id", hubId);
-        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
-                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
-            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-            headers.putAll(signer.sign(method, uri, new byte[0], hubId));
-        }
         return headers;
     }
 

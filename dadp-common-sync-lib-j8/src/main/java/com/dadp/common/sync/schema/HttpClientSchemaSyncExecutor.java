@@ -2,7 +2,6 @@ package com.dadp.common.sync.schema;
 
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
-import com.dadp.common.sync.auth.HubInternalAuthSigner;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,8 +32,6 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private final String instanceType;  // "PROXY" 또는 "AOP" (새 API 사용 시 필수)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
-    private final String runtimeAuthKey;
-    private final String runtimeAuthSecret;
     private final String runtimeSchemaSyncUrl;
     
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, HttpClientAdapter httpClient) {
@@ -47,20 +44,18 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
 
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
                                         HttpClientAdapter httpClient,
-                                        String runtimeAuthKey, String runtimeAuthSecret) {
-        this(hubUrl, apiBasePath, instanceType, httpClient, runtimeAuthKey, runtimeAuthSecret, null);
+                                        String ignoredAuthKey, String ignoredAuthSecret) {
+        this(hubUrl, apiBasePath, instanceType, httpClient, ignoredAuthKey, ignoredAuthSecret, null);
     }
 
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
                                         HttpClientAdapter httpClient,
-                                        String runtimeAuthKey, String runtimeAuthSecret,
+                                        String ignoredAuthKey, String ignoredAuthSecret,
                                         String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.instanceType = instanceType;
         this.httpClient = httpClient;
-        this.runtimeAuthKey = runtimeAuthKey;
-        this.runtimeAuthSecret = runtimeAuthSecret;
         this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -210,11 +205,6 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private Map<String, String> signedHeaders(String method, URI uri, String body, String tenantId) {
         Map<String, String> headers = new HashMap<>();
         headers.put("X-DADP-Tenant-Id", tenantId);
-        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
-                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
-            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-            headers.putAll(signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0], tenantId));
-        }
         return headers;
     }
     

@@ -33,8 +33,6 @@ public class JdbcSchemaSyncService {
     private final ProxyConfig proxyConfig;
     private final com.dadp.common.sync.policy.PolicyResolver policyResolver;
     private final HubIdManager hubIdManager; // HubIdManager (null 가능, 있으면 사용)
-    private final String runtimeAuthKey;
-    private final String runtimeAuthSecret;
     private final String runtimeSchemaSyncUrl;
     
     public JdbcSchemaSyncService(String hubUrl, 
@@ -87,16 +85,14 @@ public class JdbcSchemaSyncService {
                                 int maxRetries,
                                 long initialDelayMs,
                                 long backoffMs,
-                                String runtimeAuthKey,
-                                String runtimeAuthSecret,
+                                String ignoredAuthKey,
+                                String ignoredAuthSecret,
                                 String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.proxyConfig = proxyConfig;
         this.policyResolver = policyResolver;
         this.hubIdManager = hubIdManager;
-        this.runtimeAuthKey = runtimeAuthKey;
-        this.runtimeAuthSecret = runtimeAuthSecret;
         this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         
         // HubIdSaver 구현 (hubId 저장 콜백)
@@ -115,7 +111,7 @@ public class JdbcSchemaSyncService {
         this.schemaSyncService = new RetryableSchemaSyncService(
             hubUrl,
             schemaCollector,
-            createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeAuthKey, runtimeAuthSecret, runtimeSchemaSyncUrl),
+            createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeSchemaSyncUrl),
             hubIdSaver,
             maxRetries,
             initialDelayMs,
@@ -124,14 +120,10 @@ public class JdbcSchemaSyncService {
     }
     
     private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig) {
-        return createExecutor(hubUrl, apiBasePath, proxyConfig,
-                proxyConfig != null ? proxyConfig.getRuntimeAuthKey() : null,
-                proxyConfig != null ? proxyConfig.getRuntimeAuthSecret() : null,
-                null);
+        return createExecutor(hubUrl, apiBasePath, proxyConfig, null);
     }
 
     private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig,
-                                                     String runtimeAuthKey, String runtimeAuthSecret,
                                                      String runtimeSchemaSyncUrl) {
         // 공통 인터페이스 사용 (Java 8용 HTTP 클라이언트)
         com.dadp.common.sync.http.HttpClientAdapter httpClient = com.dadp.common.sync.http.Java8HttpClientAdapterFactory.create(5000, 10000);
@@ -141,8 +133,8 @@ public class JdbcSchemaSyncService {
                 apiBasePath,
                 instanceType,
                 httpClient,
-                runtimeAuthKey,
-                runtimeAuthSecret,
+                null,
+                null,
                 runtimeSchemaSyncUrl);
     }
     
@@ -217,8 +209,7 @@ public class JdbcSchemaSyncService {
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송 (AOP와 동일한 구조)
             enrichPolicyCodes(schemas);
-            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig,
-                    runtimeAuthKey, runtimeAuthSecret, runtimeSchemaSyncUrl);
+            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeSchemaSyncUrl);
             boolean synced = executor.syncToHub(schemas, hubId, proxyConfig.getAlias(), currentVersion);
             
             if (synced) {

@@ -3,19 +3,8 @@ package com.dadp.jdbc.logging;
 /**
  * DADP Logger Factory
  *
- * 로그 출력 조건:
- * - DADP_ENABLE_LOGGING = true 또는 dadp.enable-logging = true
- *
- * 기본값: false (로그 출력 안 함)
- * 고객사 앱에서 명시적으로 설정해야만 로그가 출력됩니다.
- *
- * 설정 우선순위:
- * 1순위: Hub PolicySnapshot logConfig (원격 제어, 한번 수신되면 로컬 설정 무시)
- * 2순위: 앱 구동 시 직접 설정 (시스템 프로퍼티 -Ddadp.enable-logging, JDBC URL enableLogging)
- * 3순위: 환경 변수 (DADP_ENABLE_LOGGING)
- *
- * Hub에서 logConfig를 한 번이라도 수신하면 hubManaged=true가 되어,
- * 이후 ProxyConfig(Connection 생성)에서의 setLoggingEnabled() 호출은 무시됩니다.
+ * 6.0부터 로그 활성화와 레벨은 Hub runtime snapshot logConfig가 최종 기준입니다.
+ * 로컬 ENV/JVM/JDBC URL로 운영 로그 상태를 변경하지 않습니다.
  *
  * SLF4J가 있으면 SLF4J를 통해 출력하고, 없으면 System.out 폴백 로거를 사용합니다.
  *
@@ -46,21 +35,12 @@ public final class DadpLoggerFactory {
         }
         slf4jAvailable = available;
         
-        // DADP 통합 로그 활성화 설정 확인
-        // 환경 변수 우선 확인: DADP_ENABLE_LOGGING
-        String enableLogging = System.getenv("DADP_ENABLE_LOGGING");
-        if (enableLogging == null || enableLogging.trim().isEmpty()) {
-            // 시스템 프로퍼티 확인: dadp.enable-logging
-            enableLogging = System.getProperty("dadp.enable-logging");
-        }
-        // 기본값: false (설정하지 않으면 로그 출력 안 함)
-        // true 또는 "1"로 설정해야만 로그 출력
-        loggingEnabled = "true".equalsIgnoreCase(enableLogging) || "1".equals(enableLogging);
+        loggingEnabled = false;
     }
     
     /**
-     * 로그 활성화 설정을 로컬에서 변경합니다.
-     * ProxyConfig(Connection 생성 시)에서 호출됩니다.
+     * 로그 활성화 설정을 프로세스 내부에서 변경합니다.
+     * Hub에서 logConfig를 수신한 이후에는 무시됩니다.
      * Hub에서 logConfig를 수신한 이후에는 무시됩니다.
      *
      * @param enabled 로그 활성화 여부
@@ -175,14 +155,14 @@ public final class DadpLoggerFactory {
     /**
      * 이름 기반으로 Logger를 생성합니다.
      * 
-     * DADP_ENABLE_LOGGING = true이면 로그를 출력합니다.
+     * Hub logConfig가 활성화되어 있으면 로그를 출력합니다.
      * SLF4J가 있으면 Slf4jAdapter를 반환하고, 없으면 NoOpLogger를 반환합니다.
      * 
      * @param name 로거 이름
      * @return DadpLogger 인스턴스
      */
     public static DadpLogger getLogger(String name) {
-        // DADP_ENABLE_LOGGING이 true가 아니면 NoOpLogger 반환
+        // Hub logConfig가 활성화되지 않았으면 NoOpLogger 반환
         if (!loggingEnabled) {
             return NoOpLogger.INSTANCE;
         }
@@ -222,7 +202,7 @@ public final class DadpLoggerFactory {
     /**
      * 로그가 실제로 출력될 수 있는지 확인합니다.
      * 
-     * DADP_ENABLE_LOGGING = true AND SLF4J가 있을 때만 true를 반환합니다.
+     * Hub logConfig가 활성화되어 있으면 true를 반환합니다.
      * 
      * @return 로그 출력 가능 여부
      */
@@ -230,4 +210,3 @@ public final class DadpLoggerFactory {
         return slf4jAvailable && loggingEnabled;
     }
 }
-

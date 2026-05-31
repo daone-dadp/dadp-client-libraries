@@ -11,12 +11,11 @@ import java.util.Map;
 
 /**
  * Proxy 설정 관리
- * 
- * 설정 우선순위:
- * 1. 시스템 프로퍼티 (dadp.proxy.hub-url, dadp.proxy.alias, dadp.proxy.instance-id, dadp.proxy.fail-open)
- * 2. 환경 변수 (DADP_HUB_BASE_URL > DADP_PROXY_HUB_URL, DADP_PROXY_ALIAS, DADP_PROXY_INSTANCE_ID, DADP_PROXY_FAIL_OPEN)
- * 3. JDBC URL 쿼리 파라미터 (hubUrl, alias, instanceId, failOpen)
- * 4. 기본값
+ *
+ * 6.0 configuration boundary:
+ * - JDBC URL: alias only
+ * - ENV/system property: bootstrap values only (hub URL, storage dir)
+ * - Hub runtime snapshot: failOpen, enabled, cryptoMode, debug/stats, policy bindings
  * 
  * @author DADP Development Team
  * @version 3.0.0
@@ -42,8 +41,6 @@ public class ProxyConfig {
     private final String engineTransport;  // Engine transport mode (http | binary-tcp)
     private final int engineBinaryPort;  // Engine binary TCP port
     private final String cryptoMode;  // Wrapper crypto execution mode (remote | local)
-    private final String runtimeAuthKey;
-    private final String runtimeAuthSecret;
     private final boolean cryptoLocalFallbackRemote;  // Local crypto failure fallback to remote Engine
     private final int cryptoLocalTimeoutMs;  // Hub policy/key material fetch timeout for local crypto
     private final boolean wrapperCryptoStatsEnabled;  // Wrapper local crypto aggregated stats enabled
@@ -68,43 +65,13 @@ public class ProxyConfig {
      */
     public ProxyConfig(Map<String, String> urlParams) {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
-        // Hub URL 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        // 환경변수 우선순위: DADP_HUB_BASE_URL > DADP_PROXY_HUB_URL (하위 호환성)
-        String hubUrlProp = null;
-        // 1. 시스템 프로퍼티 우선 확인
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            hubUrlProp = System.getProperty("dadp.proxy.hub-url");
+        String hubUrlProp = trimToNull(System.getProperty("dadp.proxy.hub-url"));
+        if (hubUrlProp == null) {
+            hubUrlProp = trimToNull(System.getenv("DADP_HUB_BASE_URL"));
         }
-        // 2. 환경 변수 확인
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            // 새로운 표준 환경변수 우선 사용
-            hubUrlProp = System.getenv("DADP_HUB_BASE_URL");
-        }
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            // 하위 호환성: 기존 환경변수 지원
-            hubUrlProp = System.getenv("DADP_PROXY_HUB_URL");
-        }
-        // 3. JDBC URL 파라미터 확인
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            hubUrlProp = urlParams != null ? urlParams.get("hubUrl") : null;
-        }
-        // 4. 기본값 사용
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            hubUrlProp = DEFAULT_HUB_URL;
-        }
-        this.hubUrl = hubUrlProp.trim();
-        
-        // Alias 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > legacy instanceId > 기본값)
-        String aliasProp = null;
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = System.getProperty("dadp.proxy.alias");
-        }
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = System.getenv("DADP_PROXY_ALIAS");
-        }
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            aliasProp = urlParams != null ? urlParams.get("alias") : null;
-        }
+        this.hubUrl = hubUrlProp != null ? hubUrlProp : DEFAULT_HUB_URL;
+
+        String aliasProp = trimToNull(urlParams != null ? urlParams.get("alias") : null);
         if (aliasProp == null || aliasProp.trim().isEmpty()) {
             this.alias = null;
             this.aliasConfigured = false;
@@ -113,319 +80,33 @@ public class ProxyConfig {
             this.alias = aliasProp.trim();
             this.aliasConfigured = true;
         }
-        
-        // Fail-open 모드 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        String failOpenProp = null;
-        // 1. 시스템 프로퍼티 우선 확인
-        if (failOpenProp == null || failOpenProp.trim().isEmpty()) {
-            failOpenProp = System.getProperty("dadp.proxy.fail-open");
-        }
-        // 2. 환경 변수 확인
-        if (failOpenProp == null || failOpenProp.trim().isEmpty()) {
-            failOpenProp = System.getenv("DADP_PROXY_FAIL_OPEN");
-        }
-        // 3. JDBC URL 파라미터 확인
-        if (failOpenProp == null || failOpenProp.trim().isEmpty()) {
-            failOpenProp = urlParams != null ? urlParams.get("failOpen") : null;
-        }
-        // 4. 기본값 사용 (기본값: true)
-        this.failOpen = failOpenProp == null || failOpenProp.trim().isEmpty() || 
-                       Boolean.parseBoolean(failOpenProp);
-        
-        // DADP 통합 로그 활성화 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        String enableLoggingProp = null;
-        // 1. 시스템 프로퍼티 우선 확인
-        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
-            enableLoggingProp = System.getProperty("dadp.enable-logging");
-        }
-        // 2. 환경 변수 확인
-        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
-            enableLoggingProp = System.getenv("DADP_ENABLE_LOGGING");
-        }
-        // 3. JDBC URL 파라미터 확인
-        if (enableLoggingProp == null || enableLoggingProp.trim().isEmpty()) {
-            enableLoggingProp = urlParams != null ? urlParams.get("enableLogging") : null;
-        }
-        // 4. 기본값 사용 (기본값: false)
-        this.enableLogging = enableLoggingProp != null && !enableLoggingProp.trim().isEmpty() && 
-                            ("true".equalsIgnoreCase(enableLoggingProp) || "1".equals(enableLoggingProp));
-        
-        // DadpLoggerFactory에 로그 활성화 설정 전달 (JDBC URL 파라미터를 통해 설정된 경우 반영)
+
+        this.failOpen = false;
+        this.enableLogging = false;
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
 
-        String singleTransportModeProp = null;
-        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
-            singleTransportModeProp = System.getProperty("dadp.wrapper.single-transport-mode");
-        }
-        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
-            singleTransportModeProp = System.getenv("DADP_WRAPPER_SINGLE_TRANSPORT_MODE");
-        }
-        if (singleTransportModeProp == null || singleTransportModeProp.trim().isEmpty()) {
-            singleTransportModeProp = urlParams != null ? urlParams.get("singleTransportMode") : null;
-        }
-        this.singleTransportMode = normalizeSingleTransportMode(singleTransportModeProp);
+        this.singleTransportMode = normalizeSingleTransportMode(null);
+        this.engineTransport = normalizeEngineTransport(null);
+        this.engineBinaryPort = parsePort(null, 9104);
+        this.cryptoMode = normalizeCryptoMode(null);
 
-        String engineTransportProp = null;
-        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
-            engineTransportProp = System.getProperty("dadp.wrapper.engine-transport");
-        }
-        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
-            engineTransportProp = System.getenv("DADP_WRAPPER_ENGINE_TRANSPORT");
-        }
-        if (engineTransportProp == null || engineTransportProp.trim().isEmpty()) {
-            engineTransportProp = urlParams != null ? urlParams.get("engineTransport") : null;
-        }
-        this.engineTransport = normalizeEngineTransport(engineTransportProp);
-
-        String engineBinaryPortProp = null;
-        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
-            engineBinaryPortProp = System.getProperty("dadp.wrapper.engine-binary-port");
-        }
-        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
-            engineBinaryPortProp = System.getenv("DADP_WRAPPER_ENGINE_BINARY_PORT");
-        }
-        if (engineBinaryPortProp == null || engineBinaryPortProp.trim().isEmpty()) {
-            engineBinaryPortProp = urlParams != null ? urlParams.get("engineBinaryPort") : null;
-        }
-        this.engineBinaryPort = parsePort(engineBinaryPortProp, 9104);
-
-        String cryptoModeProp = null;
-        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
-            cryptoModeProp = System.getProperty("dadp.wrapper.crypto-mode");
-        }
-        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
-            cryptoModeProp = System.getenv("DADP_WRAPPER_CRYPTO_MODE");
-        }
-        if (cryptoModeProp == null || cryptoModeProp.trim().isEmpty()) {
-            cryptoModeProp = urlParams != null ? urlParams.get("cryptoMode") : null;
-        }
-        this.cryptoMode = normalizeCryptoMode(cryptoModeProp);
-
-        this.runtimeAuthKey = null;
-        this.runtimeAuthSecret = null;
-
-        String localFallbackProp = null;
-        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
-            localFallbackProp = System.getProperty("dadp.wrapper.crypto-local.fallback-remote");
-        }
-        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
-            localFallbackProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_FALLBACK_REMOTE");
-        }
-        if (localFallbackProp == null || localFallbackProp.trim().isEmpty()) {
-            localFallbackProp = urlParams != null ? urlParams.get("cryptoLocalFallbackRemote") : null;
-        }
-        this.cryptoLocalFallbackRemote = localFallbackProp == null
-                || localFallbackProp.trim().isEmpty()
-                || "true".equalsIgnoreCase(localFallbackProp)
-                || "1".equals(localFallbackProp);
-
-        String localTimeoutProp = null;
-        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
-            localTimeoutProp = System.getProperty("dadp.wrapper.crypto-local.timeout-ms");
-        }
-        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
-            localTimeoutProp = System.getenv("DADP_WRAPPER_CRYPTO_LOCAL_TIMEOUT_MS");
-        }
-        if (localTimeoutProp == null || localTimeoutProp.trim().isEmpty()) {
-            localTimeoutProp = urlParams != null ? urlParams.get("cryptoLocalTimeoutMs") : null;
-        }
-        this.cryptoLocalTimeoutMs = parsePositiveInt(localTimeoutProp, 30000, "crypto local timeout");
-
-        String wrapperCryptoStatsEnabledProp = null;
-        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
-            wrapperCryptoStatsEnabledProp = System.getProperty("dadp.wrapper.crypto-stats.enabled");
-        }
-        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
-            wrapperCryptoStatsEnabledProp = System.getenv("DADP_WRAPPER_CRYPTO_STATS_ENABLED");
-        }
-        if (wrapperCryptoStatsEnabledProp == null || wrapperCryptoStatsEnabledProp.trim().isEmpty()) {
-            wrapperCryptoStatsEnabledProp = urlParams != null ? urlParams.get("wrapperCryptoStatsEnabled") : null;
-        }
-        this.wrapperCryptoStatsEnabled = wrapperCryptoStatsEnabledProp != null
-                && !wrapperCryptoStatsEnabledProp.trim().isEmpty()
-                && ("true".equalsIgnoreCase(wrapperCryptoStatsEnabledProp) || "1".equals(wrapperCryptoStatsEnabledProp));
-
-        String wrapperCryptoStatsAggregationLevelProp = null;
-        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
-            wrapperCryptoStatsAggregationLevelProp = System.getProperty("dadp.wrapper.crypto-stats.aggregation-level");
-        }
-        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
-            wrapperCryptoStatsAggregationLevelProp = System.getenv("DADP_WRAPPER_CRYPTO_STATS_AGGREGATION_LEVEL");
-        }
-        if (wrapperCryptoStatsAggregationLevelProp == null || wrapperCryptoStatsAggregationLevelProp.trim().isEmpty()) {
-            wrapperCryptoStatsAggregationLevelProp = urlParams != null ? urlParams.get("wrapperCryptoStatsAggregationLevel") : null;
-        }
+        this.cryptoLocalFallbackRemote = true;
+        this.cryptoLocalTimeoutMs = parsePositiveInt(null, 30000, "crypto local timeout");
+        this.wrapperCryptoStatsEnabled = false;
         this.wrapperCryptoStatsAggregationLevel =
-                normalizeWrapperCryptoStatsAggregationLevel(wrapperCryptoStatsAggregationLevelProp);
+                normalizeWrapperCryptoStatsAggregationLevel(null);
+        this.sqlMappingDebugEnabled = false;
+        this.autoPolicyMappingSyncEnabled = false;
+        this.cryptoProfileEnabled = false;
+        String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.alias);
+        this.cryptoProfilePath = defaultProfileDir + java.io.File.separator + "crypto-stage-profile.ndjson";
 
-        String sqlMappingDebugEnabledProp = null;
-        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
-            sqlMappingDebugEnabledProp = System.getProperty("dadp.wrapper.sql-mapping-debug.enabled");
-        }
-        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
-            sqlMappingDebugEnabledProp = System.getenv("DADP_WRAPPER_SQL_MAPPING_DEBUG_ENABLED");
-        }
-        if (sqlMappingDebugEnabledProp == null || sqlMappingDebugEnabledProp.trim().isEmpty()) {
-            sqlMappingDebugEnabledProp = urlParams != null ? urlParams.get("sqlMappingDebugEnabled") : null;
-        }
-        this.sqlMappingDebugEnabled = sqlMappingDebugEnabledProp != null
-                && !sqlMappingDebugEnabledProp.trim().isEmpty()
-                && ("true".equalsIgnoreCase(sqlMappingDebugEnabledProp) || "1".equals(sqlMappingDebugEnabledProp));
+        this.schemaCollectionTimeoutMs = DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS;
+        this.maxSchemas = DEFAULT_MAX_SCHEMAS;
+        this.schemaAllowlist = null;
+        this.schemaCollectionFailMode = DEFAULT_SCHEMA_COLLECTION_FAIL_MODE;
 
-        String autoPolicyMappingSyncEnabledProp = null;
-        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
-            autoPolicyMappingSyncEnabledProp = System.getProperty("dadp.wrapper.policy-sync.auto.enabled");
-        }
-        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
-            autoPolicyMappingSyncEnabledProp = System.getenv("DADP_WRAPPER_POLICY_SYNC_AUTO_ENABLED");
-        }
-        if (autoPolicyMappingSyncEnabledProp == null || autoPolicyMappingSyncEnabledProp.trim().isEmpty()) {
-            autoPolicyMappingSyncEnabledProp = urlParams != null ? urlParams.get("policySyncAutoEnabled") : null;
-        }
-        this.autoPolicyMappingSyncEnabled = autoPolicyMappingSyncEnabledProp != null
-                && !autoPolicyMappingSyncEnabledProp.trim().isEmpty()
-                && ("true".equalsIgnoreCase(autoPolicyMappingSyncEnabledProp) || "1".equals(autoPolicyMappingSyncEnabledProp));
-
-        // Wrapper 암복호화 stage profiling 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        String cryptoProfileEnabledProp = null;
-        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
-            cryptoProfileEnabledProp = System.getProperty("dadp.wrapper.crypto-profile.enabled");
-        }
-        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
-            cryptoProfileEnabledProp = System.getenv("DADP_WRAPPER_CRYPTO_PROFILE_ENABLED");
-        }
-        if (cryptoProfileEnabledProp == null || cryptoProfileEnabledProp.trim().isEmpty()) {
-            cryptoProfileEnabledProp = urlParams != null ? urlParams.get("cryptoProfileEnabled") : null;
-        }
-        this.cryptoProfileEnabled = cryptoProfileEnabledProp != null
-                && !cryptoProfileEnabledProp.trim().isEmpty()
-                && ("true".equalsIgnoreCase(cryptoProfileEnabledProp) || "1".equals(cryptoProfileEnabledProp));
-
-        String cryptoProfilePathProp = null;
-        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
-            cryptoProfilePathProp = System.getProperty("dadp.wrapper.crypto-profile.path");
-        }
-        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
-            cryptoProfilePathProp = System.getenv("DADP_WRAPPER_CRYPTO_PROFILE_PATH");
-        }
-        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
-            cryptoProfilePathProp = urlParams != null ? urlParams.get("cryptoProfilePath") : null;
-        }
-        if (cryptoProfilePathProp == null || cryptoProfilePathProp.trim().isEmpty()) {
-            String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.alias);
-            cryptoProfilePathProp = defaultProfileDir + java.io.File.separator + "crypto-stage-profile.ndjson";
-        }
-        this.cryptoProfilePath = cryptoProfilePathProp.trim();
-        
-        // 스키마 수집 설정 읽기 (우선순위: 시스템 프로퍼티 > 환경 변수 > URL 파라미터 > 기본값)
-        // TODO: Hub API 구현 후 Hub 저장소 우선순위 추가
-        // SchemaCollectionConfigResolver configResolver = SchemaCollectionConfigResolver.getInstance();
-        // SchemaCollectionConfigStorage.SchemaCollectionConfig storedConfig = configResolver.getConfig();
-        
-        // 타임아웃 읽기
-        String timeoutProp = null;
-        // TODO: Hub API 구현 후 주석 해제
-        // if (storedConfig != null && storedConfig.getTimeoutMs() != null) {
-        //     // Hub에서 받은 설정 우선 사용
-        //     this.schemaCollectionTimeoutMs = storedConfig.getTimeoutMs();
-        //     log.trace("📋 Hub 저장소에서 타임아웃 로드: {}ms", this.schemaCollectionTimeoutMs);
-        // } else {
-            // 로컬 설정 확인
-            if (timeoutProp == null || timeoutProp.trim().isEmpty()) {
-                timeoutProp = System.getProperty("dadp.wrapper.schema-collection.timeout");
-            }
-            if (timeoutProp == null || timeoutProp.trim().isEmpty()) {
-                timeoutProp = System.getenv("DADP_WRAPPER_SCHEMA_COLLECTION_TIMEOUT");
-            }
-            if (timeoutProp == null || timeoutProp.trim().isEmpty()) {
-                timeoutProp = urlParams != null ? urlParams.get("schemaCollectionTimeout") : null;
-            }
-            // 시간 문자열 파싱 (예: "30s", "1m", "30000" 등)
-            this.schemaCollectionTimeoutMs = parseTimeout(timeoutProp, DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS);
-        // }
-        
-        // 최대 스키마 개수 읽기
-        String maxSchemasProp = null;
-        // TODO: Hub API 구현 후 주석 해제
-        // if (storedConfig != null && storedConfig.getMaxSchemas() != null) {
-        //     // Hub에서 받은 설정 우선 사용
-        //     this.maxSchemas = storedConfig.getMaxSchemas();
-        //     log.trace("📋 Hub 저장소에서 최대 스키마 개수 로드: {}", this.maxSchemas);
-        // } else {
-        // 로컬 설정 확인
-        if (maxSchemasProp == null || maxSchemasProp.trim().isEmpty()) {
-            maxSchemasProp = System.getProperty("dadp.wrapper.schema-collection.max-schemas");
-        }
-        if (maxSchemasProp == null || maxSchemasProp.trim().isEmpty()) {
-            maxSchemasProp = System.getenv("DADP_WRAPPER_SCHEMA_COLLECTION_MAX_SCHEMAS");
-        }
-        if (maxSchemasProp == null || maxSchemasProp.trim().isEmpty()) {
-            maxSchemasProp = urlParams != null ? urlParams.get("maxSchemas") : null;
-        }
-        int parsedMaxSchemas;
-        try {
-            parsedMaxSchemas = maxSchemasProp != null && !maxSchemasProp.trim().isEmpty() 
-                ? Integer.parseInt(maxSchemasProp.trim()) 
-                : DEFAULT_MAX_SCHEMAS;
-        } catch (NumberFormatException e) {
-            log.warn("Failed to parse max schemas: {} (using default: {})", maxSchemasProp, DEFAULT_MAX_SCHEMAS);
-            parsedMaxSchemas = DEFAULT_MAX_SCHEMAS;
-        }
-        this.maxSchemas = parsedMaxSchemas;
-        // }
-        
-        // 스키마 Allowlist 읽기
-        String allowlistProp = null;
-        // TODO: Hub API 구현 후 주석 해제
-        // if (storedConfig != null && storedConfig.getAllowlist() != null) {
-        //     // Hub에서 받은 설정 우선 사용
-        //     this.schemaAllowlist = storedConfig.getAllowlist();
-        //     log.trace("📋 Hub 저장소에서 Allowlist 로드: {}", this.schemaAllowlist);
-        // } else {
-            // 로컬 설정 확인
-            if (allowlistProp == null || allowlistProp.trim().isEmpty()) {
-                allowlistProp = System.getProperty("dadp.wrapper.schema-collection.allowlist");
-            }
-            if (allowlistProp == null || allowlistProp.trim().isEmpty()) {
-                allowlistProp = System.getenv("DADP_WRAPPER_SCHEMA_COLLECTION_ALLOWLIST");
-            }
-            if (allowlistProp == null || allowlistProp.trim().isEmpty()) {
-                allowlistProp = urlParams != null ? urlParams.get("schemaAllowlist") : null;
-            }
-            this.schemaAllowlist = (allowlistProp != null && !allowlistProp.trim().isEmpty()) 
-                ? allowlistProp.trim() 
-                : null;
-        // }
-        
-        // 스키마 수집 실패 모드 읽기
-        String failModeProp = null;
-        // TODO: Hub API 구현 후 주석 해제
-        // if (storedConfig != null && storedConfig.getFailMode() != null) {
-        //     // Hub에서 받은 설정 우선 사용
-        //     this.schemaCollectionFailMode = storedConfig.getFailMode().toLowerCase();
-        //     log.trace("📋 Hub 저장소에서 실패 모드 로드: {}", this.schemaCollectionFailMode);
-        // } else {
-            // 로컬 설정 확인
-            if (failModeProp == null || failModeProp.trim().isEmpty()) {
-                failModeProp = System.getProperty("dadp.wrapper.schema-collection.fail-mode");
-            }
-            if (failModeProp == null || failModeProp.trim().isEmpty()) {
-                failModeProp = System.getenv("DADP_WRAPPER_SCHEMA_COLLECTION_FAIL_MODE");
-            }
-            if (failModeProp == null || failModeProp.trim().isEmpty()) {
-                failModeProp = urlParams != null ? urlParams.get("schemaCollectionFailMode") : null;
-            }
-            this.schemaCollectionFailMode = (failModeProp != null && !failModeProp.trim().isEmpty()) 
-                ? failModeProp.trim().toLowerCase() 
-                : DEFAULT_SCHEMA_COLLECTION_FAIL_MODE;
-        // }
-        
-        // Wrapper 활성화 여부 (JDBC URL 파라미터 또는 exported config에서만 설정)
-        // 시스템 프로퍼티/환경변수는 모든 인스턴스에 적용되어 Hub 인스턴스별 설정을 덮어쓰므로 제거
-        String enabledProp = urlParams != null ? urlParams.get("enabled") : null;
-        boolean requestedEnabled = enabledProp == null || enabledProp.trim().isEmpty() ||
-                       !"false".equalsIgnoreCase(enabledProp.trim());
-        this.enabled = requestedEnabled;
+        this.enabled = true;
 
         // hubId는 HubIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음 (AOP 플로우와 일치)
@@ -496,7 +177,7 @@ public class ProxyConfig {
     }
 
     private static void emitMissingRequiredAlias() {
-        String message = "DADP wrapper startup failed: missing required alias. Configure dadp.proxy.alias, DADP_PROXY_ALIAS, or JDBC URL alias.";
+        String message = "DADP wrapper startup failed: missing required alias. Configure JDBC URL alias.";
         System.err.println(message);
         try {
             log.error(message);
@@ -587,14 +268,6 @@ public class ProxyConfig {
 
     public String getCryptoMode() {
         return cryptoMode;
-    }
-
-    public String getRuntimeAuthKey() {
-        return runtimeAuthKey;
-    }
-
-    public String getRuntimeAuthSecret() {
-        return runtimeAuthSecret;
     }
 
     public boolean isCryptoLocalFallbackRemote() {

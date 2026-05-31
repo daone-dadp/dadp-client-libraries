@@ -1,6 +1,5 @@
 package com.dadp.common.sync.mapping;
 
-import com.dadp.common.sync.auth.HubInternalAuthSigner;
 import com.dadp.common.sync.http.HttpClientAdapter;
 import com.dadp.common.sync.http.Java8HttpClientAdapterFactory;
 import com.dadp.common.sync.policy.PolicyResolver;
@@ -43,8 +42,6 @@ public class MappingSyncService {
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final PolicyResolver policyResolver;
-    private final String runtimeAuthKey;
-    private final String runtimeAuthSecret;
     private final String runtimeRefreshUrl;
     
     // 마지막으로 받은 정책 스냅샷 (엔드포인트 정보 포함)
@@ -64,12 +61,12 @@ public class MappingSyncService {
     }
 
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath,
-                              PolicyResolver policyResolver, String runtimeAuthKey, String runtimeAuthSecret) {
-        this(hubUrl, hubId, alias, datasourceId, apiBasePath, policyResolver, runtimeAuthKey, runtimeAuthSecret, null);
+                              PolicyResolver policyResolver, String ignoredAuthKey, String ignoredAuthSecret) {
+        this(hubUrl, hubId, alias, datasourceId, apiBasePath, policyResolver, ignoredAuthKey, ignoredAuthSecret, null);
     }
 
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath,
-                              PolicyResolver policyResolver, String runtimeAuthKey, String runtimeAuthSecret,
+                              PolicyResolver policyResolver, String ignoredAuthKey, String ignoredAuthSecret,
                               String runtimeRefreshUrl) {
         this.hubUrl = hubUrl;
         this.hubId = hubId;
@@ -88,8 +85,6 @@ public class MappingSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.policyResolver = policyResolver;
-        this.runtimeAuthKey = runtimeAuthKey;
-        this.runtimeAuthSecret = runtimeAuthSecret;
         this.runtimeRefreshUrl = runtimeRefreshUrl;
     }
     
@@ -562,11 +557,6 @@ public class MappingSyncService {
         Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
         headers.put("X-DADP-Tenant-Id", hubId);
-        if (runtimeAuthKey != null && !runtimeAuthKey.trim().isEmpty()
-                && runtimeAuthSecret != null && !runtimeAuthSecret.trim().isEmpty()) {
-            HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-            headers.putAll(signer.sign(method, uri, new byte[0], hubId));
-        }
         return headers;
     }
 

@@ -24,8 +24,6 @@ public class HubIdManager {
     // 캐시된 hubId (volatile로 변경 감지)
     private volatile String cachedHubId = null;
     private volatile String cachedDatasourceId = null;
-    private volatile String cachedWrapperAuthKey = null;
-    private volatile String cachedWrapperAuthSecret = null;
     private volatile String cachedRefreshUrl = null;
     private volatile String cachedSchemaSyncUrl = null;
     private volatile String cachedRuntimeVersion = null;
@@ -75,14 +73,12 @@ public class HubIdManager {
         if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
             String loadedHubId = config.getHubId();
             this.cachedDatasourceId = trimToNull(config.getDatasourceId());
-            this.cachedWrapperAuthKey = trimToNull(config.getWrapperAuthKey());
-            this.cachedWrapperAuthSecret = config.getWrapperAuthSecret();
             this.cachedRefreshUrl = trimToNull(config.getRefreshUrl());
             this.cachedSchemaSyncUrl = trimToNull(config.getSchemaSyncUrl());
             this.cachedRuntimeVersion = trimToNull(config.getRuntimeVersion());
             setHubId(loadedHubId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
-            log.debug("HubId loaded from persistent storage: hubId={}, datasourceId={}, wrapperAuthConfigured={}",
-                    loadedHubId, cachedDatasourceId, cachedWrapperAuthSecret != null);
+            log.debug("HubId loaded from persistent storage: hubId={}, datasourceId={}",
+                    loadedHubId, cachedDatasourceId);
             return loadedHubId;
         }
         log.debug("No hubId in persistent storage");
@@ -111,7 +107,7 @@ public class HubIdManager {
         if (saveToStorage && hubId != null && !hubId.trim().isEmpty()) {
             String instanceId = instanceIdProvider.getInstanceId();
             configStorage.saveConfig(hubId, hubUrl, instanceId, null,
-                    cachedDatasourceId, cachedWrapperAuthKey, cachedWrapperAuthSecret,
+                    cachedDatasourceId,
                     cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
             log.debug("HubId saved: hubId={}", hubId);
         }
@@ -137,14 +133,8 @@ public class HubIdManager {
         return cachedHubId;
     }
 
-    public void setWrapperAuthSecret(String hubId, String wrapperAuthSecret, boolean saveToStorage) {
-        setWrapperEnrollment(hubId, null, null, wrapperAuthSecret, null, null, null, saveToStorage);
-    }
-
     public void setWrapperEnrollment(String hubId,
                                      String datasourceId,
-                                     String wrapperAuthKey,
-                                     String wrapperAuthSecret,
                                      String refreshUrl,
                                      String schemaSyncUrl,
                                      String runtimeVersion,
@@ -160,10 +150,6 @@ public class HubIdManager {
         if (datasourceId != null && !datasourceId.trim().isEmpty()) {
             this.cachedDatasourceId = datasourceId.trim();
         }
-        if (wrapperAuthKey != null && !wrapperAuthKey.trim().isEmpty()) {
-            this.cachedWrapperAuthKey = wrapperAuthKey.trim();
-        }
-        this.cachedWrapperAuthSecret = trimToNull(wrapperAuthSecret);
         if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
             this.cachedRefreshUrl = refreshUrl.trim();
         }
@@ -176,22 +162,14 @@ public class HubIdManager {
         if (saveToStorage) {
             String instanceId = instanceIdProvider.getInstanceId();
             configStorage.saveConfig(hubId, hubUrl, instanceId, null,
-                    cachedDatasourceId, cachedWrapperAuthKey, cachedWrapperAuthSecret,
+                    cachedDatasourceId,
                     cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
             log.debug("Wrapper enrollment saved: hubId={}, datasourceId={}", hubId, cachedDatasourceId);
         }
     }
 
-    public String getCachedWrapperAuthSecret() {
-        return cachedWrapperAuthSecret;
-    }
-
     public String getCachedDatasourceId() {
         return cachedDatasourceId;
-    }
-
-    public String getCachedWrapperAuthKey() {
-        return cachedWrapperAuthKey;
     }
 
     public String getCachedRefreshUrl() {
@@ -229,8 +207,6 @@ public class HubIdManager {
         String oldHubId = this.cachedHubId;
         this.cachedHubId = null;
         this.cachedDatasourceId = null;
-        this.cachedWrapperAuthKey = null;
-        this.cachedWrapperAuthSecret = null;
         this.cachedRefreshUrl = null;
         this.cachedSchemaSyncUrl = null;
         this.cachedRuntimeVersion = null;

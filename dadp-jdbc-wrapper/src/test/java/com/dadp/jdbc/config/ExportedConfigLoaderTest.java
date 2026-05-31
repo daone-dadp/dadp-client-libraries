@@ -3,21 +3,16 @@ package com.dadp.jdbc.config;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.config.HubIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.policy.PolicyResolver;
-import com.dadp.jdbc.logging.DadpLoggerFactory;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.HashMap;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,132 +21,23 @@ class ExportedConfigLoaderTest {
     @TempDir
     Path tempDir;
 
-    @AfterEach
-    void resetLoggerFactoryState() throws Exception {
-        setStaticField("hubManaged", false);
-        setStaticField("loggingEnabled", false);
-        setStaticField("minimumLogLevel", "INFO");
-    }
-
     @Test
-    void prefersStatsConfigAndFallsBackToLegacyKeys() throws Exception {
-        Path storageDir = tempDir.resolve("wrapper");
+    void loadsHub6EnrollmentOnlyFromExportedConfig() throws Exception {
+        Path storageDir = tempDir.resolve("wrapper-enrollment");
         Files.createDirectories(storageDir);
 
         String json = "{\n"
-                + "  \"exportVersion\": 1,\n"
-                + "  \"hubId\": \"hub-test\",\n"
-                + "  \"instanceId\": \"wrapper-test\",\n"
+                + "  \"exportVersion\": 6,\n"
+                + "  \"tenantId\": \"wtenant_test\",\n"
                 + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"cryptoUrl\": \"http://engine:9003\",\n"
-                + "  \"hubUrl\": \"http://hub:9004\",\n"
-                + "  \"policyVersion\": 9,\n"
-                + "  \"mappings\": {},\n"
-                + "  \"statsConfig\": {\n"
-                + "    \"enabled\": true,\n"
-                + "    \"url\": \"http://aggregator-new:9005\",\n"
-                + "    \"mode\": \"DIRECT\",\n"
-                + "    \"slowThresholdMs\": 432\n"
+                + "  \"runtime\": {\n"
+                + "    \"refreshUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/refresh\",\n"
+                + "    \"schemaSyncUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync\"\n"
                 + "  },\n"
-                + "  \"statsAggregatorEnabled\": false,\n"
-                + "  \"statsAggregatorUrl\": \"http://aggregator-old:9005\",\n"
-                + "  \"statsAggregatorMode\": \"GATEWAY\",\n"
-                + "  \"statsAggregatorSlowThresholdMs\": 999\n"
-                + "}\n";
-        Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
-
-        InstanceConfigStorage configStorage =
-                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        HubIdManager hubIdManager =
-                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
-        PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
-        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
-
-        String datasourceId = ExportedConfigLoader.loadIfExists(
-                storageDir.toString(),
-                "wrapper-test",
-                hubIdManager,
-                policyResolver,
-                endpointStorage);
-
-        assertEquals("ds-test", datasourceId);
-        EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-        assertNotNull(endpointData);
-        assertEquals(Boolean.TRUE, endpointData.getStatsAggregatorEnabled());
-        assertEquals("http://aggregator-new:9005", endpointData.getStatsAggregatorUrl());
-        assertEquals("DIRECT", endpointData.getStatsAggregatorMode());
-        assertEquals(Integer.valueOf(432), endpointData.getSlowThresholdMs());
-    }
-
-    @Test
-    void appliesLogConfigAndReenablesWrapperFromExportedConfig() throws Exception {
-        Path storageDir = tempDir.resolve("wrapper-log");
-        Files.createDirectories(storageDir);
-
-        String json = "{\n"
-                + "  \"exportVersion\": 1,\n"
-                + "  \"hubId\": \"hub-test\",\n"
-                + "  \"instanceId\": \"wrapper-test\",\n"
-                + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"cryptoUrl\": \"http://engine:9003\",\n"
-                + "  \"policyVersion\": 9,\n"
-                + "  \"mappings\": {},\n"
-                + "  \"wrapperConfig\": {\n"
-                + "    \"enabled\": true\n"
-                + "  },\n"
-                + "  \"logConfig\": {\n"
-                + "    \"enabled\": true,\n"
-                + "    \"level\": \"DEBUG\"\n"
-                + "  }\n"
-                + "}\n";
-        Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
-
-        InstanceConfigStorage configStorage =
-                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        HubIdManager hubIdManager =
-                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
-        PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
-        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
-        HashMap<String, String> proxyParams = new HashMap<>();
-        proxyParams.put("alias", "wrapper-test");
-        proxyParams.put("enabled", "false");
-        ProxyConfig proxyConfig = new ProxyConfig(proxyParams);
-
-        assertFalse(proxyConfig.isEnabled());
-
-        String datasourceId = ExportedConfigLoader.loadIfExists(
-                storageDir.toString(),
-                "wrapper-test",
-                hubIdManager,
-                policyResolver,
-                endpointStorage,
-                proxyConfig);
-
-        assertEquals("ds-test", datasourceId);
-        assertTrue(proxyConfig.isEnabled());
-        assertTrue(DadpLoggerFactory.isHubManaged());
-        assertTrue(DadpLoggerFactory.isLoggingEnabled());
-        assertEquals("DEBUG", DadpLoggerFactory.getLogLevel());
-        assertNotNull(policyResolver.getStoredLogConfig());
-        assertEquals(Boolean.TRUE, policyResolver.getStoredLogConfig().getEnabled());
-        assertEquals("DEBUG", policyResolver.getStoredLogConfig().getLevel());
-    }
-
-    @Test
-    void savesWrapperAuthSecretFromExportedConfig() throws Exception {
-        Path storageDir = tempDir.resolve("wrapper-auth");
-        Files.createDirectories(storageDir);
-
-        String json = "{\n"
-                + "  \"exportVersion\": 1,\n"
-                + "  \"hubId\": \"pi_test123\",\n"
-                + "  \"wrapperHubId\": \"pi_test123\",\n"
-                + "  \"wrapperAuthSecret\": \"secret-test-value\",\n"
-                + "  \"instanceId\": \"wrapper-test\",\n"
-                + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"cryptoUrl\": \"http://engine:9003\",\n"
-                + "  \"policyVersion\": 9,\n"
-                + "  \"mappings\": {}\n"
+                + "  \"wrapperAuthSecret\": \"must-be-ignored\",\n"
+                + "  \"hubUrl\": \"http://must-not-be-used:9004\",\n"
+                + "  \"mappings\": {\"users.email\":\"dadp\"},\n"
+                + "  \"statsConfig\": {\"enabled\": true, \"url\": \"http://aggregator:9005\"}\n"
                 + "}\n";
         Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
 
@@ -172,9 +58,42 @@ class ExportedConfigLoaderTest {
         assertEquals("ds-test", datasourceId);
         InstanceConfigStorage.ConfigData saved = configStorage.loadConfig("http://hub:9004", "wrapper-test");
         assertNotNull(saved);
-        assertEquals("pi_test123", saved.getHubId());
-        assertEquals("secret-test-value", saved.getWrapperAuthSecret());
-        assertEquals("secret-test-value", hubIdManager.getCachedWrapperAuthSecret());
+        assertEquals("wtenant_test", saved.getHubId());
+        assertEquals("ds-test", saved.getDatasourceId());
+        assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", saved.getRefreshUrl());
+        assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync", saved.getSchemaSyncUrl());
+        assertEquals(null, endpointStorage.loadEndpoints());
+        assertEquals(Long.valueOf(0L), policyResolver.getCurrentVersion());
+    }
+
+    @Test
+    void rejectsLegacyExportedConfig() throws Exception {
+        Path storageDir = tempDir.resolve("wrapper-legacy-export");
+        Files.createDirectories(storageDir);
+
+        String json = "{\n"
+                + "  \"exportVersion\": 1,\n"
+                + "  \"hubId\": \"legacy-hub\",\n"
+                + "  \"instanceId\": \"wrapper-test\",\n"
+                + "  \"datasourceId\": \"ds-test\",\n"
+                + "  \"cryptoUrl\": \"http://engine:9003\"\n"
+                + "}\n";
+        Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
+
+        InstanceConfigStorage configStorage =
+                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
+        HubIdManager hubIdManager =
+                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+
+        String datasourceId = ExportedConfigLoader.loadIfExists(
+                storageDir.toString(),
+                "wrapper-test",
+                hubIdManager,
+                new PolicyResolver(storageDir.toString(), "policy-mappings.json"),
+                new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
+
+        assertEquals(null, datasourceId);
+        assertFalse(configStorage.hasStoredConfig());
     }
 
     @Test
@@ -183,12 +102,13 @@ class ExportedConfigLoaderTest {
         Files.createDirectories(storageDir);
 
         String json = "{\n"
-                + "  \"exportVersion\": 1,\n"
+                + "  \"exportVersion\": 6,\n"
                 + "  \"tenantId\": \"wtenant_test\",\n"
-                + "  \"wrapperAuthSecret\": \"secret-test-value\",\n"
-                + "  \"instanceId\": \"wrapper-test\",\n"
                 + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"policyVersion\": 2,\n"
+                + "  \"runtime\": {\n"
+                + "    \"refreshUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/refresh\",\n"
+                + "    \"schemaSyncUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync\"\n"
+                + "  },\n"
                 + "  \"mappings\": {}\n"
                 + "}\n";
         Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
@@ -200,26 +120,17 @@ class ExportedConfigLoaderTest {
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         HashMap<String, String> existingMappings = new HashMap<>();
         existingMappings.put("users.email", "dadp");
-        existingMappings.put("users.phone", "dadp");
         policyResolver.refreshMappings(existingMappings, 6L);
-        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
 
         String datasourceId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
                 hubIdManager,
                 policyResolver,
-                endpointStorage);
+                new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
 
         assertEquals("ds-test", datasourceId);
         assertEquals(Long.valueOf(6L), policyResolver.getCurrentVersion());
         assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "email"));
-        assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "phone"));
-    }
-
-    private void setStaticField(String fieldName, Object value) throws Exception {
-        Field field = DadpLoggerFactory.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(null, value);
     }
 }

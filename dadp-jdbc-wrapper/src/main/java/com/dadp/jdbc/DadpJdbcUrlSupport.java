@@ -13,7 +13,26 @@ final class DadpJdbcUrlSupport {
     static final String DADP_URL_PREFIX = "jdbc:dadp:";
 
     private static final List<String> PROXY_PARAM_KEYS = Arrays.asList(
-        "hubUrl", "alias", "instanceId", "failOpen", "enableLogging", "enabled"
+        "alias"
+    );
+
+    private static final List<String> REMOVED_DADP_PARAM_KEYS = Arrays.asList(
+        "hubUrl",
+        "instanceId",
+        "failOpen",
+        "enableLogging",
+        "enabled",
+        "cryptoMode",
+        "cryptoLocalFallbackRemote",
+        "wrapperCryptoStatsEnabled",
+        "sqlMappingDebugEnabled",
+        "policySyncAutoEnabled",
+        "tenantId",
+        "datasourceId",
+        "runtimeAuthKey",
+        "runtimeAuthSecret",
+        "wrapperAuthKey",
+        "wrapperAuthSecret"
     );
 
     private DadpJdbcUrlSupport() {
@@ -89,7 +108,7 @@ final class DadpJdbcUrlSupport {
             int eqIndex = pair.indexOf('=');
             if (eqIndex > 0) {
                 String key = pair.substring(0, eqIndex).trim();
-                if (!PROXY_PARAM_KEYS.contains(key)) {
+                if (!isDadpOnlyParam(key)) {
                     preservedParams.add(pair);
                 }
             } else {
@@ -158,7 +177,7 @@ final class DadpJdbcUrlSupport {
             int eqIndex = pair.indexOf('=');
             if (eqIndex > 0) {
                 String key = pair.substring(0, eqIndex).trim();
-                if (!PROXY_PARAM_KEYS.contains(key)) {
+                if (!isDadpOnlyParam(key)) {
                     validParams.add(pair);
                 }
             } else {
@@ -175,5 +194,9 @@ final class DadpJdbcUrlSupport {
         } catch (UnsupportedEncodingException e) {
             return value;
         }
+    }
+
+    private static boolean isDadpOnlyParam(String key) {
+        return PROXY_PARAM_KEYS.contains(key) || REMOVED_DADP_PARAM_KEYS.contains(key);
     }
 }

@@ -9,7 +9,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class ProxyConfigCryptoProfileTest {
@@ -50,7 +49,7 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
-    void cryptoProfileCanBeEnabledFromJdbcUrlParams() {
+    void cryptoProfileCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "wrapper-profile-test");
         urlParams.put("cryptoProfileEnabled", "true");
@@ -58,8 +57,8 @@ class ProxyConfigCryptoProfileTest {
 
         ProxyConfig config = new ProxyConfig(urlParams);
 
-        assertTrue(config.isCryptoProfileEnabled());
-        assertTrue("/tmp/dadp/wrapper-profile.ndjson".equals(config.getCryptoProfilePath()));
+        assertFalse(config.isCryptoProfileEnabled());
+        assertTrue(config.getCryptoProfilePath().endsWith("crypto-stage-profile.ndjson"));
     }
 
     @Test
@@ -105,50 +104,32 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
-    void aliasCanBeLoadedFromSystemPropertyOnly() {
+    void aliasCannotBeLoadedFromSystemProperty() {
         System.setProperty("dadp.proxy.alias", "system-prop-alias");
 
         ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
-        assertTrue("system-prop-alias".equals(config.getAlias()));
-        assertTrue("system-prop-alias".equals(config.getInstanceId()));
+        assertFalse(config.isStartupReady());
+        assertFalse(config.isRuntimeActive());
     }
 
     @Test
-    void aliasCanBeLoadedFromEnvironmentOnly() {
-        Assumptions.assumeTrue("env-alias-only".equals(System.getenv("DADP_PROXY_ALIAS")));
-        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
-
-        assertTrue("env-alias-only".equals(config.getAlias()));
-        assertTrue("env-alias-only".equals(config.getInstanceId()));
-    }
-
-    @Test
-    void singleTransportModeCanBeEnabledFromJdbcUrlParams() {
+    void runtimeTransportCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
         urlParams.put("singleTransportMode", "binary-framed");
-
-        ProxyConfig config = new ProxyConfig(urlParams);
-
-        assertTrue("binary-framed".equals(config.getSingleTransportMode()));
-    }
-
-    @Test
-    void engineTransportCanBeEnabledFromJdbcUrlParams() {
-        Map<String, String> urlParams = new HashMap<>();
-        urlParams.put("alias", "shared-db-group");
         urlParams.put("engineTransport", "binary-tcp");
         urlParams.put("engineBinaryPort", "19104");
 
         ProxyConfig config = new ProxyConfig(urlParams);
 
-        assertTrue("binary-tcp".equals(config.getEngineTransport()));
-        assertTrue(config.getEngineBinaryPort() == 19104);
+        assertTrue("json".equals(config.getSingleTransportMode()));
+        assertTrue("http".equals(config.getEngineTransport()));
+        assertTrue(config.getEngineBinaryPort() == 9104);
     }
 
     @Test
-    void localCryptoModeCanBeEnabledFromJdbcUrlParams() {
+    void localCryptoModeCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
         urlParams.put("cryptoMode", "local");
@@ -159,26 +140,26 @@ class ProxyConfigCryptoProfileTest {
 
         ProxyConfig config = new ProxyConfig(urlParams);
 
-        assertTrue("local".equals(config.getCryptoMode()));
-        assertFalse(config.isCryptoLocalFallbackRemote());
-        assertTrue(config.getCryptoLocalTimeoutMs() == 1234);
-        assertTrue(config.isWrapperCryptoStatsEnabled());
-        assertTrue("1day".equals(config.getWrapperCryptoStatsAggregationLevel()));
+        assertTrue("remote".equals(config.getCryptoMode()));
+        assertTrue(config.isCryptoLocalFallbackRemote());
+        assertTrue(config.getCryptoLocalTimeoutMs() == 30000);
+        assertFalse(config.isWrapperCryptoStatsEnabled());
+        assertTrue("1hour".equals(config.getWrapperCryptoStatsAggregationLevel()));
     }
 
     @Test
-    void sqlMappingDebugCanBeEnabledFromJdbcUrlParams() {
+    void sqlMappingDebugCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
         urlParams.put("sqlMappingDebugEnabled", "true");
 
         ProxyConfig config = new ProxyConfig(urlParams);
 
-        assertTrue(config.isSqlMappingDebugEnabled());
+        assertFalse(config.isSqlMappingDebugEnabled());
     }
 
     @Test
-    void autoPolicyMappingSyncIsOptInOnly() {
+    void autoPolicyMappingSyncCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> defaultParams = new HashMap<>();
         defaultParams.put("alias", "shared-db-group");
         ProxyConfig defaultConfig = new ProxyConfig(defaultParams);
@@ -188,6 +169,6 @@ class ProxyConfigCryptoProfileTest {
         enabledParams.put("alias", "shared-db-group");
         enabledParams.put("policySyncAutoEnabled", "true");
         ProxyConfig enabledConfig = new ProxyConfig(enabledParams);
-        assertTrue(enabledConfig.isAutoPolicyMappingSyncEnabled());
+        assertFalse(enabledConfig.isAutoPolicyMappingSyncEnabled());
     }
 }

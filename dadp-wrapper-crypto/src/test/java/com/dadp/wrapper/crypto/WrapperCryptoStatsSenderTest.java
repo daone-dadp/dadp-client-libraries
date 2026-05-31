@@ -56,14 +56,10 @@ class WrapperCryptoStatsSenderTest {
     void postsExpectedPayloadAndAuthHeaderToHubEndpoint() throws Exception {
         MutableTimeProvider timeProvider = new MutableTimeProvider(LocalDateTime.of(2026, 4, 28, 10, 5, 0));
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        List<String> authKeys = new ArrayList<String>();
         List<String> tenantIds = new ArrayList<String>();
-        List<String> signatures = new ArrayList<String>();
         List<String> bodies = new ArrayList<String>();
         server.createContext("/hub/api/v1/stats/wrapper/crypto", exchange -> {
-            authKeys.add(exchange.getRequestHeaders().getFirst("X-Hub-Auth-Key"));
             tenantIds.add(exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
-            signatures.add(exchange.getRequestHeaders().getFirst("X-Hub-Auth-Signature"));
             bodies.add(new String(readAll(exchange), StandardCharsets.UTF_8));
             writeJson(exchange, "{\"code\":\"SUCCESS\",\"data\":null}");
         });
@@ -74,7 +70,7 @@ class WrapperCryptoStatsSenderTest {
             WrapperCryptoStatsSender sender = new WrapperCryptoStatsSender(
                     "http://127.0.0.1:" + server.getAddress().getPort(),
                     1000,
-                    new HubInternalAuthHeaderProvider("wtenant_test", "wrapper-key", "stats-secret"),
+                    new HubTenantHeaderProvider("wtenant_test"),
                     "1hour",
                     timeProvider,
                     new WrapperCryptoStatsSender.HttpTransport(),
@@ -87,12 +83,8 @@ class WrapperCryptoStatsSenderTest {
                 sender.close();
             }
 
-            assertEquals(1, authKeys.size());
-            assertEquals("wrapper-key", authKeys.get(0));
             assertEquals(1, tenantIds.size());
             assertEquals("wtenant_test", tenantIds.get(0));
-            assertEquals(1, signatures.size());
-            assertTrue(signatures.get(0) != null && signatures.get(0).length() == 64);
             assertEquals(1, bodies.size());
             assertTrue(bodies.get(0).contains("\"aggregationLevel\":\"1hour\""));
             assertTrue(bodies.get(0).contains("\"encryptCount\":1"));

@@ -1,6 +1,7 @@
 package com.dadp.common.sync.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 
@@ -69,14 +70,7 @@ public class InstanceConfigStorage {
      * @return 저장 성공 여부
      */
     public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen) {
-        return saveConfig(hubId, hubUrl, instanceId, failOpen, null);
-    }
-
-    /**
-     * Save instance config including wrapper auth secret when available.
-     */
-    public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen, String wrapperAuthSecret) {
-        return saveConfig(hubId, hubUrl, instanceId, failOpen, null, null, wrapperAuthSecret, null, null, null);
+        return saveConfig(hubId, hubUrl, instanceId, failOpen, null, null, null, null);
     }
 
     /**
@@ -87,8 +81,6 @@ public class InstanceConfigStorage {
                               String instanceId,
                               Boolean failOpen,
                               String datasourceId,
-                              String wrapperAuthKey,
-                              String wrapperAuthSecret,
                               String refreshUrl,
                               String schemaSyncUrl,
                               String runtimeVersion) {
@@ -115,14 +107,8 @@ public class InstanceConfigStorage {
             if (failOpen != null) {
                 data.setFailOpen(failOpen);
             }
-            if (wrapperAuthSecret != null) {
-                data.setWrapperAuthSecret(wrapperAuthSecret);
-            }
             if (datasourceId != null) {
                 data.setDatasourceId(datasourceId);
-            }
-            if (wrapperAuthKey != null) {
-                data.setWrapperAuthKey(wrapperAuthKey);
             }
             if (refreshUrl != null) {
                 data.setRefreshUrl(refreshUrl);
@@ -138,9 +124,8 @@ public class InstanceConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: hubId={}, datasourceId={}, hubUrl={}, instanceId={}, wrapperAuthConfigured={} -> {}",
-                    data.getHubId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(),
-                    data.getWrapperAuthSecret() != null, storagePath);
+            log.debug("Instance config saved: hubId={}, datasourceId={}, hubUrl={}, instanceId={} -> {}",
+                    data.getHubId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(), storagePath);
             return true;
 
         } catch (IOException e) {
@@ -264,6 +249,7 @@ public class InstanceConfigStorage {
     /**
      * 인스턴스 설정 데이터 구조
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ConfigData {
         private long timestamp;
         private String hubId;  // Hub가 발급한 고유 ID
@@ -271,8 +257,6 @@ public class InstanceConfigStorage {
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open 모드 여부 (WRAPPER용, AOP는 null 가능)
         private String datasourceId;  // Hub-owned shared datasource ID
-        private String wrapperAuthKey;  // Wrapper runtime auth key issued by Hub
-        private String wrapperAuthSecret;  // Wrapper internal Hub API auth secret
         private String refreshUrl;  // Hub 6 runtime refresh URL
         private String schemaSyncUrl;  // Hub 6 runtime schema-sync URL
         private String runtimeVersion;  // Hub runtime contract version
@@ -325,28 +309,12 @@ public class InstanceConfigStorage {
             this.failOpen = failOpen;
         }
 
-        public String getWrapperAuthSecret() {
-            return wrapperAuthSecret;
-        }
-
-        public void setWrapperAuthSecret(String wrapperAuthSecret) {
-            this.wrapperAuthSecret = wrapperAuthSecret;
-        }
-
         public String getDatasourceId() {
             return datasourceId;
         }
 
         public void setDatasourceId(String datasourceId) {
             this.datasourceId = datasourceId;
-        }
-
-        public String getWrapperAuthKey() {
-            return wrapperAuthKey;
-        }
-
-        public void setWrapperAuthKey(String wrapperAuthKey) {
-            this.wrapperAuthKey = wrapperAuthKey;
         }
 
         public String getRefreshUrl() {
