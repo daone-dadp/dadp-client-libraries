@@ -50,6 +50,17 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
                 true);
     }
 
+    public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
+                                    String tenantId, String hubAuthId, String hubAuthSecret,
+                                    String aggregationLevel) {
+        this(hubBaseUrl, timeoutMillis,
+                createAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret),
+                normalizeAggregationLevel(aggregationLevel),
+                new SystemTimeProvider(),
+                new HttpTransport(),
+                true);
+    }
+
     WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
                              HubAuthHeaderProvider authHeaderProvider,
                              String aggregationLevel,
@@ -196,11 +207,15 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     }
 
     private static HubAuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
+        return createAuthHeaderProvider(null, hubAuthId, hubAuthSecret);
+    }
+
+    private static HubAuthHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
         if (hubAuthId == null || hubAuthId.trim().isEmpty()
                 || hubAuthSecret == null || hubAuthSecret.trim().isEmpty()) {
             return null;
         }
-        return new HubInternalAuthHeaderProvider(hubAuthId, hubAuthSecret);
+        return new HubInternalAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret);
     }
 
     interface TimeProvider {

@@ -15,14 +15,24 @@ public final class HubInternalAuthHeaderProvider implements HubAuthHeaderProvide
 
     private final String callerKey;
     private final String sharedSecret;
+    private final String tenantId;
     private final TimeProvider timeProvider;
     private final NonceProvider nonceProvider;
 
     public HubInternalAuthHeaderProvider(String callerKey, String sharedSecret) {
-        this(callerKey, sharedSecret, new SystemTimeProvider(), new UuidNonceProvider());
+        this(null, callerKey, sharedSecret, new SystemTimeProvider(), new UuidNonceProvider());
+    }
+
+    public HubInternalAuthHeaderProvider(String tenantId, String callerKey, String sharedSecret) {
+        this(tenantId, callerKey, sharedSecret, new SystemTimeProvider(), new UuidNonceProvider());
     }
 
     HubInternalAuthHeaderProvider(String callerKey, String sharedSecret,
+                                  TimeProvider timeProvider, NonceProvider nonceProvider) {
+        this(null, callerKey, sharedSecret, timeProvider, nonceProvider);
+    }
+
+    HubInternalAuthHeaderProvider(String tenantId, String callerKey, String sharedSecret,
                                   TimeProvider timeProvider, NonceProvider nonceProvider) {
         if (callerKey == null || callerKey.trim().isEmpty()) {
             throw new IllegalArgumentException("callerKey is required");
@@ -30,6 +40,7 @@ public final class HubInternalAuthHeaderProvider implements HubAuthHeaderProvide
         if (sharedSecret == null || sharedSecret.trim().isEmpty()) {
             throw new IllegalArgumentException("sharedSecret is required");
         }
+        this.tenantId = tenantId != null && !tenantId.trim().isEmpty() ? tenantId.trim() : null;
         this.callerKey = callerKey.trim();
         this.sharedSecret = sharedSecret.trim();
         this.timeProvider = timeProvider;
@@ -49,6 +60,9 @@ public final class HubInternalAuthHeaderProvider implements HubAuthHeaderProvide
         connection.setRequestProperty("X-Hub-Auth-Nonce", nonce);
         connection.setRequestProperty("X-Hub-Auth-Signature", signature);
         connection.setRequestProperty("X-Hub-Auth-Version", "v1");
+        if (tenantId != null) {
+            connection.setRequestProperty("X-DADP-Tenant-Id", tenantId);
+        }
     }
 
     static String canonicalString(String method, String path, String query,

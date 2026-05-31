@@ -97,7 +97,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
             headers.put("X-Instance-Id", alias);
         }
         if (isRuntimeWrapper) {
-            headers.putAll(signedHeaders("POST", URI.create(syncUrl), requestBody));
+            headers.putAll(signedHeaders("POST", URI.create(syncUrl), requestBody, hubId));
         }
         if (currentVersion != null) {
             headers.put("X-Current-Version", String.valueOf(currentVersion));
@@ -207,13 +207,13 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         return root;
     }
 
-    private Map<String, String> signedHeaders(String method, URI uri, String body) {
+    private Map<String, String> signedHeaders(String method, URI uri, String body, String tenantId) {
         if (runtimeAuthKey == null || runtimeAuthKey.trim().isEmpty()
                 || runtimeAuthSecret == null || runtimeAuthSecret.trim().isEmpty()) {
             throw new IllegalStateException("DADP 6.0 wrapper schema-sync requires wrapper enrollment auth. Run CLI schema-register and store wrapperAuth.authKey/authSecret.");
         }
         HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-        return signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0]);
+        return signer.sign(method, uri, body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0], tenantId);
     }
     
     /**

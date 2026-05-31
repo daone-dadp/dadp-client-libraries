@@ -566,7 +566,7 @@ public class MappingSyncService {
         Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
         HubInternalAuthSigner signer = new HubInternalAuthSigner(runtimeAuthKey, runtimeAuthSecret);
-        headers.putAll(signer.sign(method, uri, new byte[0]));
+        headers.putAll(signer.sign(method, uri, new byte[0], hubId));
         return headers;
     }
 

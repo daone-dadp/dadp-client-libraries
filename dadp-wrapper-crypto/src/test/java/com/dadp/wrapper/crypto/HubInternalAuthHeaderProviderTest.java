@@ -13,6 +13,7 @@ class HubInternalAuthHeaderProviderTest {
     @Test
     void createsDadp60InternalAuthHeaders() throws Exception {
         HubInternalAuthHeaderProvider provider = new HubInternalAuthHeaderProvider(
+                "wtenant_test",
                 "wrapper-key",
                 "wrapper-secret",
                 () -> "2026-05-28T00:00:00Z",
@@ -32,6 +33,7 @@ class HubInternalAuthHeaderProviderTest {
                 bodyHash,
                 "wrapper-key");
         assertEquals("wrapper-key", connection.getRequestProperty("X-Hub-Auth-Key"));
+        assertEquals("wtenant_test", connection.getRequestProperty("X-DADP-Tenant-Id"));
         assertEquals("2026-05-28T00:00:00Z", connection.getRequestProperty("X-Hub-Auth-Timestamp"));
         assertEquals("nonce-1", connection.getRequestProperty("X-Hub-Auth-Nonce"));
         assertEquals("v1", connection.getRequestProperty("X-Hub-Auth-Version"));

@@ -724,6 +724,7 @@ public class JdbcBootstrapOrchestrator {
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
+                    hubIdManager.getCachedHubId(),
                     effectiveHubAuthId,
                     effectiveHubAuthSecret,
                     config.isWrapperCryptoStatsEnabled(),
@@ -733,6 +734,10 @@ public class JdbcBootstrapOrchestrator {
 
     public String getWrapperAuthSecret() {
         return hubIdManager.getCachedWrapperAuthSecret();
+    }
+
+    public String getWrapperAuthKey() {
+        return hubIdManager.getCachedWrapperAuthKey();
     }
     
     

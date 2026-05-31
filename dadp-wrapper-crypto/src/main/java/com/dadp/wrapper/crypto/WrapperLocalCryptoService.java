@@ -28,11 +28,23 @@ public class WrapperLocalCryptoService {
     }
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String tenantId, String hubAuthId, String hubAuthSecret) {
+        this(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret, false, "1hour");
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
                                      String hubAuthId, String hubAuthSecret,
                                      boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
+        this(hubBaseUrl, timeoutMillis, null, hubAuthId, hubAuthSecret,
+                cryptoStatsEnabled, cryptoStatsAggregationLevel);
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String tenantId, String hubAuthId, String hubAuthSecret,
+                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         this(hubBaseUrl, timeoutMillis,
-                createAuthHeaderProvider(hubAuthId, hubAuthSecret),
-                createStatsSender(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret,
+                createAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret),
+                createStatsSender(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret,
                         cryptoStatsEnabled, cryptoStatsAggregationLevel));
     }
 
@@ -246,21 +258,26 @@ public class WrapperLocalCryptoService {
 
 
     private static HubAuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
+        return createAuthHeaderProvider(null, hubAuthId, hubAuthSecret);
+    }
+
+    private static HubAuthHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
         if (hubAuthId == null || hubAuthId.trim().isEmpty()
                 || hubAuthSecret == null || hubAuthSecret.trim().isEmpty()) {
             return null;
         }
-        return new HubInternalAuthHeaderProvider(hubAuthId, hubAuthSecret);
+        return new HubInternalAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret);
     }
 
     private static WrapperCryptoStatsSender createStatsSender(String hubBaseUrl, int timeoutMillis,
+                                                              String tenantId,
                                                               String hubAuthId, String hubAuthSecret,
                                                               boolean cryptoStatsEnabled,
                                                               String cryptoStatsAggregationLevel) {
         if (!cryptoStatsEnabled) {
             return null;
         }
-        return new WrapperCryptoStatsSender(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret,
+        return new WrapperCryptoStatsSender(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret,
                 cryptoStatsAggregationLevel);
     }
 

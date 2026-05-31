@@ -30,6 +30,10 @@ public final class HubInternalAuthSigner {
     }
 
     public Map<String, String> sign(String method, URI uri, byte[] body) {
+        return sign(method, uri, body, null);
+    }
+
+    public Map<String, String> sign(String method, URI uri, byte[] body, String tenantId) {
         String timestamp = Instant.now().toString();
         String nonce = UUID.randomUUID().toString();
         String bodyHash = sha256Hex(body != null ? body : new byte[0]);
@@ -43,6 +47,9 @@ public final class HubInternalAuthSigner {
         headers.put("X-Hub-Auth-Nonce", nonce);
         headers.put("X-Hub-Auth-Signature", signature);
         headers.put("X-Hub-Auth-Version", "v1");
+        if (tenantId != null && !tenantId.trim().isEmpty()) {
+            headers.put("X-DADP-Tenant-Id", tenantId.trim());
+        }
         return headers;
     }
 

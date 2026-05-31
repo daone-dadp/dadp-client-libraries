@@ -40,6 +40,7 @@ public class DirectCryptoAdapter {
     private volatile WrapperLocalCryptoService localCryptoService;
     private volatile String localHubBaseUrl;
     private volatile Integer localTimeoutMillis = 30000;
+    private volatile String localHubTenantId;
     private volatile String localHubAuthId;
     private volatile String localHubAuthSecret;
     private volatile boolean localCryptoStatsEnabled;
@@ -146,6 +147,13 @@ public class DirectCryptoAdapter {
     public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
                               Integer timeoutMillis, String hubAuthId, String hubAuthSecret,
                               boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
+        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis,
+                null, hubAuthId, hubAuthSecret, cryptoStatsEnabled, cryptoStatsAggregationLevel);
+    }
+
+    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
+                              Integer timeoutMillis, String hubTenantId, String hubAuthId, String hubAuthSecret,
+                              boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         String normalized = cryptoMode != null ? cryptoMode.trim().toLowerCase() : "remote";
         if (!"local".equals(normalized)) {
             normalized = "remote";
@@ -158,6 +166,7 @@ public class DirectCryptoAdapter {
         if ("local".equals(normalized)) {
             if (this.localCryptoService != null
                     && equalsNullable(this.localHubBaseUrl, hubBaseUrl)
+                    && equalsNullable(this.localHubTenantId, hubTenantId)
                     && equalsNullable(this.localHubAuthId, hubAuthId)
                     && equalsNullable(this.localHubAuthSecret, hubAuthSecret)
                     && this.localCryptoStatsEnabled == cryptoStatsEnabled
@@ -170,12 +179,14 @@ public class DirectCryptoAdapter {
             this.localCryptoService = new WrapperLocalCryptoService(
                     hubBaseUrl,
                     effectiveTimeout,
+                    hubTenantId,
                     hubAuthId,
                     hubAuthSecret,
                     cryptoStatsEnabled,
                     normalizedStatsAggregationLevel);
             this.localHubBaseUrl = hubBaseUrl;
             this.localTimeoutMillis = effectiveTimeout;
+            this.localHubTenantId = hubTenantId;
             this.localHubAuthId = hubAuthId;
             this.localHubAuthSecret = hubAuthSecret;
             this.localCryptoStatsEnabled = cryptoStatsEnabled;
@@ -187,6 +198,7 @@ public class DirectCryptoAdapter {
             this.localCryptoService = null;
             this.localHubBaseUrl = null;
             this.localTimeoutMillis = effectiveTimeout;
+            this.localHubTenantId = null;
             this.localHubAuthId = null;
             this.localHubAuthSecret = null;
             this.localCryptoStatsEnabled = false;

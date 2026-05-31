@@ -27,6 +27,7 @@ class WrapperLocalCryptoServiceTest {
         server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
             assertEquals("POST", exchange.getRequestMethod());
             assertTrue(exchange.getRequestHeaders().containsKey("X-Hub-Auth-Key"));
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
             writeJson(exchange,
                     "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
                             + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
@@ -42,7 +43,7 @@ class WrapperLocalCryptoServiceTest {
         try {
             String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
             WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
-                    "wrapper-test", "wrapper-secret");
+                    "wtenant_local", "wrapper-test", "wrapper-secret");
 
             String encrypted = service.encrypt("local-wrapper-value", "customer-policy");
 
