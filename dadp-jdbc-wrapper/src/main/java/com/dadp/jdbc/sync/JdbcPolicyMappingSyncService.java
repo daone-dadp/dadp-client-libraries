@@ -171,20 +171,13 @@ public class JdbcPolicyMappingSyncService {
         }
         
         
-        setEnabled(true);
-        try {
-            log.info("Hub runtime wrapper refresh starting: hubId={}, alias={}", hubId, instanceId);
-            checkMappingChange();
-        } catch (Exception e) {
-            log.warn("Hub runtime wrapper refresh failed during startup: {}", e.getMessage(), e);
-        }
-
         if (!config.isAutoPolicyMappingSyncEnabled()) {
             setEnabled(false);
-            log.info("Automatic policy mapping sync disabled by default in DADP 6.0; startup refresh completed: hubId={}, alias={}", hubId, instanceId);
+            log.info("Automatic policy mapping sync disabled by default in DADP 6.0: hubId={}, alias={}", hubId, instanceId);
             return;
         }
 
+        setEnabled(true);
         startPeriodicSync();
         log.info("Periodic version check started: hubId={} (first check immediately)", hubId);
     }
