@@ -169,5 +169,46 @@ class JdbcPolicyMappingSyncServiceTest {
         schedulerField.setAccessible(true);
         assertNull(schedulerField.get(service));
         assertFalse(service.isEnabled());
+        verify(mappingSyncService).checkMappingChange(any(), any());
+    }
+
+    @Test
+    void startupRefreshRunsEvenWhenAutomaticPolicyMappingSyncIsDisabled() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("startup-refresh-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+        when(proxyConfig.isAutoPolicyMappingSyncEnabled()).thenReturn(false);
+        when(mappingSyncService.checkMappingChange(any(), any())).thenReturn(true);
+        when(mappingSyncService.syncPolicyMappingsAndUpdateVersion(any())).thenReturn(2);
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage,
+                "ds-test");
+
+        service.setInitialized(true, "pi_startup_refresh");
+
+        Field schedulerField = JdbcPolicyMappingSyncService.class.getDeclaredField("scheduler");
+        schedulerField.setAccessible(true);
+        assertNull(schedulerField.get(service));
+        assertFalse(service.isEnabled());
+        verify(mappingSyncService).syncPolicyMappingsAndUpdateVersion(any());
     }
 }
