@@ -528,9 +528,21 @@ public class MappingSyncService {
         JsonNode wrapper = root.path("wrapper");
         if (!wrapper.isMissingNode() && !wrapper.isNull()) {
             WrapperConfig wrapperConfig = new WrapperConfig();
+            boolean hasWrapperConfig = false;
             JsonNode enabled = wrapper.path("enabled");
             if (!enabled.isMissingNode() && !enabled.isNull()) {
                 wrapperConfig.setEnabled(enabled.asBoolean());
+                hasWrapperConfig = true;
+            }
+            String cryptoMode = text(wrapper.path("cryptoMode"));
+            if (cryptoMode == null || cryptoMode.trim().isEmpty()) {
+                cryptoMode = text(wrapper.path("options").path("cryptoMode"));
+            }
+            if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
+                wrapperConfig.setCryptoMode(cryptoMode.trim());
+                hasWrapperConfig = true;
+            }
+            if (hasWrapperConfig) {
                 snapshot.setWrapperConfig(wrapperConfig);
             }
             JsonNode debugEnabled = wrapper.path("debugEnabled");
@@ -913,8 +925,11 @@ public class MappingSyncService {
      */
     public static class WrapperConfig {
         private Boolean enabled;
+        private String cryptoMode;
         public Boolean getEnabled() { return enabled; }
         public void setEnabled(Boolean enabled) { this.enabled = enabled; }
+        public String getCryptoMode() { return cryptoMode; }
+        public void setCryptoMode(String cryptoMode) { this.cryptoMode = cryptoMode; }
     }
 
     /**

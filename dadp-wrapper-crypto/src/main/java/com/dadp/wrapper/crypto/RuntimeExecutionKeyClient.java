@@ -26,15 +26,15 @@ public class RuntimeExecutionKeyClient {
 
     private final String hubBaseUrl;
     private final int timeoutMillis;
-    private final HubAuthHeaderProvider authHeaderProvider;
+    private final HubRuntimeHeaderProvider authHeaderProvider;
     private final ObjectMapper objectMapper;
 
     public RuntimeExecutionKeyClient(String hubBaseUrl, int timeoutMillis,
-                                     HubAuthHeaderProvider authHeaderProvider) {
+                                     HubRuntimeHeaderProvider authHeaderProvider) {
         this.hubBaseUrl = normalizeBaseUrl(hubBaseUrl);
         this.timeoutMillis = timeoutMillis > 0 ? timeoutMillis : 30000;
         if (authHeaderProvider == null) {
-            throw new IllegalArgumentException("DADP 6.0 runtime execution-key resolve requires internal auth");
+            throw new IllegalArgumentException("DADP 6.0 runtime execution-key resolve requires tenant auth");
         }
         this.authHeaderProvider = authHeaderProvider;
         this.objectMapper = new ObjectMapper();

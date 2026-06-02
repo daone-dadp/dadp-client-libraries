@@ -16,6 +16,7 @@ class ProxyConfigCryptoProfileTest {
     @AfterEach
     void clearSystemProperties() {
         System.clearProperty("dadp.proxy.alias");
+        System.clearProperty("dadp.proxy.hub-url");
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
         System.clearProperty("dadp.wrapper.single-transport-mode");
@@ -32,7 +33,7 @@ class ProxyConfigCryptoProfileTest {
 
     @Test
     void cryptoProfileDefaultsToDisabled() {
-        ProxyConfig config = new ProxyConfig(Collections.singletonMap("alias", "wrapper-profile-test"));
+        ProxyConfig config = new ProxyConfig(baseParams());
 
         assertFalse(config.isCryptoProfileEnabled());
         assertTrue("json".equals(config.getSingleTransportMode()));
@@ -52,6 +53,7 @@ class ProxyConfigCryptoProfileTest {
     void cryptoProfileCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "wrapper-profile-test");
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
         urlParams.put("cryptoProfileEnabled", "true");
         urlParams.put("cryptoProfilePath", "/tmp/dadp/wrapper-profile.ndjson");
 
@@ -70,6 +72,7 @@ class ProxyConfigCryptoProfileTest {
 
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("instanceId", "legacy-instance-id");
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
         ProxyConfig legacyInstanceIdOnlyConfig = new ProxyConfig(urlParams);
         assertFalse(legacyInstanceIdOnlyConfig.isStartupReady());
         assertFalse(legacyInstanceIdOnlyConfig.isRuntimeActive());
@@ -94,7 +97,7 @@ class ProxyConfigCryptoProfileTest {
 
     @Test
     void aliasCanBeLoadedFromJdbcUrlParamOnly() {
-        Map<String, String> urlParams = new HashMap<>();
+        Map<String, String> urlParams = baseParams();
         urlParams.put("alias", "jdbc-url-alias");
 
         ProxyConfig config = new ProxyConfig(urlParams);
@@ -107,16 +110,45 @@ class ProxyConfigCryptoProfileTest {
     void aliasCannotBeLoadedFromSystemProperty() {
         System.setProperty("dadp.proxy.alias", "system-prop-alias");
 
-        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
+        ProxyConfig config = new ProxyConfig(urlParams);
 
         assertFalse(config.isStartupReady());
         assertFalse(config.isRuntimeActive());
     }
 
     @Test
+    void hubUrlCanBeLoadedFromJdbcUrlParamOnly() {
+        Map<String, String> urlParams = baseParams();
+        urlParams.put("hubUrl", "http://hub.example:9004");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue(config.isStartupReady());
+        assertTrue(config.isRuntimeActive());
+        assertTrue("http://hub.example:9004".equals(config.getHubUrl()));
+        assertTrue(config.isHubUrlConfigured());
+    }
+
+    @Test
+    void hubUrlCannotBeLoadedFromSystemPropertyOrEnvFallback() {
+        System.setProperty("dadp.proxy.hub-url", "http://system-hub:9004");
+
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put("alias", "jdbc-url-alias");
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertFalse(config.isStartupReady());
+        assertFalse(config.isRuntimeActive());
+        assertFalse(config.isHubUrlConfigured());
+    }
+
+    @Test
     void runtimeTransportCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
         urlParams.put("singleTransportMode", "binary-framed");
         urlParams.put("engineTransport", "binary-tcp");
         urlParams.put("engineBinaryPort", "19104");
@@ -132,6 +164,7 @@ class ProxyConfigCryptoProfileTest {
     void localCryptoModeCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
         urlParams.put("cryptoMode", "local");
         urlParams.put("cryptoLocalFallbackRemote", "false");
         urlParams.put("cryptoLocalTimeoutMs", "1234");
@@ -151,6 +184,7 @@ class ProxyConfigCryptoProfileTest {
     void sqlMappingDebugCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
+        urlParams.put("hubUrl", "http://127.0.0.1:9004");
         urlParams.put("sqlMappingDebugEnabled", "true");
 
         ProxyConfig config = new ProxyConfig(urlParams);
@@ -162,13 +196,22 @@ class ProxyConfigCryptoProfileTest {
     void autoPolicyMappingSyncCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> defaultParams = new HashMap<>();
         defaultParams.put("alias", "shared-db-group");
+        defaultParams.put("hubUrl", "http://127.0.0.1:9004");
         ProxyConfig defaultConfig = new ProxyConfig(defaultParams);
         assertFalse(defaultConfig.isAutoPolicyMappingSyncEnabled());
 
         Map<String, String> enabledParams = new HashMap<>();
         enabledParams.put("alias", "shared-db-group");
+        enabledParams.put("hubUrl", "http://127.0.0.1:9004");
         enabledParams.put("policySyncAutoEnabled", "true");
         ProxyConfig enabledConfig = new ProxyConfig(enabledParams);
         assertFalse(enabledConfig.isAutoPolicyMappingSyncEnabled());
+    }
+
+    private static Map<String, String> baseParams() {
+        Map<String, String> params = new HashMap<>();
+        params.put("hubUrl", "http://127.0.0.1:9004");
+        params.put("alias", "wrapper-profile-test");
+        return params;
     }
 }

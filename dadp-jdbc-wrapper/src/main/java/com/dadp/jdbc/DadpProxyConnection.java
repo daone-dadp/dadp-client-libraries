@@ -9,6 +9,7 @@ import com.dadp.jdbc.resolution.JdbcVendorResolutionStrategy;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.dadp.jdbc.sync.JdbcBootstrapOrchestrator;
+import com.dadp.jdbc.sync.JdbcPolicyMappingSyncService;
 import com.dadp.hub.crypto.WrapperCryptoProfileRecorder;
 // 공통 라이브러리 사용
 import com.dadp.common.sync.policy.PolicyResolver;
@@ -571,11 +572,17 @@ public class DadpProxyConnection implements Connection {
     public void refreshMappings() {
         new Thread(() -> {
             try {
-                // 새로운 정책 스냅샷 API 사용 (버전 추적)
+                JdbcPolicyMappingSyncService syncService =
+                        orchestrator != null ? orchestrator.getPolicyMappingSyncService() : null;
+                if (syncService != null) {
+                    syncService.refreshNow();
+                    this.directCryptoAdapter = orchestrator.getDirectCryptoAdapter();
+                    log.debug("Policy mapping force refresh completed through wrapper sync service");
+                    return;
+                }
                 Long currentVersion = policyResolver.getCurrentVersion();
-                // 정책 매핑 동기화 및 버전 업데이트 (공통 로직)
                 int count = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
-                log.debug("Policy mapping force refresh completed: {} mappings", count);
+                log.debug("Policy mapping force refresh completed without wrapper callbacks: {} mappings", count);
             } catch (Exception e) {
                 log.warn("Policy mapping refresh failed: {}", e.getMessage());
             }

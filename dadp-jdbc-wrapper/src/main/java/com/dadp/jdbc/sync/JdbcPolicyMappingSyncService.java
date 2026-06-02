@@ -247,6 +247,20 @@ public class JdbcPolicyMappingSyncService {
         
         syncOrchestrator.checkMappingChange();
     }
+
+    public void refreshNow() {
+        if (!initialized) {
+            log.warn("Manual policy mapping refresh skipped: service not initialized");
+            return;
+        }
+        String hubId = hubIdManager.getCachedHubId();
+        if (hubId == null || hubId.trim().isEmpty()) {
+            log.warn("Manual policy mapping refresh skipped: tenantId not available");
+            return;
+        }
+        log.info("Manual policy mapping refresh starting: hubId={}, alias={}", hubId, instanceId);
+        checkMappingChange();
+    }
     
     
     private void saveEndpointFromPolicyMapping(MappingSyncService.EndpointInfo endpointInfo) {
@@ -380,6 +394,31 @@ public class JdbcPolicyMappingSyncService {
         }
         MappingSyncService.WrapperConfig wrapperConfig = snapshot.getWrapperConfig();
         if (wrapperConfig == null) return;
+        if (configStorage != null) {
+            try {
+                configStorage.saveRuntimeOptions(
+                        wrapperConfig.getEnabled(),
+                        wrapperConfig.getCryptoMode(),
+                        hubIdManager.getCachedRuntimeVersion());
+            } catch (Exception e) {
+                log.warn("Failed to persist runtime wrapper options from Hub refresh: {}", e.getMessage());
+            }
+        }
+        if (wrapperConfig.getCryptoMode() != null && !wrapperConfig.getCryptoMode().trim().isEmpty()
+                && directCryptoAdapter != null) {
+            String cryptoMode = wrapperConfig.getCryptoMode().trim();
+            directCryptoAdapter.setCryptoMode(
+                    cryptoMode,
+                    config.getHubUrl(),
+                    config.isCryptoLocalFallbackRemote(),
+                    config.getCryptoLocalTimeoutMs(),
+                    hubIdManager.getCachedHubId(),
+                    null,
+                    null,
+                    config.isWrapperCryptoStatsEnabled(),
+                    config.getWrapperCryptoStatsAggregationLevel());
+            log.info("Wrapper crypto mode applied from Hub refresh: cryptoMode={}", cryptoMode);
+        }
         if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
             if (config != null && config.isEnabled()) {
                 config.setEnabled(false);

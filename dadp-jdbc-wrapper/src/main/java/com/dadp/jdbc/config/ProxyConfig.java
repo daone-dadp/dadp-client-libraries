@@ -13,8 +13,8 @@ import java.util.Map;
  * Proxy 설정 관리
  *
  * 6.0 configuration boundary:
- * - JDBC URL: alias only
- * - ENV/system property: bootstrap values only (hub URL, storage dir)
+ * - JDBC URL: hubUrl and alias only
+ * - ENV/system property: storage bootstrap only
  * - Hub runtime snapshot: failOpen, enabled, cryptoMode, debug/stats, policy bindings
  * 
  * @author DADP Development Team
@@ -25,13 +25,13 @@ public class ProxyConfig {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfig.class);
     
-    private static final String DEFAULT_HUB_URL = "http://localhost:9004";
     private static final long DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS = 30000; // 30초
     private static final int DEFAULT_MAX_SCHEMAS = 100;
     private static final String DEFAULT_SCHEMA_COLLECTION_FAIL_MODE = "fail-open"; // fail-open 또는 fail-close
     
     private static volatile ProxyConfig instance;
     private final String hubUrl;  // Hub URL (스키마 동기화 + 암복호화 라우팅, Hub가 Engine/Gateway로 자동 라우팅)
+    private final boolean hubUrlConfigured;
     private final String alias;  // 공유 DB 그룹 별칭
     private final boolean aliasConfigured;
     private volatile String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, HubIdManager에서 관리)
@@ -65,11 +65,15 @@ public class ProxyConfig {
      */
     public ProxyConfig(Map<String, String> urlParams) {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
-        String hubUrlProp = trimToNull(System.getProperty("dadp.proxy.hub-url"));
-        if (hubUrlProp == null) {
-            hubUrlProp = trimToNull(System.getenv("DADP_HUB_BASE_URL"));
+        String hubUrlProp = trimToNull(urlParams != null ? urlParams.get("hubUrl") : null);
+        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
+            this.hubUrl = null;
+            this.hubUrlConfigured = false;
+            emitMissingRequiredHubUrl();
+        } else {
+            this.hubUrl = hubUrlProp.trim();
+            this.hubUrlConfigured = true;
         }
-        this.hubUrl = hubUrlProp != null ? hubUrlProp : DEFAULT_HUB_URL;
 
         String aliasProp = trimToNull(urlParams != null ? urlParams.get("alias") : null);
         if (aliasProp == null || aliasProp.trim().isEmpty()) {
@@ -115,6 +119,7 @@ public class ProxyConfig {
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("Proxy config loaded:");
         log.trace("   - Hub URL (schema sync + crypto routing): {}", this.hubUrl);
+        log.trace("   - Hub URL configured from JDBC URL: {}", this.hubUrlConfigured);
         log.trace("   - Alias: {}", this.alias);
         log.trace("   - Fail-open: {}", this.failOpen);
         log.trace("   - Wrapper enabled: {}", this.enabled);
@@ -162,6 +167,10 @@ public class ProxyConfig {
     public String getHubUrl() {
         return hubUrl;
     }
+
+    public boolean isHubUrlConfigured() {
+        return hubUrlConfigured;
+    }
     
     public String getAlias() {
         return alias;
@@ -178,6 +187,16 @@ public class ProxyConfig {
 
     private static void emitMissingRequiredAlias() {
         String message = "DADP wrapper startup failed: missing required alias. Configure JDBC URL alias.";
+        System.err.println(message);
+        try {
+            log.error(message);
+        } catch (Exception ignored) {
+            // System.err emission is the mandatory fallback for startup failure.
+        }
+    }
+
+    private static void emitMissingRequiredHubUrl() {
+        String message = "DADP wrapper startup failed: missing required hubUrl. Configure JDBC URL hubUrl.";
         System.err.println(message);
         try {
             log.error(message);
@@ -229,11 +248,11 @@ public class ProxyConfig {
     }
 
     public boolean isStartupReady() {
-        return aliasConfigured;
+        return hubUrlConfigured && aliasConfigured;
     }
 
     public boolean isRuntimeActive() {
-        return enabled && aliasConfigured;
+        return enabled && hubUrlConfigured && aliasConfigured;
     }
 
     /**

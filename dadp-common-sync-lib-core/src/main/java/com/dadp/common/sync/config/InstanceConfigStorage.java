@@ -64,7 +64,8 @@ public class InstanceConfigStorage {
      * 인스턴스 설정 저장
      * 
      * @param hubId Hub가 발급한 고유 ID
-     * @param hubUrl Hub URL
+     * @param hubUrl Hub URL. DADP 6 wrapper keeps hubUrl as a JDBC URL-only input; this value is accepted
+     *               for legacy callers but is not persisted as runtime configuration.
      * @param instanceId 사용자가 설정한 별칭
      * @param failOpen Fail-open 모드 여부 (WRAPPER용, AOP는 무시 가능)
      * @return 저장 성공 여부
@@ -98,9 +99,7 @@ public class InstanceConfigStorage {
             if (hubId != null) {
                 data.setHubId(hubId);
             }
-            if (hubUrl != null) {
-                data.setHubUrl(hubUrl);
-            }
+            data.setHubUrl(null);
             if (instanceId != null) {
                 data.setInstanceId(instanceId);
             }
@@ -133,6 +132,46 @@ public class InstanceConfigStorage {
             return false;
         }
     }
+
+    /**
+     * Save runtime options received from Hub refresh.
+     *
+     * <p>Refresh values are the first priority runtime source. They are stored so a later
+     * startup can use them as the local third-priority snapshot, but they must not change
+     * immutable bootstrap values such as JDBC URL hubUrl or alias.</p>
+     */
+    public boolean saveRuntimeOptions(Boolean wrapperEnabled, String cryptoMode, String runtimeVersion) {
+        if (storagePath == null) {
+            log.warn("Storage path not set, cannot save runtime options");
+            return false;
+        }
+
+        try {
+            ConfigData data = loadExistingConfig();
+            if (data == null) {
+                data = new ConfigData();
+            }
+            data.setTimestamp(System.currentTimeMillis());
+            if (wrapperEnabled != null) {
+                data.setWrapperEnabled(wrapperEnabled);
+            }
+            if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
+                data.setCryptoMode(cryptoMode.trim());
+            }
+            if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
+                data.setRuntimeVersion(runtimeVersion.trim());
+            }
+
+            File storageFile = new File(storagePath);
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            log.debug("Runtime options saved: wrapperEnabled={}, cryptoMode={}, runtimeVersion={} -> {}",
+                    data.getWrapperEnabled(), data.getCryptoMode(), data.getRuntimeVersion(), storagePath);
+            return true;
+        } catch (IOException e) {
+            log.warn("Runtime option save failed: {}", storagePath, e);
+            return false;
+        }
+    }
     
     /**
      * 인스턴스 설정 로드
@@ -161,13 +200,8 @@ public class InstanceConfigStorage {
                 return null;
             }
             
-            // hubUrl과 instanceId가 일치하는 경우만 로드
-            if (hubUrl != null && !hubUrl.equals(data.getHubUrl())) {
-                log.debug("Hub URL mismatch, skipping config load: stored={}, requested={}",
-                        data.getHubUrl(), hubUrl);
-                return null;
-            }
-            
+            // hubUrl is not a persisted runtime source in DADP 6 wrapper.
+            // It must come from the JDBC URL on every startup.
             if (instanceId != null && !instanceId.equals(data.getInstanceId())) {
                 log.debug("Instance ID mismatch, skipping config load: stored={}, requested={}",
                         data.getInstanceId(), instanceId);
@@ -260,6 +294,8 @@ public class InstanceConfigStorage {
         private String refreshUrl;  // Hub 6 runtime refresh URL
         private String schemaSyncUrl;  // Hub 6 runtime schema-sync URL
         private String runtimeVersion;  // Hub runtime contract version
+        private Boolean wrapperEnabled;  // Hub refresh runtime option
+        private String cryptoMode;  // Hub refresh runtime option: remote | local
         
         public long getTimestamp() {
             return timestamp;
@@ -339,6 +375,22 @@ public class InstanceConfigStorage {
 
         public void setRuntimeVersion(String runtimeVersion) {
             this.runtimeVersion = runtimeVersion;
+        }
+
+        public Boolean getWrapperEnabled() {
+            return wrapperEnabled;
+        }
+
+        public void setWrapperEnabled(Boolean wrapperEnabled) {
+            this.wrapperEnabled = wrapperEnabled;
+        }
+
+        public String getCryptoMode() {
+            return cryptoMode;
+        }
+
+        public void setCryptoMode(String cryptoMode) {
+            this.cryptoMode = cryptoMode;
         }
     }
 }

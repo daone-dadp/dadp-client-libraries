@@ -49,7 +49,7 @@ public class WrapperLocalCryptoService {
     }
 
     private WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                      HubAuthHeaderProvider authHeaderProvider,
+                                      HubRuntimeHeaderProvider authHeaderProvider,
                                       WrapperCryptoStatsSender statsSender) {
         this(new RuntimeExecutionKeyClient(hubBaseUrl, timeoutMillis, authHeaderProvider),
                 new LocalAesGcmCrypto(),
@@ -257,11 +257,11 @@ public class WrapperLocalCryptoService {
     }
 
 
-    private static HubAuthHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
+    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
         return createAuthHeaderProvider(null, hubAuthId, hubAuthSecret);
     }
 
-    private static HubAuthHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
+    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
         if (tenantId != null && !tenantId.trim().isEmpty()) {
             return new HubTenantHeaderProvider(tenantId);
         }

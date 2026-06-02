@@ -116,7 +116,7 @@ class WrapperCryptoStatsSenderTest {
 
         @Override
         public void send(String hubBaseUrl, int timeoutMillis,
-                         HubAuthHeaderProvider authHeaderProvider,
+                         HubRuntimeHeaderProvider authHeaderProvider,
                          WrapperCryptoStatsSender.WindowSnapshot snapshot) {
             payloads.add(snapshot.toPayload());
         }

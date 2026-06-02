@@ -2,7 +2,7 @@ package com.dadp.wrapper.crypto;
 
 import java.net.HttpURLConnection;
 
-final class HubTenantHeaderProvider implements HubAuthHeaderProvider {
+final class HubTenantHeaderProvider implements HubRuntimeHeaderProvider {
     private final String tenantId;
 
     HubTenantHeaderProvider(String tenantId) {
