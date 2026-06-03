@@ -53,7 +53,6 @@ public class JdbcPolicyMappingSyncService {
     
     private volatile boolean initialized = false;
     private final String instanceId;
-    private final String datasourceId;
     
     
     private ScheduledExecutorService scheduler;
@@ -67,8 +66,7 @@ public class JdbcPolicyMappingSyncService {
             EndpointStorage endpointStorage,
             ProxyConfig config,
             InstanceConfigStorage configStorage,
-            SchemaStorage schemaStorage,
-            String datasourceId) {
+            SchemaStorage schemaStorage) {
         this.mappingSyncService = mappingSyncService;
         this.endpointSyncService = endpointSyncService;
         this.jdbcSchemaSyncService = jdbcSchemaSyncService;
@@ -78,7 +76,6 @@ public class JdbcPolicyMappingSyncService {
         this.config = config;
         this.configStorage = configStorage;
         this.schemaStorage = schemaStorage;
-        this.datasourceId = datasourceId;
         
         
         InstanceIdProvider instanceIdProvider =
@@ -219,7 +216,6 @@ public class JdbcPolicyMappingSyncService {
             hubUrl,
             tenantId,
             instanceId,
-            datasourceId,
             apiBasePath,
             policyResolver);
         log.info("MappingSyncService recreated: tenantId={}", tenantId);

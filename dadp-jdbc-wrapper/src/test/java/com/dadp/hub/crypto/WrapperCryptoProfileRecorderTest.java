@@ -25,8 +25,8 @@ class WrapperCryptoProfileRecorderTest {
         WrapperCryptoProfileRecorder recorder = new WrapperCryptoProfileRecorder(
                 outputPath.toString(),
                 "instance-1",
-                "hub-1",
-                "datasource-1");
+                "wtenant-1",
+                "alias-1");
 
         recorder.record(WrapperCryptoProfileRecorder.OperationEvent.builder("decrypt")
                 .endpoint("/api/decrypt")
@@ -57,6 +57,8 @@ class WrapperCryptoProfileRecorderTest {
         String line = new String(Files.readAllBytes(outputPath), StandardCharsets.UTF_8).trim();
         JsonNode root = objectMapper.readTree(line);
         assertEquals("instance-1", root.get("instanceId").asText());
+        assertEquals("wtenant-1", root.get("tenantId").asText());
+        assertEquals("alias-1", root.get("alias").asText());
         assertEquals("decrypt", root.get("operation").asText());
         assertEquals(101L, root.get("requestId").asLong());
         assertEquals("trace-123", root.get("engineTraceId").asText());

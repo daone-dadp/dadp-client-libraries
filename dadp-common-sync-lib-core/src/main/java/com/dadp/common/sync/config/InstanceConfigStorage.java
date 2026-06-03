@@ -69,7 +69,7 @@ public class InstanceConfigStorage {
      * @return 저장 성공 여부
      */
     public boolean saveConfig(String tenantId, String hubUrl, String instanceId, Boolean failOpen) {
-        return saveConfig(tenantId, hubUrl, instanceId, failOpen, null, null);
+        return saveConfig(tenantId, hubUrl, instanceId, failOpen, null);
     }
 
     /**
@@ -79,7 +79,6 @@ public class InstanceConfigStorage {
                               String hubUrl,
                               String instanceId,
                               Boolean failOpen,
-                              String datasourceId,
                               String runtimeVersion) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save instance config");
@@ -100,9 +99,6 @@ public class InstanceConfigStorage {
             if (failOpen != null) {
                 data.setFailOpen(failOpen);
             }
-            if (datasourceId != null) {
-                data.setDatasourceId(datasourceId);
-            }
             if (runtimeVersion != null) {
                 data.setRuntimeVersion(runtimeVersion);
             }
@@ -111,8 +107,8 @@ public class InstanceConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: tenantId={}, datasourceId={}, hubUrl={}, instanceId={} -> {}",
-                    data.getTenantId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(), storagePath);
+            log.debug("Instance config saved: tenantId={}, hubUrl={}, instanceId={} -> {}",
+                    data.getTenantId(), data.getHubUrl(), data.getInstanceId(), storagePath);
             return true;
 
         } catch (IOException e) {
@@ -284,7 +280,6 @@ public class InstanceConfigStorage {
         private String hubUrl;  // Hub URL
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open mode; Hub runtime refresh has priority.
-        private String datasourceId;  // Hub-owned shared datasource ID
         private String runtimeVersion;  // Hub runtime contract version
         private String cryptoMode;  // Hub refresh runtime option: remote | local
         private Boolean policySyncAutoEnabled;  // Hub refresh runtime option
@@ -327,14 +322,6 @@ public class InstanceConfigStorage {
         
         public void setFailOpen(Boolean failOpen) {
             this.failOpen = failOpen;
-        }
-
-        public String getDatasourceId() {
-            return datasourceId;
-        }
-
-        public void setDatasourceId(String datasourceId) {
-            this.datasourceId = datasourceId;
         }
 
         public String getRuntimeVersion() {

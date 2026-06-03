@@ -11,7 +11,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
  * - alias: JDBC URL only
  *
  * Persistent runtime values:
- * - tenantId, datasourceId
+ * - tenantId
  * - cryptoMode, failOpen, policySyncAutoEnabled
  * - runtimeVersion
  *
@@ -29,7 +29,6 @@ public class WrapperRuntimeConfigManager {
     private final TenantIdChangeCallback changeCallback;
 
     private volatile String cachedTenantId;
-    private volatile String cachedDatasourceId;
     private volatile String cachedRuntimeVersion;
     private volatile String cryptoMode = DEFAULT_CRYPTO_MODE;
     private volatile boolean failOpen = false;
@@ -58,7 +57,6 @@ public class WrapperRuntimeConfigManager {
             return null;
         }
 
-        this.cachedDatasourceId = trimToNull(stored.getDatasourceId());
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
@@ -68,8 +66,8 @@ public class WrapperRuntimeConfigManager {
         if (storedTenantId != null) {
             setTenantId(storedTenantId, false);
         }
-        log.debug("Wrapper runtime config loaded: tenantId={}, datasourceId={}, cryptoMode={}, failOpen={}, policySyncAutoEnabled={}",
-                cachedTenantId, cachedDatasourceId, cryptoMode, failOpen, policySyncAutoEnabled);
+        log.debug("Wrapper runtime config loaded: tenantId={}, cryptoMode={}, failOpen={}, policySyncAutoEnabled={}",
+                cachedTenantId, cryptoMode, failOpen, policySyncAutoEnabled);
         return storedTenantId;
     }
 
@@ -103,7 +101,6 @@ public class WrapperRuntimeConfigManager {
     }
 
     public void setWrapperEnrollment(String tenantId,
-                                     String datasourceId,
                                      String runtimeVersion,
                                      boolean saveToStorage) {
         String normalizedTenantId = trimToNull(tenantId);
@@ -111,10 +108,6 @@ public class WrapperRuntimeConfigManager {
             return;
         }
         setTenantId(normalizedTenantId, false);
-        String normalizedDatasourceId = trimToNull(datasourceId);
-        if (normalizedDatasourceId != null) {
-            this.cachedDatasourceId = normalizedDatasourceId;
-        }
         String normalizedRuntimeVersion = trimToNull(runtimeVersion);
         if (normalizedRuntimeVersion != null) {
             this.cachedRuntimeVersion = normalizedRuntimeVersion;
@@ -163,7 +156,7 @@ public class WrapperRuntimeConfigManager {
     }
 
     public boolean hasRuntimeEnrollment() {
-        return hasTenantId() && trimToNull(cachedDatasourceId) != null;
+        return hasTenantId();
     }
 
     public boolean hasTenantId() {
@@ -172,10 +165,6 @@ public class WrapperRuntimeConfigManager {
 
     public String getCachedTenantId() {
         return cachedTenantId;
-    }
-
-    public String getCachedDatasourceId() {
-        return cachedDatasourceId;
     }
 
     public String getCachedRuntimeVersion() {
@@ -201,7 +190,6 @@ public class WrapperRuntimeConfigManager {
     public void clear() {
         String oldTenantId = this.cachedTenantId;
         this.cachedTenantId = null;
-        this.cachedDatasourceId = null;
         this.cachedRuntimeVersion = null;
         this.cryptoMode = DEFAULT_CRYPTO_MODE;
         this.failOpen = false;
@@ -225,7 +213,6 @@ public class WrapperRuntimeConfigManager {
                 hubUrl,
                 null,
                 Boolean.valueOf(failOpen),
-                cachedDatasourceId,
                 cachedRuntimeVersion);
     }
 

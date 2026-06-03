@@ -10,7 +10,7 @@ Allowed sources, in priority order:
 
 1. Hub `/refresh` values for mutable runtime options.
 2. Startup JDBC URL values for immutable bootstrap inputs.
-3. Persistent wrapper storage for previously refreshed mutable options and Hub-issued enrollment IDs.
+3. Persistent wrapper storage for previously refreshed mutable options and the Hub-issued tenantId.
 
 `hubUrl` and `alias` are not mutable runtime options. They must be read from the JDBC URL on every startup and must not be overwritten by refresh, exported config, system properties, environment variables, or stored files.
 
@@ -21,7 +21,6 @@ Allowed sources, in priority order:
 | `hubUrl` | JDBC URL `hubUrl` only | No | Ignored if present elsewhere | Required. Missing value disables wrapper functionality and logs startup failure. |
 | `alias` | JDBC URL `alias` only | No | Ignored if present elsewhere | Required. Missing value disables wrapper functionality and logs startup failure. |
 | `tenantId` | CLI schema-register/exported enrollment | Yes | Must not change once stored | Loaded from persistent storage. Different new value is ignored and logged. |
-| `datasourceId` | Hub-issued DB identity from CLI schema-register/exported enrollment | Yes | Updated only by enrollment/config import path | Loaded from persistent storage. No DB metadata fallback. |
 | `refreshUrl` | None | No | Not accepted as stored/configured state | Derived canonically as `/hub/api/v1/runtime/wrappers/{tenantId}/refresh`. |
 | `schemaSyncUrl` | None | No | Not accepted as stored/configured state | Derived canonically as `/hub/api/v1/runtime/wrappers/{tenantId}/schema-sync` by collector/schema-sync helper only. |
 | `enabled` | Hub `/refresh` only | No | Applied to current JVM memory only | Defaults to `true` on every startup. |
@@ -37,7 +36,7 @@ Wrapper startup:
 
 1. Parse `hubUrl` and `alias` from the JDBC URL.
 2. Resolve storage directory from `DADP_STORAGE_DIR` or default path.
-3. Load persistent `tenantId`, `datasourceId`, `cryptoMode`, `failOpen`, `policySyncAutoEnabled`, and `runtimeVersion`.
+3. Load persistent `tenantId`, `cryptoMode`, `failOpen`, `policySyncAutoEnabled`, and `runtimeVersion`.
 4. Initialize crypto/runtime services from the loaded state.
 5. Do not collect DB schemas.
 6. Start automatic refresh only when `policySyncAutoEnabled=true`.
@@ -55,3 +54,10 @@ Schema collection:
 - Runtime bootstrap must not collect or upload DB schemas.
 - Schema collection belongs to the collector/CLI schema-register flow.
 - The schema-sync helper may still send a prepared schema document, but only when explicitly invoked outside runtime bootstrap.
+
+## Removed Runtime Identity
+
+`datasourceId` is not a wrapper runtime variable in DADP 6. Schema snapshots are
+scoped by `alias`; policy bindings are scoped by `alias + schema.table.column`;
+wrapper registrations are scoped by `tenantId + alias`. The CLI/schema-register
+response must provide only `tenantId`, `alias`, runtime URLs, and version.

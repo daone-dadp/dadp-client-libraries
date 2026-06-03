@@ -21,15 +21,15 @@ import java.util.stream.Collectors;
  */
 public class JdbcSchemaCollector implements SchemaCollector {
     
-    private final String datasourceId;
+    private final String alias;
     private final SchemaRecognizer schemaRecognizer;
     private final ProxyConfig proxyConfig;  // 스키마 수집 안정성 설정용
     
     /**
      * 생성자 (Connection 없이, 호출 시점에 전달)
      */
-    public JdbcSchemaCollector(String datasourceId, ProxyConfig proxyConfig) {
-        this.datasourceId = datasourceId;
+    public JdbcSchemaCollector(String alias, ProxyConfig proxyConfig) {
+        this.alias = alias;
         this.proxyConfig = proxyConfig;
         this.schemaRecognizer = new SchemaRecognizer();
     }
@@ -37,8 +37,8 @@ public class JdbcSchemaCollector implements SchemaCollector {
     /**
      * 생성자 (ProxyConfig 없이, 하위 호환)
      */
-    public JdbcSchemaCollector(String datasourceId) {
-        this(datasourceId, null);
+    public JdbcSchemaCollector(String alias) {
+        this(alias, null);
     }
     
     @Override
@@ -62,7 +62,7 @@ public class JdbcSchemaCollector implements SchemaCollector {
         try {
             wrapperSchemas = schemaRecognizer.collectSchemaMetadata(
                 connection, 
-                datasourceId, 
+                alias,
                 schemaAllowlist, 
                 maxSchemas, 
                 timeoutMs
@@ -91,7 +91,6 @@ public class JdbcSchemaCollector implements SchemaCollector {
      */
     private SchemaMetadata convertToCommonSchema(SchemaRecognizer.SchemaMetadata wrapper) {
         SchemaMetadata common = new SchemaMetadata();
-        common.setDatasourceId(wrapper.getDatasourceId());
         common.setDbVendor(wrapper.getDbVendor());
         common.setDatabaseName(wrapper.getDatabaseName());
         common.setSchemaName(wrapper.getSchemaName());
@@ -104,4 +103,3 @@ public class JdbcSchemaCollector implements SchemaCollector {
         return common;
     }
 }
-

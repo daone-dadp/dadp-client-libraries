@@ -124,11 +124,11 @@ public class PolicyResolver {
     }
     
     
-    public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
+    public String resolvePolicy(String scope, String schemaName, String tableName, String columnName) {
         String key = buildSchemaOrTableKey(schemaName, tableName, columnName);
 
-        log.trace("Policy lookup: key={}, datasourceId(ignored)={}, schemaName={}, tableName={}, columnName={}",
-                key, datasourceId, schemaName, tableName, columnName);
+        log.trace("Policy lookup: key={}, scope(ignored)={}, schemaName={}, tableName={}, columnName={}",
+                key, scope, schemaName, tableName, columnName);
 
         String policy = lookupPolicy(key);
         if (policy != null) {
@@ -457,7 +457,7 @@ public class PolicyResolver {
                     Collections.unmodifiableMap(normalized));
         }
 
-        public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
+        public String resolvePolicy(String scope, String schemaName, String tableName, String columnName) {
             String normalizedSchemaName = normalizeSegment(schemaName);
             String normalizedTableName = normalizeSegment(tableName);
             String normalizedColumnName = normalizeSegment(columnName);

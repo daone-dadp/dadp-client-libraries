@@ -62,7 +62,7 @@ class TelemetryStatsSenderTest {
                 500,
                 false);
 
-        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper");
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "alias_test_wrapper");
         try {
             sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);
             invokeFlush(sender);
@@ -71,7 +71,7 @@ class TelemetryStatsSenderTest {
             assertNotNull(requestBody.get());
             assertTrue(requestBody.get().contains("\"occurredAt\":\""));
             assertTrue(requestBody.get().contains("\"operation\":\"SELECT\""));
-            assertTrue(requestBody.get().contains("\"datasourceId\":\"ds_test_wrapper\""));
+            assertTrue(requestBody.get().contains("\"alias\":\"alias_test_wrapper\""));
         } finally {
             shutdownScheduler(sender);
             server.stop(0);
@@ -85,7 +85,7 @@ class TelemetryStatsSenderTest {
 
         when(storage.loadEndpoints()).thenReturn(endpointData);
 
-        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper", 60_000);
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "alias_test_wrapper", 60_000);
         try {
             sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);
             sender.sendSqlEvent("SELECT 2", "SELECT", 11L, false);
@@ -116,7 +116,7 @@ class TelemetryStatsSenderTest {
         EndpointStorage.EndpointData enabledNormalized = createEndpointData(aggregatorUrl, true);
         when(storage.loadEndpoints()).thenReturn(disabledNormalized, enabledNormalized, enabledNormalized);
 
-        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "ds_test_wrapper", 1);
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "alias_test_wrapper", 1);
         try {
             Thread.sleep(10L);
             sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);

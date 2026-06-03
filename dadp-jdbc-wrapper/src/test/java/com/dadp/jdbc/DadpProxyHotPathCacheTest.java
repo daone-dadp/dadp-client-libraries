@@ -48,7 +48,7 @@ class DadpProxyHotPathCacheTest {
         when(metaData.getColumnName(1)).thenReturn("email");
         when(metaData.getColumnLabel(1)).thenReturn("email3_0_");
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -95,7 +95,7 @@ class DadpProxyHotPathCacheTest {
         when(metaData.getColumnName(1)).thenReturn("email");
         when(metaData.getColumnLabel(1)).thenReturn("email3_0_");
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -130,7 +130,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -166,7 +166,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -206,7 +206,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -245,7 +245,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -285,7 +285,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -329,7 +329,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -366,7 +366,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -407,7 +407,7 @@ class DadpProxyHotPathCacheTest {
                         Collections.singletonMap("testdb.users.email", "policy-email"),
                         25L));
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -451,7 +451,7 @@ class DadpProxyHotPathCacheTest {
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
         AtomicLong policyVersion = new AtomicLong(30L);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
@@ -493,7 +493,7 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
-    void preparedStatementCompiledPlanCacheIgnoresDatasourceIdForSameDb() throws Exception {
+    void preparedStatementCompiledPlanCacheUsesAliasScopeForSameDb() throws Exception {
         PreparedStatement actualPreparedStatement1 = mock(PreparedStatement.class);
         PreparedStatement actualPreparedStatement2 = mock(PreparedStatement.class);
         DadpProxyConnection proxyConnection1 = mock(DadpProxyConnection.class);
@@ -501,8 +501,8 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection1.getDatasourceId()).thenReturn("ds_a");
-        when(proxyConnection2.getDatasourceId()).thenReturn("ds_b");
+        when(proxyConnection1.getAlias()).thenReturn("ds_a");
+        when(proxyConnection2.getAlias()).thenReturn("ds_b");
         when(proxyConnection1.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection2.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection1.getCurrentDatabaseName()).thenReturn("testdb");
@@ -549,7 +549,7 @@ class DadpProxyHotPathCacheTest {
         PolicyResolver policyResolver = mock(PolicyResolver.class);
         DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
 
-        when(proxyConnection.getDatasourceId()).thenReturn("ds_test");
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
         when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
         when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
         when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);

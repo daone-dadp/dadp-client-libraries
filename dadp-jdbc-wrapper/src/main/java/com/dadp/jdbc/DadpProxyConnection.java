@@ -58,7 +58,6 @@ public class DadpProxyConnection implements Connection {
     private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
     private final JdbcVendorResolutionStrategy resolutionStrategy;
     private volatile String cachedSchemaName;  // 캐싱된 스키마 이름 (매 SQL마다 DB 조회 방지, setSchema() 시 갱신)
-    private String datasourceId;  // Hub에서 받은 논리 데이터소스 ID
     private boolean closed = false;
     private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
     private final WrapperCryptoProfileRecorder cryptoProfileRecorder;
@@ -91,7 +90,6 @@ public class DadpProxyConnection implements Connection {
             this.mappingSyncService = null;
             this.endpointSyncService = null;
             this.directCryptoAdapter = null;
-            this.datasourceId = null;
             this.schemaSyncService = null;
             this.telemetryStatsSender = null;
             this.notificationService = null;
@@ -159,7 +157,6 @@ public class DadpProxyConnection implements Connection {
         this.endpointSyncService = this.orchestrator.getEndpointSyncService();
         this.directCryptoAdapter = this.orchestrator.getDirectCryptoAdapter();
         String tenantId = this.orchestrator.getCachedTenantId();
-        this.datasourceId = this.orchestrator.getCachedDatasourceId();
         applyCryptoMode(this.directCryptoAdapter);
         applySingleTransportMode(this.directCryptoAdapter);
         applyEngineTransport(this.directCryptoAdapter);
@@ -179,14 +176,14 @@ public class DadpProxyConnection implements Connection {
         
         // TelemetryStatsSender 초기화 (오케스트레이터에서 가져온 endpointStorage 사용)
         EndpointStorage endpointStorage = this.orchestrator.getEndpointStorage();
-        this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, tenantId, this.datasourceId);
+        this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, tenantId, config.getAlias());
 
         this.cryptoProfileRecorder = config.isCryptoProfileEnabled()
                 ? new WrapperCryptoProfileRecorder(
                         config.getCryptoProfilePath(),
                         config.getInstanceId(),
                         tenantId,
-                        this.datasourceId)
+                        config.getAlias())
                 : null;
         applyCryptoProfileRecorder(this.directCryptoAdapter);
         
@@ -419,13 +416,10 @@ public class DadpProxyConnection implements Connection {
         return connection.getCatalog();
     }
     
-    /**
-     * Datasource ID 조회
-     */
-    public String getDatasourceId() {
-        return datasourceId;
+    public String getAlias() {
+        return config.getAlias();
     }
-    
+
     /**
      * PolicyResolver 반환 (PreparedStatement에서 사용)
      */

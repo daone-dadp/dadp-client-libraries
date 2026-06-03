@@ -229,12 +229,12 @@ public class RetryableSchemaSyncService {
                     }
                     
                     // 3. Hub로 스키마 전송
-                    // 전송 전에 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
+                    // 전송 전에 각 스키마 로그
                     if (schemas != null && !schemas.isEmpty()) {
                         for (SchemaMetadata schema : schemas) {
-                            log.trace("Schema sync data: schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}",
+                            log.trace("Schema sync data: schema={}.{}.{}, database={}, dbVendor={}",
                                 schema.getSchemaName(), schema.getTableName(), schema.getColumnName(),
-                                schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
+                                schema.getDatabaseName(), schema.getDbVendor());
                         }
                     }
                     boolean synced = schemaSyncExecutor.syncToHub(schemas, tenantId, instanceId, currentVersion);

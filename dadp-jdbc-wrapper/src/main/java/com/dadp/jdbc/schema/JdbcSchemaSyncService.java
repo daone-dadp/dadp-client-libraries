@@ -193,7 +193,7 @@ public class JdbcSchemaSyncService {
                 continue;
             }
             String policyCode = policyResolver.resolvePolicy(
-                    schema.getDatasourceId(),
+                    null,
                     schema.getSchemaName(),
                     schema.getTableName(),
                     schema.getColumnName());

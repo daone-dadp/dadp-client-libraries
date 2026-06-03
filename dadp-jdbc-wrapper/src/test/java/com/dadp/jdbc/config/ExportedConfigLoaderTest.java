@@ -29,7 +29,6 @@ class ExportedConfigLoaderTest {
         String json = "{\n"
                 + "  \"exportVersion\": 6,\n"
                 + "  \"tenantId\": \"wtenant_test\",\n"
-                + "  \"datasourceId\": \"ds-test\",\n"
                 + "  \"hubUrl\": \"http://must-not-be-used:9004\",\n"
                 + "  \"mappings\": {\"users.email\":\"dadp\"},\n"
                 + "  \"statsConfig\": {\"enabled\": true, \"url\": \"http://aggregator:9005\"}\n"
@@ -43,18 +42,17 @@ class ExportedConfigLoaderTest {
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
 
-        String datasourceId = ExportedConfigLoader.loadIfExists(
+        String loadedTenantId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
                 tenantIdManager,
                 policyResolver,
                 endpointStorage);
 
-        assertEquals("ds-test", datasourceId);
+        assertEquals("wtenant_test", loadedTenantId);
         InstanceConfigStorage.ConfigData saved = configStorage.loadConfig("http://hub:9004", "wrapper-test");
         assertNotNull(saved);
         assertEquals("wtenant_test", saved.getTenantId());
-        assertEquals("ds-test", saved.getDatasourceId());
         assertEquals(null, endpointStorage.loadEndpoints());
         assertEquals(Long.valueOf(0L), policyResolver.getCurrentVersion());
     }
@@ -68,7 +66,6 @@ class ExportedConfigLoaderTest {
                 + "  \"exportVersion\": 1,\n"
                 + "  \"tenantId\": \"legacy-hub\",\n"
                 + "  \"instanceId\": \"wrapper-test\",\n"
-                + "  \"datasourceId\": \"ds-test\",\n"
                 + "  \"cryptoUrl\": \"http://engine:9003\"\n"
                 + "}\n";
         Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
@@ -78,14 +75,14 @@ class ExportedConfigLoaderTest {
         WrapperRuntimeConfigManager tenantIdManager =
                 new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
 
-        String datasourceId = ExportedConfigLoader.loadIfExists(
+        String loadedTenantId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
                 tenantIdManager,
                 new PolicyResolver(storageDir.toString(), "policy-mappings.json"),
                 new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
 
-        assertEquals(null, datasourceId);
+        assertEquals(null, loadedTenantId);
         assertFalse(configStorage.hasStoredConfig());
     }
 
@@ -97,7 +94,6 @@ class ExportedConfigLoaderTest {
         String json = "{\n"
                 + "  \"exportVersion\": 6,\n"
                 + "  \"tenantId\": \"wtenant_test\",\n"
-                + "  \"datasourceId\": \"ds-test\",\n"
                 + "  \"mappings\": {}\n"
                 + "}\n";
         Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
@@ -111,14 +107,14 @@ class ExportedConfigLoaderTest {
         existingMappings.put("users.email", "dadp");
         policyResolver.refreshMappings(existingMappings, 6L);
 
-        String datasourceId = ExportedConfigLoader.loadIfExists(
+        String loadedTenantId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
                 tenantIdManager,
                 policyResolver,
                 new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
 
-        assertEquals("ds-test", datasourceId);
+        assertEquals("wtenant_test", loadedTenantId);
         assertEquals(Long.valueOf(6L), policyResolver.getCurrentVersion());
         assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "email"));
     }

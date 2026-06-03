@@ -75,12 +75,12 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         log.debug("Request headers: {}", headers);
         log.debug("Request body: {}", requestBody);
         
-        // 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
+        // 각 스키마 로그 (alias scope is carried by the request/enrollment, not each row)
         if (schemas != null && !schemas.isEmpty()) {
             for (SchemaMetadata schema : schemas) {
-                log.debug("Schema data to send: schema={}.{}.{}, datasourceId={}, database={}, dbVendor={}",
+                log.debug("Schema data to send: schema={}.{}.{}, database={}, dbVendor={}",
                     schema.getSchemaName(), schema.getTableName(), schema.getColumnName(),
-                    schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
+                    schema.getDatabaseName(), schema.getDbVendor());
             }
         }
         

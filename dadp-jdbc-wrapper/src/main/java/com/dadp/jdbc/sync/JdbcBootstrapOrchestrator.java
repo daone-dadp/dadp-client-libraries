@@ -29,8 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Coordinates the JDBC wrapper bootstrap flow for one wrapper instance.
  *
- * <p>This class loads persisted state, gathers schema metadata, registers the
- * datasource with Hub, and initializes follow-up synchronization services.</p>
+ * <p>This class loads persisted runtime state and initializes follow-up
+ * synchronization services. DB schema collection is owned by the CLI/collector
+ * flow in DADP 6.</p>
  */
 
 public class JdbcBootstrapOrchestrator {
@@ -84,7 +85,6 @@ public class JdbcBootstrapOrchestrator {
 
     
     private volatile boolean initialized = false;
-    private volatile String cachedDatasourceId = null;
     
     
     
@@ -231,9 +231,6 @@ public class JdbcBootstrapOrchestrator {
             String loadedTenantId = tenantIdManager.loadFromStorage();
             if (loadedTenantId != null && !loadedTenantId.trim().isEmpty()) {
                 this.initialized = true;
-                if (tenantIdManager.getCachedDatasourceId() != null) {
-                    this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
-                }
                 return true;
             }
             
@@ -265,16 +262,13 @@ public class JdbcBootstrapOrchestrator {
             
             log.info("Step 2: Loading data from persistent storage");
             String tenantId = tenantIdManager.loadFromStorage();
-            if (tenantIdManager.getCachedDatasourceId() != null) {
-                this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
-            }
             loadOtherDataFromPersistentStorage();
             
             
             
             {
                 String storageDir = StoragePathResolver.resolveStorageDir(instanceId);
-                String exportedDatasourceId = ExportedConfigLoader.loadIfExists(
+                String exportedTenantId = ExportedConfigLoader.loadIfExists(
                     storageDir,
                     instanceId,
                     tenantIdManager,
@@ -282,11 +276,10 @@ public class JdbcBootstrapOrchestrator {
                     endpointStorage,
                     config
                 );
-                if (exportedDatasourceId != null) {
+                if (exportedTenantId != null) {
                     tenantId = tenantIdManager.getCachedTenantId();
-                    this.cachedDatasourceId = exportedDatasourceId;
-                    log.info("Step 2.5: Applied exported config: tenantId={}, datasourceId={}",
-                            tenantId, exportedDatasourceId);
+                    log.info("Step 2.5: Applied exported config: tenantId={}, alias={}",
+                            tenantId, instanceId);
                 }
             }
 
@@ -296,9 +289,8 @@ public class JdbcBootstrapOrchestrator {
 
             if (tenantIdManager.hasRuntimeEnrollment()) {
                 tenantId = tenantIdManager.getCachedTenantId();
-                this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
                 runtimeEnrollmentAvailable = true;
-                log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", tenantId, cachedDatasourceId);
+                log.info("Runtime enrollment loaded: tenantId={}, alias={}", tenantId, instanceId);
             } else {
                 log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and manual refresh before wrapper runtime sync.");
             }
@@ -324,14 +316,15 @@ public class JdbcBootstrapOrchestrator {
                 if (policyMappingSyncService != null) {
                     policyMappingSyncService.setInitialized(true, tenantId);
                 }
-                log.info("JDBC Wrapper bootstrap flow completed: tenantId={}, datasourceId={}", tenantIdManager.getCachedTenantId(), cachedDatasourceId);
+                log.info("JDBC Wrapper bootstrap flow completed: tenantId={}, alias={}",
+                        tenantIdManager.getCachedTenantId(), instanceId);
             } else {
                 
                 
                 log.warn("Runtime enrollment unavailable: crypto service initialized but policy mapping sync not started.");
                 initialized = true; 
-                log.info("JDBC Wrapper bootstrap flow completed (limited): tenantId={}, datasourceId={}, crypto available",
-                        tenantIdManager.getCachedTenantId(), cachedDatasourceId);
+                log.info("JDBC Wrapper bootstrap flow completed (limited): tenantId={}, alias={}, crypto available",
+                        tenantIdManager.getCachedTenantId(), instanceId);
             }
             return true;
             
@@ -375,7 +368,7 @@ public class JdbcBootstrapOrchestrator {
         }
         
         
-        log.debug("DatasourceId is loaded only from wrapper runtime enrollment storage.");
+        log.debug("Wrapper runtime identity loaded from storage: tenantId only; alias is JDBC URL-only.");
     }
     
     private void saveSchemasToStorage(List<SchemaMetadata> currentSchemas) {
@@ -387,9 +380,6 @@ public class JdbcBootstrapOrchestrator {
             for (SchemaMetadata schema : currentSchemas) {
                 if (schema != null) {
                     schema.setPolicyName(null);
-                    if (cachedDatasourceId != null && schema.getDatasourceId() == null) {
-                        schema.setDatasourceId(cachedDatasourceId);
-                    }
                 }
             }
             int updatedCount = schemaStorage.compareAndUpdateSchemas(currentSchemas);
@@ -410,7 +400,6 @@ public class JdbcBootstrapOrchestrator {
             config.getHubUrl(),
             tenantId,
             instanceId,
-            cachedDatasourceId,
             "/hub/api/v1/runtime/wrappers",
             policyResolver
         );
@@ -485,8 +474,7 @@ public class JdbcBootstrapOrchestrator {
                 endpointStorage,
                 config,
                 configStorage,
-                schemaStorage,
-                cachedDatasourceId
+                schemaStorage
             );
             
             
@@ -729,10 +717,6 @@ public class JdbcBootstrapOrchestrator {
         return tenantIdManager.getCachedTenantId();
     }
     
-    public String getCachedDatasourceId() {
-        return cachedDatasourceId;
-    }
-
     public String getRuntimeCryptoMode() {
         return tenantIdManager.getCryptoMode();
     }

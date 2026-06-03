@@ -35,7 +35,6 @@ public class MappingSyncService {
     private final String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
     private final String apiBasePath;
-    private final String datasourceId;  // Datasource ID (재등록을 위해 필요)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final PolicyResolver policyResolver;
@@ -43,15 +42,14 @@ public class MappingSyncService {
     // 마지막으로 받은 정책 스냅샷 (엔드포인트 정보 포함)
     private volatile PolicySnapshot lastSnapshot = null;
     
-    public MappingSyncService(String hubUrl, String tenantId, String alias, String datasourceId, PolicyResolver policyResolver) {
-        this(hubUrl, tenantId, alias, datasourceId, "/hub/api/v1/runtime/wrappers", policyResolver);
+    public MappingSyncService(String hubUrl, String tenantId, String alias, PolicyResolver policyResolver) {
+        this(hubUrl, tenantId, alias, "/hub/api/v1/runtime/wrappers", policyResolver);
     }
     
-    public MappingSyncService(String hubUrl, String tenantId, String alias, String datasourceId, String apiBasePath, PolicyResolver policyResolver) {
+    public MappingSyncService(String hubUrl, String tenantId, String alias, String apiBasePath, PolicyResolver policyResolver) {
         this.hubUrl = hubUrl;
         this.tenantId = tenantId;
         this.alias = alias;
-        this.datasourceId = datasourceId;
         if (apiBasePath == null || apiBasePath.trim().isEmpty()) {
             this.apiBasePath = "/hub/api/v1/runtime/wrappers";
         } else {
@@ -203,7 +201,6 @@ public class MappingSyncService {
                     continue;
                 }
                 PolicyMapping mapping = new PolicyMapping();
-                mapping.setDatasourceId(text(binding.path("sharedDatasourceId")));
                 mapping.setSchemaName(text(binding.path("schemaName")));
                 mapping.setTableName(text(binding.path("tableName")));
                 mapping.setColumnName(text(binding.path("columnName")));
@@ -554,7 +551,6 @@ public class MappingSyncService {
      * 정책 매핑 DTO
      */
     public static class PolicyMapping {
-        private String datasourceId;
         private String schemaName;
         private String tableName;
         private String columnName;
@@ -562,14 +558,6 @@ public class MappingSyncService {
         private boolean enabled = true; // 기본값은 true (하위 호환성)
         private Boolean useIv;     // 정책 속성: IV 사용 여부 (null이면 기본값 true)
         private Boolean usePlain;  // 정책 속성: 부분암호화 여부 (null이면 기본값 false)
-
-        public String getDatasourceId() {
-            return datasourceId;
-        }
-
-        public void setDatasourceId(String datasourceId) {
-            this.datasourceId = datasourceId;
-        }
 
         public String getSchemaName() {
             return schemaName;

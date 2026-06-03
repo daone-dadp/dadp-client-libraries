@@ -59,7 +59,6 @@ class MappingSyncServiceSnapshotTest {
                     + "\"engine\":{\"wrapperEngineUrl\":\"http://engine:9003\"},"
                     + "\"runtimeVersion\":7,"
                     + "\"policyBindings\":[{"
-                    + "\"sharedDatasourceId\":\"ds-test\","
                     + "\"schemaName\":\"public\","
                     + "\"tableName\":\"users\","
                     + "\"columnName\":\"email\","
@@ -80,7 +79,6 @@ class MappingSyncServiceSnapshotTest {
                     hubUrl,
                     "wtenant_test",
                     "alias-test",
-                    "ds-test",
                     "/hub/api/v1/runtime/wrappers",
                     resolver);
 

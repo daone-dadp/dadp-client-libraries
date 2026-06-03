@@ -28,14 +28,14 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
     private final Path outputPath;
     private final String instanceId;
     private final String tenantId;
-    private final String datasourceId;
+    private final String alias;
     private final ObjectMapper objectMapper;
 
-    public WrapperCryptoProfileRecorder(String outputPath, String instanceId, String tenantId, String datasourceId) {
+    public WrapperCryptoProfileRecorder(String outputPath, String instanceId, String tenantId, String alias) {
         this.outputPath = Paths.get(outputPath);
         this.instanceId = instanceId;
         this.tenantId = tenantId;
-        this.datasourceId = datasourceId;
+        this.alias = alias;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -55,7 +55,7 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             line.put("timestamp", System.currentTimeMillis());
             line.put("instanceId", instanceId);
             line.put("tenantId", tenantId);
-            line.put("datasourceId", datasourceId);
+            line.put("alias", alias);
             line.putAll(event);
 
             try (BufferedWriter writer = Files.newBufferedWriter(

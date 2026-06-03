@@ -61,8 +61,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 endpointStorage,
                 proxyConfig,
                 configStorage,
-                schemaStorage,
-                "ds-test");
+                schemaStorage);
 
         Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
         tenantIdManagerField.setAccessible(true);
@@ -121,8 +120,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 endpointStorage,
                 proxyConfig,
                 configStorage,
-                schemaStorage,
-                "ds-test");
+                schemaStorage);
 
         Field instanceIdField = JdbcPolicyMappingSyncService.class.getDeclaredField("instanceId");
         instanceIdField.setAccessible(true);
@@ -163,8 +161,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 endpointStorage,
                 proxyConfig,
                 configStorage,
-                schemaStorage,
-                "ds-test");
+                schemaStorage);
 
         service.setInitialized(true, "pi_manual_sync");
 
@@ -219,8 +216,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 endpointStorage,
                 proxyConfig,
                 configStorage,
-                schemaStorage,
-                "ds-test");
+                schemaStorage);
 
         service.setInitialized(true, "wtenant_manual");
         service.refreshNow();

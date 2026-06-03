@@ -29,7 +29,6 @@ final class WrapperSqlMappingDebug {
         emit("prepared-statement"
                 + " alias=" + connection.getConfig().getAlias()
                 + " vendor=" + connection.getDbVendor()
-                + " datasourceId=" + connection.getDatasourceId()
                 + " sqlType=" + value(sqlParseResult != null ? sqlParseResult.getSqlType() : null)
                 + " schema=" + value(sqlParseResult != null ? sqlParseResult.getSchemaName() : null)
                 + " table=" + value(sqlParseResult != null ? sqlParseResult.getTableName() : null)
@@ -60,7 +59,6 @@ final class WrapperSqlMappingDebug {
         emit("parameter-plan"
                 + " alias=" + connection.getConfig().getAlias()
                 + " vendor=" + connection.getDbVendor()
-                + " datasourceId=" + connection.getDatasourceId()
                 + " method=" + value(methodName)
                 + " parameterIndex=" + parameterIndex
                 + " searchContext=" + searchContext
@@ -91,7 +89,6 @@ final class WrapperSqlMappingDebug {
         emit("resultset-parsed"
                 + " alias=" + connection.getConfig().getAlias()
                 + " vendor=" + connection.getDbVendor()
-                + " datasourceId=" + connection.getDatasourceId()
                 + " requestedLabel=" + value(requestedLabel)
                 + " columnIndex=" + columnIndex
                 + " parserSchema=" + value(parserSchemaName)
@@ -124,7 +121,6 @@ final class WrapperSqlMappingDebug {
         emit("resultset-fallback"
                 + " alias=" + connection.getConfig().getAlias()
                 + " vendor=" + connection.getDbVendor()
-                + " datasourceId=" + connection.getDatasourceId()
                 + " columnIndex=" + columnIndex
                 + " metadataSchema=" + value(metadataSchemaName)
                 + " metadataTable=" + value(metadataTableName)
@@ -147,7 +143,6 @@ final class WrapperSqlMappingDebug {
         emit("label-resolution"
                 + " alias=" + connection.getConfig().getAlias()
                 + " vendor=" + connection.getDbVendor()
-                + " datasourceId=" + connection.getDatasourceId()
                 + " requestedLabel=" + value(requestedLabel)
                 + " resolvedIndex=" + value(resolvedIndex)
                 + " source=" + value(resolutionSource));

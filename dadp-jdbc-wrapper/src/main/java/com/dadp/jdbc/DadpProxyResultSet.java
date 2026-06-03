@@ -698,7 +698,7 @@ public class DadpProxyResultSet implements ResultSet {
             String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
             String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);
             String policyName = policyResolver.resolvePolicy(
-                proxyConnection.getDatasourceId(), normalizedSchemaName, normalizedTableName, normalizedColumnName);
+                null, normalizedSchemaName, normalizedTableName, normalizedColumnName);
             entry = new FallbackDecryptCacheEntry(tableName, columnName, policyName, currentVersion);
             fallbackCacheByIndex.put(columnIndex, entry);
             log.trace("Fallback cache miss: columnIndex={}, {}.{} -> policy={}", columnIndex, tableName, columnName, policyName);

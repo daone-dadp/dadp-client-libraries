@@ -25,7 +25,7 @@ import java.util.Map;
  * {
  *   "exportVersion": 6,
  *   "tenantId": "wtenant_xxxxxxxxxxxx",
- *   "datasourceId": "ds_xxxxxxxxxxxx"
+ *   "alias": "shared-db-a"
  * }
  * </pre>
  *
@@ -50,7 +50,7 @@ public class ExportedConfigLoader {
      * @param tenantIdManager WrapperRuntimeConfigManager to save the tenantId
      * @param policyResolver PolicyResolver to refresh policy mappings
      * @param endpointStorage EndpointStorage to save endpoint info
-     * @return the loaded datasourceId if config was loaded and applied successfully, null otherwise
+     * @return the loaded tenantId if config was loaded and applied successfully, null otherwise
      */
     @SuppressWarnings("unchecked")
     public static String loadIfExists(
@@ -99,13 +99,8 @@ public class ExportedConfigLoader {
             }
 
             String tenantId = getStringValue(config, "tenantId");
-            String datasourceId = getStringValue(config, "datasourceId");
             if (tenantId == null || tenantId.trim().isEmpty()) {
                 log.warn("Exported config missing required field: tenantId");
-                return null;
-            }
-            if (datasourceId == null || datasourceId.trim().isEmpty()) {
-                log.warn("Exported config missing required field: datasourceId");
                 return null;
             }
 
@@ -118,11 +113,10 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            tenantIdManager.setWrapperEnrollment(tenantId, datasourceId, "6.0", true);
-            log.info("Exported config loaded successfully: tenantId={}, datasourceId={}",
-                    tenantId, datasourceId);
+            tenantIdManager.setWrapperEnrollment(tenantId, "6.0", true);
+            log.info("Exported config loaded successfully: tenantId={}", tenantId);
 
-            return datasourceId;
+            return tenantId;
 
         } catch (Exception e) {
             String errorMessage = e.getMessage();

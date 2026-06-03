@@ -251,7 +251,7 @@ public class SchemaStorage {
                 continue;
             }
             
-            // 키 생성: getKey() 메서드 사용 (datasourceId 고려)
+            // 키 생성: getKey() 메서드 사용 (schema.table.column)
             String key = schema.getKey();
             
             // 정책 매핑에서 정책명 찾기

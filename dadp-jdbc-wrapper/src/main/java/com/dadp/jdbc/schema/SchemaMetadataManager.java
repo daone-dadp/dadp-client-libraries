@@ -52,7 +52,7 @@ public class SchemaMetadataManager {
         
         // 캐시 미스 또는 TTL 만료 → 다시 조회
         log.info("Re-fetching schema metadata (cache miss or TTL expired)");
-        // datasourceId는 null로 전달 (스키마 수집 시에는 필요 없음, Hub 전송 시에만 필요)
+        // alias scope is outside each schema row in DADP 6.
         List<SchemaRecognizer.SchemaMetadata> schemas = schemaRecognizer.collectSchemaMetadata(connection, null);
         
         // 캐시 갱신
@@ -69,7 +69,7 @@ public class SchemaMetadataManager {
         log.info("Forcing schema metadata refresh");
         String cacheKey = getCacheKey(connection);
         
-        // datasourceId는 null로 전달 (스키마 수집 시에는 필요 없음, Hub 전송 시에만 필요)
+        // alias scope is outside each schema row in DADP 6.
         List<SchemaRecognizer.SchemaMetadata> schemas = schemaRecognizer.collectSchemaMetadata(connection, null);
         schemaCache.put(cacheKey, schemas);
         lastSyncTime.set(System.currentTimeMillis());
@@ -99,4 +99,3 @@ public class SchemaMetadataManager {
         log.info("Schema metadata cache cleared");
     }
 }
-

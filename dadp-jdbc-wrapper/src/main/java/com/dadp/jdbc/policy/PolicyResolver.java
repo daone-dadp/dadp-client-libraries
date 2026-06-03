@@ -73,18 +73,18 @@ public class PolicyResolver {
     /**
      * 정책명 조회
      * 
-     * @param datasourceId 데이터소스 ID (호환성 유지용, 조회에는 사용하지 않음)
+     * @param scope lookup scope, currently ignored because mappings are alias-scoped by storage/request context
      * @param schemaName 스키마명 (NEW)
      * @param tableName 테이블명
      * @param columnName 컬럼명
      * @return 정책명 (없으면 null)
      */
-    public String resolvePolicy(String datasourceId, String schemaName, String tableName, String columnName) {
+    public String resolvePolicy(String scope, String schemaName, String tableName, String columnName) {
         String key = buildSchemaOrTableKey(schemaName, tableName, columnName);
         
         // 디버깅: 정책 조회 시도 키 로그 출력
-        log.trace("Policy lookup: key={}, datasourceId(ignored)={}, schemaName={}, tableName={}, columnName={}",
-                key, datasourceId, schemaName, tableName, columnName);
+        log.trace("Policy lookup: key={}, scope(ignored)={}, schemaName={}, tableName={}, columnName={}",
+                key, scope, schemaName, tableName, columnName);
         
         // Hub에서 로드한 매핑 정보만 사용 (캐시에서 조회)
         String policy = lookupPolicy(key);
@@ -112,7 +112,7 @@ public class PolicyResolver {
      * @param tableName 테이블명
      * @param columnName 컬럼명
      * @return 정책명 (없으면 null)
-     * @deprecated datasourceId와 schemaName을 포함한 resolvePolicy(String, String, String, String) 사용 권장
+     * @deprecated use resolvePolicy(String, String, String, String)
      */
     @Deprecated
     public String resolvePolicy(String databaseName, String tableName, String columnName) {

@@ -10,7 +10,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * @since 2026-01-06
  */
 public class SchemaMetadata {
-    private String datasourceId;    // Hub에서 받은 논리 데이터소스 ID (Wrapper에서 사용)
     private String dbVendor;        // "mysql", "postgresql", "mssql", "oracle" (Wrapper에서 사용)
     private String databaseName;    // catalog (필요시)
     private String schemaName;      // DADP 기준 논리 스키마명
@@ -35,14 +34,6 @@ public class SchemaMetadata {
     }
     
     // Getters and Setters
-    public String getDatasourceId() {
-        return datasourceId;
-    }
-    
-    public void setDatasourceId(String datasourceId) {
-        this.datasourceId = datasourceId;
-    }
-    
     public String getDbVendor() {
         return dbVendor;
     }
@@ -124,17 +115,13 @@ public class SchemaMetadata {
     }
     
     /**
-     * 스키마 키 생성 (datasourceId:schema.table.column 또는 schema.table.column)
+     * 스키마 키 생성 (schema.table.column).
      * 
      * JSON 직렬화에서 제외
      */
     @JsonIgnore
     public String getKey() {
-        String effectiveSchemaName = schemaName;
-        if (datasourceId != null && !datasourceId.trim().isEmpty()) {
-            effectiveSchemaName = datasourceId + ":" + (schemaName != null ? schemaName : "");
-        }
-        return (effectiveSchemaName != null ? effectiveSchemaName : "") + "." +
+        return (schemaName != null ? schemaName : "") + "." +
                (tableName != null ? tableName : "") + "." +
                (columnName != null ? columnName : "");
     }

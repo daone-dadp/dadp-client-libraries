@@ -36,7 +36,7 @@ public class TelemetryStatsSender {
     private final EndpointStorage endpointStorage;
     private final ObjectMapper objectMapper;
     private final String appId;
-    private final String datasourceId;
+    private final String alias;
     private final ScheduledExecutorService scheduler;
     private final LinkedBlockingQueue<SqlEvent> buffer;
     private final Random random = new Random();
@@ -58,15 +58,15 @@ public class TelemetryStatsSender {
     private volatile EndpointSnapshot endpointSnapshot;
     private volatile long endpointSnapshotLoadedAtMillis;
 
-    public TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String datasourceId) {
-        this(endpointStorage, appId, datasourceId, DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS);
+    public TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String alias) {
+        this(endpointStorage, appId, alias, DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS);
     }
 
-    TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String datasourceId, int endpointSnapshotRefreshMillis) {
+    TelemetryStatsSender(EndpointStorage endpointStorage, String appId, String alias, int endpointSnapshotRefreshMillis) {
         this.endpointStorage = endpointStorage;
         // appId(tenantId)가 null이면 통계 전송 비활성화 (X-DADP-Tenant-Id 헤더 필수)
         this.appId = appId != null && !appId.trim().isEmpty() ? appId : null;
-        this.datasourceId = datasourceId;
+        this.alias = alias;
         this.objectMapper = new ObjectMapper();
         // Java Time 직렬화 지원
         this.objectMapper.findAndRegisterModules();
@@ -269,7 +269,7 @@ public class TelemetryStatsSender {
                 e.put("eventId", ev.eventId);
                 e.put("eventType", "SQL_EXEC");
                 e.put("occurredAt", ev.occurredAt);
-                e.put("datasourceId", datasourceId);
+                e.put("alias", alias);
                 e.put("sqlHash", ev.sqlHash);
                 e.put("operation", ev.operation);
                 e.put("durationMs", ev.durationMs);

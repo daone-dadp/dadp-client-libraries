@@ -26,25 +26,25 @@ public class SchemaRecognizer {
      * 스키마 메타데이터 수집 (기본 설정 사용)
      * 
      * @param connection DB 연결
-     * @param datasourceId Datasource ID (Hub에서 받은 논리 데이터소스 ID)
+     * @param alias wrapper alias for logging/context only
      * @return 스키마 메타데이터 목록
      */
-    public List<SchemaMetadata> collectSchemaMetadata(Connection connection, String datasourceId) throws SQLException {
-        return collectSchemaMetadata(connection, datasourceId, null, -1, null);
+    public List<SchemaMetadata> collectSchemaMetadata(Connection connection, String alias) throws SQLException {
+        return collectSchemaMetadata(connection, alias, null, -1, null);
     }
     
     /**
      * 스키마 메타데이터 수집 (안정성 설정 포함)
      * 
      * @param connection DB 연결
-     * @param datasourceId Datasource ID (Hub에서 받은 논리 데이터소스 ID)
+     * @param alias wrapper alias for logging/context only
      * @param schemaAllowlist 허용 스키마 목록 (쉼표로 구분, null이면 모든 스키마 허용)
      * @param maxSchemas 최대 스키마 개수 (-1이면 제한 없음)
      * @param timeoutMs 타임아웃 (밀리초, -1이면 제한 없음)
      * @return 스키마 메타데이터 목록
      * @throws SQLException 타임아웃 또는 최대 개수 초과 시
      */
-    public List<SchemaMetadata> collectSchemaMetadata(Connection connection, String datasourceId,
+    public List<SchemaMetadata> collectSchemaMetadata(Connection connection, String alias,
                                                       String schemaAllowlist, int maxSchemas, Long timeoutMs) throws SQLException {
         List<SchemaMetadata> schemas = new ArrayList<>();
         
@@ -91,20 +91,20 @@ public class SchemaRecognizer {
             String normalizedVendor = normalizeDbVendor(dbProductName);
             String databaseName = connection.getCatalog();
 
-            log.info("Schema metadata collection starting: datasourceId={}, dbVendor={}, normalizedVendor={}, database={}, " +
+            log.info("Schema metadata collection starting: alias={}, dbVendor={}, normalizedVendor={}, database={}, " +
                     "allowlist={}, maxSchemas={}, timeout={}ms",
-                datasourceId, dbVendor, normalizedVendor, databaseName,
+                alias, dbVendor, normalizedVendor, databaseName,
                 allowedSchemas != null ? allowedSchemas : "all allowed",
                 maxSchemas > 0 ? maxSchemas : "unlimited",
                 timeoutMs != null && timeoutMs > 0 ? timeoutMs : "unlimited");
 
             if (dbVendor.contains("oracle") || dbVendor.contains("tibero")) {
                 // Oracle/Tibero: 데이터 딕셔너리 뷰 사용 (getTables()보다 안정적, VIEW 누락 방지)
-                collectOracleSchemas(connection, datasourceId, dbVendor, normalizedVendor, databaseName,
+                collectOracleSchemas(connection, dbVendor, normalizedVendor, databaseName,
                         allowedSchemas, maxSchemas, timeoutMs, startTime, schemas);
             } else {
                 // 기타 DB: 표준 JDBC DatabaseMetaData 사용
-                collectStandardSchemas(connection, metaData, datasourceId, dbVendor, normalizedVendor, databaseName,
+                collectStandardSchemas(connection, metaData, dbVendor, normalizedVendor, databaseName,
                         allowedSchemas, maxSchemas, timeoutMs, startTime, schemas,
                         EXCLUDED_SCHEMAS, ORACLE_EXCLUDED_SCHEMAS);
             }
@@ -133,7 +133,7 @@ public class SchemaRecognizer {
      * getTables()는 Oracle JDBC 드라이버 버전에 따라 VIEW가 누락되는 경우가 있어,
      * USER_TAB_COLUMNS + USER_OBJECTS를 직접 조회하여 TABLE, VIEW, MATERIALIZED VIEW를 확실하게 수집합니다.
      */
-    private void collectOracleSchemas(Connection connection, String datasourceId, String dbVendor,
+    private void collectOracleSchemas(Connection connection, String dbVendor,
                                        String normalizedVendor,
                                        String databaseName, Set<String> allowedSchemas,
                                        int maxSchemas, Long timeoutMs, long startTime,
@@ -225,7 +225,6 @@ public class SchemaRecognizer {
                 String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
 
                 SchemaMetadata schema = new SchemaMetadata();
-                schema.setDatasourceId(datasourceId);
                 schema.setDbVendor(normalizedVendor);
                 schema.setDatabaseName(null);  // Oracle은 database 개념 없음
                 schema.setSchemaName(normalizedSchemaName);
@@ -251,7 +250,7 @@ public class SchemaRecognizer {
      * 표준 JDBC DatabaseMetaData 기반 스키마 수집 (MySQL, PostgreSQL, MSSQL 등)
      */
     private void collectStandardSchemas(Connection connection, DatabaseMetaData metaData,
-                                         String datasourceId, String dbVendor, String normalizedVendor,
+                                         String dbVendor, String normalizedVendor,
                                          String databaseName,
                                          Set<String> allowedSchemas, int maxSchemas, Long timeoutMs,
                                          long startTime, List<SchemaMetadata> schemas,
@@ -330,7 +329,6 @@ public class SchemaRecognizer {
                         String normalizedColumnName = normalizeIdentifier(columnName, dbVendor);
 
                         SchemaMetadata schema = new SchemaMetadata();
-                        schema.setDatasourceId(datasourceId);
                         schema.setDbVendor(normalizedVendor);
                         schema.setDatabaseName(normalizedDatabaseName);
                         schema.setSchemaName(normalizedSchemaName);
@@ -607,7 +605,6 @@ public class SchemaRecognizer {
      * 스키마 메타데이터 DTO
      */
     public static class SchemaMetadata {
-        private String datasourceId;    // NEW: Hub에서 받은 논리 데이터소스 ID
         private String dbVendor;        // NEW: "mysql", "postgresql", "mssql", "oracle"
         private String databaseName;    // 유지: catalog (필요시)
         private String schemaName;      // NEW: DADP 기준 논리 스키마명
@@ -619,14 +616,6 @@ public class SchemaRecognizer {
         private String columnComment;   // Oracle USER_COL_COMMENTS (한글 코멘트 등)
 
         // Getters and Setters
-        public String getDatasourceId() {
-            return datasourceId;
-        }
-        
-        public void setDatasourceId(String datasourceId) {
-            this.datasourceId = datasourceId;
-        }
-        
         public String getDbVendor() {
             return dbVendor;
         }
