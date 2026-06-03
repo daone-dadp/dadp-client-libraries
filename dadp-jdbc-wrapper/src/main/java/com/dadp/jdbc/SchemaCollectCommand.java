@@ -75,7 +75,7 @@ public final class SchemaCollectCommand {
         private String jdbcUrl;
         private String dbUser;
         private String dbPassword;
-        private String output;
+        private String output = "schema-register.json";
         private String appName;
         private String wrapperVersion = detectWrapperVersion();
         private String clientInstanceId;
@@ -114,7 +114,7 @@ public final class SchemaCollectCommand {
                     throw new IllegalArgumentException("unknown option: " + arg + "\n" + usage());
                 }
             }
-            if (trimToNull(parsed.jdbcUrl) == null || trimToNull(parsed.output) == null) {
+            if (trimToNull(parsed.jdbcUrl) == null) {
                 throw new IllegalArgumentException(usage());
             }
             if (parsed.dbPasswordSet && parsed.dbPasswordEnvSet) {
@@ -132,7 +132,7 @@ public final class SchemaCollectCommand {
 
         private static String usage() {
             return "usage: java -cp <wrapper.jar:db-driver.jar> com.dadp.jdbc.SchemaCollectCommand "
-                    + "--jdbc-url <jdbc:dadp:...> --output <schema-register.json> "
+                    + "--jdbc-url <jdbc:dadp:...> [--output schema-register.json] "
                     + "[--db-user <user>] [--db-password-env <ENV> | --db-password <password>] "
                     + "[--app-name <name>] [--client-instance-id <id>]";
         }
