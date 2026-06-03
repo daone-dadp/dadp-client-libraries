@@ -34,7 +34,7 @@ public class ProxyConfig {
     private final boolean hubUrlConfigured;
     private final String alias;  // 공유 DB 그룹 별칭
     private final boolean aliasConfigured;
-    private volatile String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, HubIdManager에서 관리)
+    private volatile String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, TenantIdManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
     private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
@@ -58,7 +58,7 @@ public class ProxyConfig {
     private final String schemaCollectionFailMode;  // 실패 모드 ("fail-open" 또는 "fail-close")
     private volatile boolean enabled;  // Wrapper 활성화 여부 (false면 암복호화 없이 순수 패스스루, Hub 설정으로 변경 가능)
 
-    // InstanceConfigStorage는 HubIdManager에서 관리하므로 제거
+    // InstanceConfigStorage는 TenantIdManager에서 관리하므로 제거
     
     /**
      * JDBC URL 쿼리 파라미터에서 Proxy 설정을 읽어서 생성
@@ -112,9 +112,9 @@ public class ProxyConfig {
 
         this.enabled = true;
 
-        // hubId는 HubIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
+        // tenantId는 TenantIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음
-        this.hubId = null;
+        this.tenantId = null;
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("Proxy config loaded:");
@@ -206,31 +206,31 @@ public class ProxyConfig {
     }
     
     /**
-     * hubId 조회 (캐시된 값만 반환, 파일 읽기 없음)
+     * tenantId 조회 (캐시된 값만 반환, 파일 읽기 없음)
      * 
      * 오케스트레이터에서만 공통 라이브러리(InstanceConfigStorage)를 직접 사용하고,
      * 여기서는 오케스트레이터가 설정한 캐시된 값만 반환합니다.
      * 
-     * @return hubId, 없으면 null
+     * @return tenantId, 없으면 null
      */
-    public String getHubId() {
+    public String getTenantId() {
         // 캐시된 값만 반환 (파일 읽기 없음)
-        // 오케스트레이터에서 setHubId()로 설정한 값만 사용
-        return hubId;
+        // 오케스트레이터에서 setTenantId()로 설정한 값만 사용
+        return tenantId;
     }
     
     /**
-     * hubId 저장 (캐시만 업데이트, 영구저장소는 HubIdManager에서 관리)
+     * tenantId 저장 (캐시만 업데이트, 영구저장소는 TenantIdManager에서 관리)
      * 
-     * @param hubId Hub가 발급한 고유 ID
-     * @deprecated hubId는 HubIdManager에서 전역으로 관리되므로 이 메서드는 캐시만 업데이트합니다.
-     *             실제 저장은 HubIdManager.setHubId()를 사용하세요.
+     * @param tenantId Hub가 발급한 고유 ID
+     * @deprecated tenantId는 TenantIdManager에서 전역으로 관리되므로 이 메서드는 캐시만 업데이트합니다.
+     *             실제 저장은 TenantIdManager.setTenantId()를 사용하세요.
      */
     @Deprecated
-    public void setHubId(String hubId) {
+    public void setTenantId(String tenantId) {
         // 캐시만 업데이트 (하위 호환성을 위해 유지)
-        // 실제 저장은 HubIdManager에서 관리
-        this.hubId = hubId;
+        // 실제 저장은 TenantIdManager에서 관리
+        this.tenantId = tenantId;
     }
     
     public boolean isFailOpen() {
@@ -497,5 +497,5 @@ public class ProxyConfig {
         }
     }
     
-    // InstanceConfigStorage는 HubIdManager에서 관리하므로 제거됨
+    // InstanceConfigStorage는 TenantIdManager에서 관리하므로 제거됨
 }

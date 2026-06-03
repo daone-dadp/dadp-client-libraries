@@ -3,7 +3,7 @@ package com.dadp.jdbc.sync;
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.HubIdManager;
+import com.dadp.common.sync.config.TenantIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.config.StoragePathResolver;
@@ -45,7 +45,7 @@ public class JdbcPolicyMappingSyncService {
     private final AtomicBoolean enabled = new AtomicBoolean(false);
     
     
-    private final HubIdManager hubIdManager;
+    private final TenantIdManager tenantIdManager;
     
     
     private final PolicyMappingSyncOrchestrator syncOrchestrator;
@@ -88,15 +88,15 @@ public class JdbcPolicyMappingSyncService {
         
         String hubUrl = config.getHubUrl();
         final JdbcPolicyMappingSyncService self = this;
-        this.hubIdManager = new HubIdManager(
+        this.tenantIdManager = new TenantIdManager(
             configStorage,
             hubUrl,
             instanceIdProvider,
-            (oldHubId, newHubId) -> {
+            (oldTenantId, newTenantId) -> {
                 
-                if (newHubId != null && !newHubId.trim().isEmpty()) {
-                    self.updateMappingSyncService(newHubId, instanceId);
-                    self.updateEndpointSyncService(newHubId, instanceId);
+                if (newTenantId != null && !newTenantId.trim().isEmpty()) {
+                    self.updateMappingSyncService(newTenantId, instanceId);
+                    self.updateEndpointSyncService(newTenantId, instanceId);
                     
                     if (self.syncOrchestrator != null) {
                         self.syncOrchestrator.updateMappingSyncService(self.mappingSyncService);
@@ -104,28 +104,15 @@ public class JdbcPolicyMappingSyncService {
                 }
             }
         );
-        this.hubIdManager.loadFromStorage();
+        this.tenantIdManager.loadFromStorage();
         
         
         this.syncOrchestrator = new PolicyMappingSyncOrchestrator(
-            hubIdManager,
+            tenantIdManager,
             mappingSyncService,
             policyResolver,
             schemaStorage,
             new PolicyMappingSyncOrchestrator.SyncCallbacks() {
-                @Override
-                public void onRegistrationNeeded() {
-                    log.warn("Policy mapping sync requires CLI schema-register enrollment in DADP 6.0.");
-                }
-                
-                @Override
-                public void onReregistration(String newHubId) {
-                    
-                    
-                    
-                    log.info("Re-registration completed: hubId={} (schema re-send skipped, Hub retains by datasourceId)", newHubId);
-                }
-                
                 @Override
                 public void onEndpointSynced(Object endpointData) {
                     
@@ -153,33 +140,33 @@ public class JdbcPolicyMappingSyncService {
     }
     
     
-    public void setInitialized(boolean initialized, String hubId) {
+    public void setInitialized(boolean initialized, String tenantId) {
         this.initialized = initialized;
         
         
-        if (hubId != null && !hubId.trim().isEmpty()) {
-            hubIdManager.setHubId(hubId, false); 
+        if (tenantId != null && !tenantId.trim().isEmpty()) {
+            tenantIdManager.setTenantId(tenantId, false); 
         }
         
-        log.info("JdbcPolicyMappingSyncService initialization notification: initialized={}, hubId={}", initialized, hubId);
+        log.info("JdbcPolicyMappingSyncService initialization notification: initialized={}, tenantId={}", initialized, tenantId);
         
         
         
-        if (!initialized || hubId == null || hubId.trim().isEmpty()) {
-            log.warn("Initialization conditions not met: initialized={}, hubId={}", initialized, hubId);
+        if (!initialized || tenantId == null || tenantId.trim().isEmpty()) {
+            log.warn("Initialization conditions not met: initialized={}, tenantId={}", initialized, tenantId);
             return;
         }
         
         
         if (!config.isAutoPolicyMappingSyncEnabled()) {
             setEnabled(false);
-            log.info("Automatic policy mapping sync disabled by default in DADP 6.0: hubId={}, alias={}", hubId, instanceId);
+            log.info("Automatic policy mapping sync disabled by default in DADP 6.0: tenantId={}, alias={}", tenantId, instanceId);
             return;
         }
 
         setEnabled(true);
         startPeriodicSync();
-        log.info("Periodic version check started: hubId={} (first check immediately)", hubId);
+        log.info("Periodic version check started: tenantId={} (first check immediately)", tenantId);
     }
     
     
@@ -188,8 +175,8 @@ public class JdbcPolicyMappingSyncService {
             return; 
         }
         
-        log.info("Periodic policy mapping sync starting: 30s interval, alias={}, hubId={}, enabled={}, initialized={}",
-                instanceId, hubIdManager.getCachedHubId(), enabled.get(), initialized);
+        log.info("Periodic policy mapping sync starting: 30s interval, alias={}, tenantId={}, enabled={}, initialized={}",
+                instanceId, tenantIdManager.getCachedTenantId(), enabled.get(), initialized);
         
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "jdbc-policy-mapping-sync-" + instanceId);
@@ -216,30 +203,30 @@ public class JdbcPolicyMappingSyncService {
     }
     
     
-    public void updateEndpointSyncService(String hubId, String instanceId) {
+    public void updateEndpointSyncService(String tenantId, String instanceId) {
         
         String storageDir = StoragePathResolver.resolveStorageDir(instanceId);
         String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
-            config.getHubUrl(), hubId, instanceId, storageDir, fileName);
-        log.info("EndpointSyncService recreated: hubId={}", hubId);
+            config.getHubUrl(), tenantId, instanceId, storageDir, fileName);
+        log.info("EndpointSyncService recreated: tenantId={}", tenantId);
     }
     
     
-    private void updateMappingSyncService(String hubId, String instanceId) {
+    private void updateMappingSyncService(String tenantId, String instanceId) {
         String hubUrl = config.getHubUrl();
         String apiBasePath = "/hub/api/v1/runtime/wrappers";
         this.mappingSyncService = new MappingSyncService(
             hubUrl,
-            hubId,
+            tenantId,
             instanceId,
             datasourceId,
             apiBasePath,
             policyResolver,
             null,
             null,
-            hubIdManager.getCachedRefreshUrl());
-        log.info("MappingSyncService recreated: hubId={}", hubId);
+            tenantIdManager.getCachedRefreshUrl());
+        log.info("MappingSyncService recreated: tenantId={}", tenantId);
     }
     
     
@@ -253,13 +240,48 @@ public class JdbcPolicyMappingSyncService {
             log.warn("Manual policy mapping refresh skipped: service not initialized");
             return;
         }
-        String hubId = hubIdManager.getCachedHubId();
-        if (hubId == null || hubId.trim().isEmpty()) {
+        String tenantId = tenantIdManager.getCachedTenantId();
+        if (tenantId == null || tenantId.trim().isEmpty()) {
             log.warn("Manual policy mapping refresh skipped: tenantId not available");
             return;
         }
-        log.info("Manual policy mapping refresh starting: hubId={}, alias={}", hubId, instanceId);
-        checkMappingChange();
+        log.info("Manual policy mapping refresh starting: tenantId={}, alias={}", tenantId, instanceId);
+        try {
+            Long currentVersion = policyResolver.getCurrentVersion();
+            int loadedCount = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
+            updateSchemaPolicyNames();
+            applySnapshotAfterPolicyRefresh(mappingSyncService.getLastSnapshot(), loadedCount);
+            log.info("Manual policy mapping refresh completed: tenantId={}, mappings={}", tenantId, loadedCount);
+        } catch (Exception e) {
+            log.warn("Manual policy mapping refresh failed: {}", e.getMessage());
+        }
+    }
+
+    private void applySnapshotAfterPolicyRefresh(MappingSyncService.PolicySnapshot snapshot, int loadedCount) {
+        if (snapshot != null && snapshot.getEndpoint() != null) {
+            saveEndpointFromPolicyMapping(snapshot.getEndpoint());
+        } else if (loadedCount > 0) {
+            syncEndpointsAfterPolicyMapping();
+        }
+        applyLogConfigFromSnapshot(snapshot);
+        applyWrapperConfigFromSnapshot(snapshot);
+        if (snapshot != null && Boolean.TRUE.equals(snapshot.getForceSchemaReload())) {
+            log.info("Schema reload requested by Hub but ignored in DADP 6.0 runtime. Run the CLI/manual schema-sync flow.");
+        }
+    }
+
+    private void updateSchemaPolicyNames() {
+        if (schemaStorage == null) {
+            return;
+        }
+        try {
+            int updatedCount = schemaStorage.updatePolicyNames(policyResolver.getAllMappings());
+            if (updatedCount > 0) {
+                log.debug("Schema policy names updated: {} entries", updatedCount);
+            }
+        } catch (Exception e) {
+            log.warn("Schema policy name update failed: {}", e.getMessage());
+        }
     }
     
     
@@ -277,7 +299,7 @@ public class JdbcPolicyMappingSyncService {
         
         try {
             
-            String currentHubId = hubIdManager.getCachedHubId();
+            String currentTenantId = tenantIdManager.getCachedTenantId();
             Long currentVersion = policyResolver.getCurrentVersion();
             MappingSyncService.StatsAggregatorInfo statsAggregator = endpointInfo.getStatsAggregator();
             Boolean statsEnabled = statsAggregator != null ? statsAggregator.getEnabled() : null;
@@ -289,7 +311,7 @@ public class JdbcPolicyMappingSyncService {
             
             boolean saved = endpointStorage.saveEndpoints(
                 cryptoUrl.trim(),
-                currentHubId,
+                currentTenantId,
                 currentVersion,  
                 statsEnabled,
                 statsUrl,
@@ -306,8 +328,8 @@ public class JdbcPolicyMappingSyncService {
                     if (directCryptoAdapter != null) {
                         directCryptoAdapter.setEndpointData(endpointData);
                     }
-                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, hubId={}, version={}, statsEnabled={}, statsMode={}",
-                            cryptoUrl, currentHubId, currentVersion, statsEnabled, statsMode);
+                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, tenantId={}, version={}, statsEnabled={}, statsMode={}",
+                            cryptoUrl, currentTenantId, currentVersion, statsEnabled, statsMode);
                 } else {
                     log.warn("Failed to load endpoint info after saving");
                 }
@@ -325,9 +347,9 @@ public class JdbcPolicyMappingSyncService {
         return;
         /*
         
-        String currentHubId = hubIdManager.getCachedHubId();
-        if (currentHubId != null && endpointSyncService != null) {
-            updateEndpointSyncService(currentHubId, instanceId);
+        String currentTenantId = tenantIdManager.getCachedTenantId();
+        if (currentTenantId != null && endpointSyncService != null) {
+            updateEndpointSyncService(currentTenantId, instanceId);
         }
         
         if (endpointSyncService != null) {
@@ -341,9 +363,9 @@ public class JdbcPolicyMappingSyncService {
                         if (directCryptoAdapter != null) {
                             directCryptoAdapter.setEndpointData(endpointData);
                         }
-                        log.info("Endpoint sync completed: cryptoUrl={}, hubId={}, version={}",
+                        log.info("Endpoint sync completed: cryptoUrl={}, tenantId={}, version={}",
                                 endpointData.getCryptoUrl(),
-                                endpointData.getHubId(),
+                                endpointData.getTenantId(),
                                 endpointData.getVersion());
                     }
                 } else {
@@ -399,7 +421,7 @@ public class JdbcPolicyMappingSyncService {
                 configStorage.saveRuntimeOptions(
                         wrapperConfig.getEnabled(),
                         wrapperConfig.getCryptoMode(),
-                        hubIdManager.getCachedRuntimeVersion());
+                        tenantIdManager.getCachedRuntimeVersion());
             } catch (Exception e) {
                 log.warn("Failed to persist runtime wrapper options from Hub refresh: {}", e.getMessage());
             }
@@ -412,7 +434,7 @@ public class JdbcPolicyMappingSyncService {
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
-                    hubIdManager.getCachedHubId(),
+                    tenantIdManager.getCachedTenantId(),
                     null,
                     null,
                     config.isWrapperCryptoStatsEnabled(),

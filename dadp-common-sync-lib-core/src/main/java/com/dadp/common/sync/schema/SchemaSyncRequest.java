@@ -5,8 +5,8 @@ import java.util.List;
 /**
  * 스키마 동기화 요청 DTO (공통)
  * 
- * AOP와 Wrapper 모두에서 사용하는 공통 DTO입니다.
- * hubId가 Hub에 없을 때 자동으로 인스턴스를 생성하기 위해 instanceId를 포함합니다.
+ * Wrapper schema synchronization DTO.
+ * instanceId carries the immutable wrapper alias for schema payload context.
  * tenantId는 헤더(X-DADP-Tenant-Id)로 전송됩니다.
  * 
  * @author DADP Development Team
@@ -14,7 +14,7 @@ import java.util.List;
  * @since 2026-01-08
  */
 public class SchemaSyncRequest {
-    private String instanceId;  // 인스턴스 별칭 (hubId가 없을 때 자동 생성용)
+    private String instanceId;  // wrapper alias
     private List<SchemaMetadata> schemas;
     // currentVersion은 헤더(X-Current-Version)로 전송됨
     // tenantId는 헤더(X-DADP-Tenant-Id)로 전송됨

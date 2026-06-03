@@ -1,7 +1,7 @@
 package com.dadp.jdbc.config;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.HubIdManager;
+import com.dadp.common.sync.config.TenantIdManager;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -47,11 +47,11 @@ public class ExportedConfigLoader {
 
     /**
      * Try to load exported config from the storage directory.
-     * Used for both initial bootstrap (hubId == null) and policy update (newer policyVersion).
+     * Used for both initial bootstrap (tenantId == null) and policy update (newer policyVersion).
      *
      * @param storageDir storage directory path (e.g., ./dadp/wrapper/{instanceId})
      * @param instanceId instance identifier
-     * @param hubIdManager HubIdManager to save the hubId
+     * @param tenantIdManager TenantIdManager to save the tenantId
      * @param policyResolver PolicyResolver to refresh policy mappings
      * @param endpointStorage EndpointStorage to save endpoint info
      * @return the loaded datasourceId if config was loaded and applied successfully, null otherwise
@@ -60,10 +60,10 @@ public class ExportedConfigLoader {
     public static String loadIfExists(
             String storageDir,
             String instanceId,
-            HubIdManager hubIdManager,
+            TenantIdManager tenantIdManager,
             PolicyResolver policyResolver,
             EndpointStorage endpointStorage) {
-        return loadIfExists(storageDir, instanceId, hubIdManager, policyResolver, endpointStorage, null);
+        return loadIfExists(storageDir, instanceId, tenantIdManager, policyResolver, endpointStorage, null);
     }
 
     /**
@@ -73,7 +73,7 @@ public class ExportedConfigLoader {
     public static String loadIfExists(
             String storageDir,
             String instanceId,
-            HubIdManager hubIdManager,
+            TenantIdManager tenantIdManager,
             PolicyResolver policyResolver,
             EndpointStorage endpointStorage,
             ProxyConfig proxyConfig) {
@@ -102,7 +102,7 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            String hubId = getStringValue(config, "tenantId");
+            String tenantId = getStringValue(config, "tenantId");
             String datasourceId = getStringValue(config, "datasourceId");
             Map<String, Object> runtime = (Map<String, Object>) config.get("runtime");
             String refreshUrl = getStringValue(runtime, "refreshUrl");
@@ -114,7 +114,7 @@ public class ExportedConfigLoader {
                 schemaSyncUrl = getStringValue(config, "schemaSyncUrl");
             }
 
-            if (hubId == null || hubId.trim().isEmpty()) {
+            if (tenantId == null || tenantId.trim().isEmpty()) {
                 log.warn("Exported config missing required field: tenantId");
                 return null;
             }
@@ -140,11 +140,11 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            hubIdManager.setHubId(hubId, true);
-            hubIdManager.setWrapperEnrollment(hubId, datasourceId,
+            tenantIdManager.setTenantId(tenantId, true);
+            tenantIdManager.setWrapperEnrollment(tenantId, datasourceId,
                     refreshUrl, schemaSyncUrl, "6.0", true);
             log.info("Exported config loaded successfully: tenantId={}, datasourceId={}",
-                    hubId, datasourceId);
+                    tenantId, datasourceId);
 
             return datasourceId;
 

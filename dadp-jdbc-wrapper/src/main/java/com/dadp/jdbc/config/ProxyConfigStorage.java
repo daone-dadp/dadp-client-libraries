@@ -79,13 +79,13 @@ public class ProxyConfigStorage {
     /**
      * Proxy 설정 저장
      * 
-     * @param hubId Hub가 발급한 고유 ID
+     * @param tenantId Hub가 발급한 고유 ID
      * @param hubUrl Hub URL
      * @param instanceId 사용자가 설정한 별칭
      * @param failOpen Fail-open 모드 여부
      * @return 저장 성공 여부
      */
-    public boolean saveConfig(String hubId, String hubUrl, String instanceId, boolean failOpen) {
+    public boolean saveConfig(String tenantId, String hubUrl, String instanceId, boolean failOpen) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save proxy config");
             return false;
@@ -95,7 +95,7 @@ public class ProxyConfigStorage {
             // 저장 데이터 구조
             ConfigData data = new ConfigData();
             data.setTimestamp(System.currentTimeMillis());
-            data.setHubId(hubId);
+            data.setTenantId(tenantId);
             data.setHubUrl(hubUrl);
             data.setInstanceId(instanceId);
             data.setFailOpen(failOpen);
@@ -104,8 +104,8 @@ public class ProxyConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Proxy config saved: hubId={}, hubUrl={}, instanceId={} -> {}",
-                    hubId, hubUrl, instanceId, storagePath);
+            log.debug("Proxy config saved: tenantId={}, hubUrl={}, instanceId={} -> {}",
+                    tenantId, hubUrl, instanceId, storagePath);
             return true;
             
         } catch (IOException e) {
@@ -140,8 +140,8 @@ public class ProxyConfigStorage {
             }
             
             long timestamp = data.getTimestamp();
-            log.debug("Proxy config loaded: hubId={}, hubUrl={}, instanceId={} (saved at: {})",
-                    data.getHubId(), data.getHubUrl(), data.getInstanceId(),
+            log.debug("Proxy config loaded: tenantId={}, hubUrl={}, instanceId={} (saved at: {})",
+                    data.getTenantId(), data.getHubUrl(), data.getInstanceId(),
                     new java.util.Date(timestamp));
             return data;
             
@@ -200,7 +200,7 @@ public class ProxyConfigStorage {
      */
     public static class ConfigData {
         private long timestamp;
-        private String hubId;  // Hub가 발급한 고유 ID
+        private String tenantId;  // Hub가 발급한 고유 ID
         private String hubUrl;  // Hub URL
         private String instanceId;  // 사용자가 설정한 별칭
         private boolean failOpen;  // Fail-open 모드 여부
@@ -213,12 +213,12 @@ public class ProxyConfigStorage {
             this.timestamp = timestamp;
         }
         
-        public String getHubId() {
-            return hubId;
+        public String getTenantId() {
+            return tenantId;
         }
         
-        public void setHubId(String hubId) {
-            this.hubId = hubId;
+        public void setTenantId(String tenantId) {
+            this.tenantId = tenantId;
         }
         
         public String getHubUrl() {

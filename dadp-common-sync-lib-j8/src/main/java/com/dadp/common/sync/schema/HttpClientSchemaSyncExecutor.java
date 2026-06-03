@@ -62,14 +62,12 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     }
     
     @Override
-    public boolean syncToHub(List<SchemaMetadata> schemas, String hubId, String alias, Long currentVersion) throws Exception {
+    public boolean syncToHub(List<SchemaMetadata> schemas, String tenantId, String alias, Long currentVersion) throws Exception {
         boolean isRuntimeWrapper = apiBasePath != null && apiBasePath.contains("/runtime/wrappers");
         if (!isRuntimeWrapper) {
             throw new IllegalStateException("Wrapper schema sync requires /hub/api/v1/runtime/wrappers API base path");
         }
-        String syncUrl = isRuntimeWrapper
-                ? resolveRuntimeSchemaSyncUrl(hubId)
-                : hubUrl + apiBasePath + "/schema/sync";
+        String syncUrl = resolveRuntimeSchemaSyncUrl(tenantId);
         log.trace("Hub schema sync URL: {}", syncUrl);
 
         String requestBody = objectMapper.writeValueAsString(toRuntimeSchemaSyncRequest(schemas, currentVersion));
@@ -79,7 +77,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         if (alias != null && !alias.trim().isEmpty()) {
             headers.put("X-Instance-Id", alias);
         }
-        headers.putAll(signedHeaders("POST", URI.create(syncUrl), requestBody, hubId));
+        headers.putAll(signedHeaders("POST", URI.create(syncUrl), requestBody, tenantId));
         if (currentVersion != null) {
             headers.put("X-Current-Version", String.valueOf(currentVersion));
         }
@@ -88,7 +86,7 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         }
         
         // 요청 로깅 (디버깅용)
-        log.debug("Hub schema sync request: URL={}, hubId={}, schemaCount={}", syncUrl, hubId, schemas != null ? schemas.size() : 0);
+        log.debug("Hub schema sync request: URL={}, tenantId={}, schemaCount={}", syncUrl, tenantId, schemas != null ? schemas.size() : 0);
         log.debug("Request headers: {}", headers);
         log.debug("Request body: {}", requestBody);
         
@@ -115,12 +113,12 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
         }
         
         if (statusCode == 404) {
-            log.warn("Hub runtime schema sync returned 404 for tenantId={}, CLI enrollment is required", hubId);
-            throw new SchemaSync404Exception("Hub runtime schema sync failed: HTTP 404 - tenantId not found. tenantId=" + hubId);
+            log.warn("Hub runtime schema sync returned 404 for tenantId={}, CLI enrollment is required", tenantId);
+            throw new SchemaSync404Exception("Hub runtime schema sync failed: HTTP 404 - tenantId not found. tenantId=" + tenantId);
         }
         
         if (statusCode >= 200 && statusCode < 300 && responseBody != null) {
-            log.debug("Schema metadata synced to Hub runtime: {} columns, tenantId={}", schemas.size(), hubId);
+            log.debug("Schema metadata synced to Hub runtime: {} columns, tenantId={}", schemas.size(), tenantId);
             return true;
         } else {
             log.warn("Schema metadata sync to Hub failed: HTTP {}", statusCode);
@@ -163,17 +161,17 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     }
     
     @Override
-    public String getReceivedHubId() {
+    public String getReceivedTenantId() {
         return null;
     }
     
     @Override
-    public void clearReceivedHubId() {
+    public void clearReceivedTenantId() {
     }
 }
 
 /**
- * 404 응답을 나타내는 예외 (정상적인 응답 코드이지만 재등록이 필요함을 표시)
+ * 404 response for a missing DADP 6 wrapper enrollment.
  */
 class SchemaSync404Exception extends RuntimeException {
     SchemaSync404Exception(String message) {

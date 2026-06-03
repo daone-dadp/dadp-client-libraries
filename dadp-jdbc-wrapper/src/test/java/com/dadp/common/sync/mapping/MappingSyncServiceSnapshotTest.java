@@ -2,7 +2,6 @@ package com.dadp.common.sync.mapping;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,8 +22,6 @@ class MappingSyncServiceSnapshotTest {
     @Test
     void deserializesStatsAggregatorFromPolicySnapshotEndpoint() throws Exception {
         String json = "{"
-                + "\"success\":true,"
-                + "\"data\":{"
                 + "\"version\":17,"
                 + "\"mappings\":[],"
                 + "\"endpoint\":{"
@@ -37,21 +34,19 @@ class MappingSyncServiceSnapshotTest {
                 + "\"slowThresholdMs\":321"
                 + "}"
                 + "}"
-                + "}"
                 + "}";
 
-        MappingSyncService.PolicySnapshotResponse response =
-                objectMapper.readValue(json, MappingSyncService.PolicySnapshotResponse.class);
+        MappingSyncService.PolicySnapshot snapshot =
+                objectMapper.readValue(json, MappingSyncService.PolicySnapshot.class);
 
-        assertTrue(response.isSuccess());
-        assertNotNull(response.getData());
-        assertNotNull(response.getData().getEndpoint());
-        assertEquals("http://engine:9003", response.getData().getEndpoint().getCryptoUrl());
-        assertNotNull(response.getData().getEndpoint().getStatsAggregator());
-        assertEquals(Boolean.TRUE, response.getData().getEndpoint().getStatsAggregator().getEnabled());
-        assertEquals("http://aggregator:9005", response.getData().getEndpoint().getStatsAggregator().getUrl());
-        assertEquals("DIRECT", response.getData().getEndpoint().getStatsAggregator().getMode());
-        assertEquals(Integer.valueOf(321), response.getData().getEndpoint().getStatsAggregator().getSlowThresholdMs());
+        assertNotNull(snapshot);
+        assertNotNull(snapshot.getEndpoint());
+        assertEquals("http://engine:9003", snapshot.getEndpoint().getCryptoUrl());
+        assertNotNull(snapshot.getEndpoint().getStatsAggregator());
+        assertEquals(Boolean.TRUE, snapshot.getEndpoint().getStatsAggregator().getEnabled());
+        assertEquals("http://aggregator:9005", snapshot.getEndpoint().getStatsAggregator().getUrl());
+        assertEquals("DIRECT", snapshot.getEndpoint().getStatsAggregator().getMode());
+        assertEquals(Integer.valueOf(321), snapshot.getEndpoint().getStatsAggregator().getSlowThresholdMs());
     }
 
     @Test

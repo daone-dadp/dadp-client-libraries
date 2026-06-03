@@ -40,10 +40,16 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     private volatile WindowCounters currentWindow;
 
     public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
-                                    String hubAuthId, String hubAuthSecret,
+                                    String ignoredAuthId, String ignoredAuthSecret,
+                                    String aggregationLevel) {
+        this(hubBaseUrl, timeoutMillis, null, aggregationLevel);
+    }
+
+    public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
+                                    String tenantId,
                                     String aggregationLevel) {
         this(hubBaseUrl, timeoutMillis,
-                createAuthHeaderProvider(hubAuthId, hubAuthSecret),
+                createAuthHeaderProvider(tenantId),
                 normalizeAggregationLevel(aggregationLevel),
                 new SystemTimeProvider(),
                 new HttpTransport(),
@@ -51,14 +57,9 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     }
 
     public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
-                                    String tenantId, String hubAuthId, String hubAuthSecret,
+                                    String tenantId, String ignoredAuthId, String ignoredAuthSecret,
                                     String aggregationLevel) {
-        this(hubBaseUrl, timeoutMillis,
-                createAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret),
-                normalizeAggregationLevel(aggregationLevel),
-                new SystemTimeProvider(),
-                new HttpTransport(),
-                true);
+        this(hubBaseUrl, timeoutMillis, tenantId, aggregationLevel);
     }
 
     WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
@@ -206,11 +207,7 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
         return baseUrl;
     }
 
-    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
-        return createAuthHeaderProvider(null, hubAuthId, hubAuthSecret);
-    }
-
-    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
+    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String tenantId) {
         if (tenantId != null && !tenantId.trim().isEmpty()) {
             return new HubTenantHeaderProvider(tenantId);
         }

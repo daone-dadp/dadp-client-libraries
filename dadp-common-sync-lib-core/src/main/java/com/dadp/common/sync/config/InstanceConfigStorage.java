@@ -14,7 +14,7 @@ import java.nio.file.Paths;
 /**
  * 인스턴스 설정 영구 저장소
  * 
- * Hub에서 받은 hubId 및 설정 정보를 파일에 저장하고,
+ * Hub에서 받은 tenantId 및 설정 정보를 파일에 저장하고,
  * 재시작 시에도 저장된 정보를 사용합니다.
  * 
  * Wrapper runtime enrollment and snapshot state storage.
@@ -61,21 +61,21 @@ public class InstanceConfigStorage {
     /**
      * 인스턴스 설정 저장
      * 
-     * @param hubId Hub가 발급한 고유 ID
+     * @param tenantId Hub가 발급한 고유 ID
      * @param hubUrl Hub URL. DADP 6 wrapper keeps hubUrl as a JDBC URL-only input; this value is accepted
      *               for legacy callers but is not persisted as runtime configuration.
      * @param instanceId 사용자가 설정한 별칭
-     * @param failOpen Fail-open 모드 여부 (WRAPPER용, AOP는 무시 가능)
+     * @param failOpen Fail-open mode. DADP 6 runtime refresh is the final source for this option.
      * @return 저장 성공 여부
      */
-    public boolean saveConfig(String hubId, String hubUrl, String instanceId, Boolean failOpen) {
-        return saveConfig(hubId, hubUrl, instanceId, failOpen, null, null, null, null);
+    public boolean saveConfig(String tenantId, String hubUrl, String instanceId, Boolean failOpen) {
+        return saveConfig(tenantId, hubUrl, instanceId, failOpen, null, null, null, null);
     }
 
     /**
      * Save Hub 6 runtime wrapper enrollment data issued by the CLI schema-register flow.
      */
-    public boolean saveConfig(String hubId,
+    public boolean saveConfig(String tenantId,
                               String hubUrl,
                               String instanceId,
                               Boolean failOpen,
@@ -94,8 +94,8 @@ public class InstanceConfigStorage {
                 data = new ConfigData();
             }
             data.setTimestamp(System.currentTimeMillis());
-            if (hubId != null) {
-                data.setHubId(hubId);
+            if (tenantId != null) {
+                data.setTenantId(tenantId);
             }
             data.setHubUrl(null);
             if (instanceId != null) {
@@ -121,8 +121,8 @@ public class InstanceConfigStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: hubId={}, datasourceId={}, hubUrl={}, instanceId={} -> {}",
-                    data.getHubId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(), storagePath);
+            log.debug("Instance config saved: tenantId={}, datasourceId={}, hubUrl={}, instanceId={} -> {}",
+                    data.getTenantId(), data.getDatasourceId(), data.getHubUrl(), data.getInstanceId(), storagePath);
             return true;
 
         } catch (IOException e) {
@@ -207,8 +207,8 @@ public class InstanceConfigStorage {
             }
             
             long timestamp = data.getTimestamp();
-            log.debug("Instance config loaded: hubId={}, hubUrl={}, instanceId={} (saved at: {})",
-                    data.getHubId(), data.getHubUrl(), data.getInstanceId(),
+            log.debug("Instance config loaded: tenantId={}, hubUrl={}, instanceId={} (saved at: {})",
+                    data.getTenantId(), data.getHubUrl(), data.getInstanceId(),
                     new java.util.Date(timestamp));
             return data;
             
@@ -284,10 +284,10 @@ public class InstanceConfigStorage {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ConfigData {
         private long timestamp;
-        private String hubId;  // Hub가 발급한 고유 ID
+        private String tenantId;  // Hub가 발급한 고유 ID
         private String hubUrl;  // Hub URL
         private String instanceId;  // 사용자가 설정한 별칭
-        private Boolean failOpen;  // Fail-open 모드 여부 (WRAPPER용, AOP는 null 가능)
+        private Boolean failOpen;  // Fail-open mode; Hub runtime refresh has priority.
         private String datasourceId;  // Hub-owned shared datasource ID
         private String refreshUrl;  // Hub 6 runtime refresh URL
         private String schemaSyncUrl;  // Hub 6 runtime schema-sync URL
@@ -303,20 +303,12 @@ public class InstanceConfigStorage {
             this.timestamp = timestamp;
         }
         
-        public String getHubId() {
-            return hubId;
-        }
-        
-        public void setHubId(String hubId) {
-            this.hubId = hubId;
-        }
-
         public String getTenantId() {
-            return hubId;
+            return tenantId;
         }
 
         public void setTenantId(String tenantId) {
-            this.hubId = tenantId;
+            this.tenantId = tenantId;
         }
         
         public String getHubUrl() {

@@ -124,7 +124,7 @@ public class EndpointStorage {
      * 엔드포인트 정보 저장
      * 
      * @param cryptoUrl 암복호화에 사용할 단일 URL
-     * @param hubId Hub가 발급한 인스턴스 고유 ID
+     * @param tenantId Hub가 발급한 인스턴스 고유 ID
      * @param version Hub의 최신 버전 (hubVersion)
      * @param statsAggregatorEnabled 통계 앱 사용 여부
      * @param statsAggregatorUrl 통계 앱 URL
@@ -133,7 +133,7 @@ public class EndpointStorage {
      * @param includeSqlNormalized Whether normalized SQL text should be sent with telemetry
      * @return 저장 성공 여부
      */
-    public boolean saveEndpoints(String cryptoUrl, String hubId, Long version,
+    public boolean saveEndpoints(String cryptoUrl, String tenantId, Long version,
                                   Boolean statsAggregatorEnabled, String statsAggregatorUrl, String statsAggregatorMode,
                                   Integer slowThresholdMs, Boolean includeSqlNormalized) {
         if (storagePath == null) {
@@ -146,7 +146,7 @@ public class EndpointStorage {
             EndpointData data = new EndpointData();
             data.setStorageSchemaVersion(EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
             data.setCryptoUrl(cryptoUrl);
-            data.setHubId(hubId);
+            data.setTenantId(tenantId);
             data.setVersion(version);
             data.setStatsAggregatorEnabled(statsAggregatorEnabled);
             data.setStatsAggregatorUrl(statsAggregatorUrl);
@@ -158,8 +158,8 @@ public class EndpointStorage {
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Endpoint and stats config saved: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={} -> {}",
-                    cryptoUrl, hubId, version, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
+            log.debug("Endpoint and stats config saved: cryptoUrl={}, tenantId={}, version={}, storageSchemaVersion={} -> {}",
+                    cryptoUrl, tenantId, version, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
             return true;
 
         } catch (IOException e) {
@@ -208,8 +208,8 @@ public class EndpointStorage {
                     storageVersion, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
             }
             
-            log.debug("Crypto endpoint info loaded: cryptoUrl={}, hubId={}, version={}, storageSchemaVersion={}",
-                    data.getCryptoUrl(), data.getHubId(), data.getVersion(), storageVersion);
+            log.debug("Crypto endpoint info loaded: cryptoUrl={}, tenantId={}, version={}, storageSchemaVersion={}",
+                    data.getCryptoUrl(), data.getTenantId(), data.getVersion(), storageVersion);
             return data;
             
         } catch (IOException e) {
@@ -268,7 +268,7 @@ public class EndpointStorage {
      * 저장 필수 데이터:
      * - storageSchemaVersion: 저장소 포맷 버전
      * - cryptoUrl: 암복호화에 사용할 단일 URL
-     * - hubId: Hub가 발급한 인스턴스 고유 ID
+     * - tenantId: Hub가 발급한 인스턴스 고유 ID
      * - version: Hub의 최신 버전 (hubVersion)
      * - statsAggregatorEnabled: 통계 앱 사용 여부
      * - statsAggregatorUrl: 통계 앱 URL
@@ -280,7 +280,7 @@ public class EndpointStorage {
         private int storageSchemaVersion = CURRENT_STORAGE_SCHEMA_VERSION;  // 저장소 포맷 버전
         // 필수 필드
         private String cryptoUrl;  // 암복호화에 사용할 단일 URL
-        private String hubId;      // Hub가 발급한 인스턴스 고유 ID
+        private String tenantId;      // Hub가 발급한 인스턴스 고유 ID
         private Long version;      // Hub의 최신 버전 (hubVersion)
         
         // 통계 설정
@@ -320,12 +320,12 @@ public class EndpointStorage {
             this.cryptoUrl = cryptoUrl;
         }
         
-        public String getHubId() {
-            return hubId;
+        public String getTenantId() {
+            return tenantId;
         }
         
-        public void setHubId(String hubId) {
-            this.hubId = hubId;
+        public void setTenantId(String tenantId) {
+            this.tenantId = tenantId;
         }
         
         public Long getVersion() {

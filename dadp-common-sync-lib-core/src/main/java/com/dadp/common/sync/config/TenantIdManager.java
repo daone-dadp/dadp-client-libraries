@@ -4,44 +4,44 @@ import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 
 /**
- * HubId 관리자
+ * TenantId 관리자
  * 
- * hubId 캐싱, 영구저장소 로드/저장, 변경 감지 및 콜백 처리를 담당합니다.
- * AOP와 Wrapper 모두에서 사용 가능하도록 설계되었습니다.
+ * tenantId 캐싱, 영구저장소 로드/저장, 변경 감지 및 콜백 처리를 담당합니다.
+ * Used by the JDBC wrapper runtime enrollment flow.
  * 
  * @author DADP Development Team
  * @version 5.2.0
  * @since 2026-01-07
  */
-public class HubIdManager {
+public class TenantIdManager {
     
-    private static final DadpLogger log = DadpLoggerFactory.getLogger(HubIdManager.class);
+    private static final DadpLogger log = DadpLoggerFactory.getLogger(TenantIdManager.class);
     
     private final InstanceConfigStorage configStorage;
     private final String hubUrl;
     private final InstanceIdProvider instanceIdProvider;
     
-    // 캐시된 hubId (volatile로 변경 감지)
-    private volatile String cachedHubId = null;
+    // 캐시된 tenantId (volatile로 변경 감지)
+    private volatile String cachedTenantId = null;
     private volatile String cachedDatasourceId = null;
     private volatile String cachedRefreshUrl = null;
     private volatile String cachedSchemaSyncUrl = null;
     private volatile String cachedRuntimeVersion = null;
     
-    // hubId 변경 콜백 (각 모듈에서 MappingSyncService 재생성 등 처리)
-    private final HubIdChangeCallback changeCallback;
+    // tenantId 변경 콜백 (각 모듈에서 MappingSyncService 재생성 등 처리)
+    private final TenantIdChangeCallback changeCallback;
     
     /**
-     * HubId 변경 콜백 인터페이스
+     * TenantId 변경 콜백 인터페이스
      */
-    public interface HubIdChangeCallback {
+    public interface TenantIdChangeCallback {
         /**
-         * hubId가 변경되었을 때 호출됨
+         * tenantId가 변경되었을 때 호출됨
          * 
-         * @param oldHubId 이전 hubId (null 가능)
-         * @param newHubId 새로운 hubId
+         * @param oldTenantId 이전 tenantId (null 가능)
+         * @param newTenantId 새로운 tenantId
          */
-        void onHubIdChanged(String oldHubId, String newHubId);
+        void onTenantIdChanged(String oldTenantId, String newTenantId);
     }
     
     /**
@@ -50,12 +50,12 @@ public class HubIdManager {
      * @param configStorage 인스턴스 설정 저장소
      * @param hubUrl Hub URL
      * @param instanceIdProvider instanceId 제공자
-     * @param changeCallback hubId 변경 콜백 (null 가능)
+     * @param changeCallback tenantId 변경 콜백 (null 가능)
      */
-    public HubIdManager(InstanceConfigStorage configStorage, 
+    public TenantIdManager(InstanceConfigStorage configStorage, 
                        String hubUrl, 
                        InstanceIdProvider instanceIdProvider,
-                       HubIdChangeCallback changeCallback) {
+                       TenantIdChangeCallback changeCallback) {
         this.configStorage = configStorage;
         this.hubUrl = hubUrl;
         this.instanceIdProvider = instanceIdProvider;
@@ -63,90 +63,90 @@ public class HubIdManager {
     }
     
     /**
-     * 영구저장소에서 hubId 로드
+     * 영구저장소에서 tenantId 로드
      * 
-     * @return 로드된 hubId (없으면 null)
+     * @return 로드된 tenantId (없으면 null)
      */
     public String loadFromStorage() {
         String instanceId = instanceIdProvider.getInstanceId();
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(hubUrl, instanceId);
-        if (config != null && config.getHubId() != null && !config.getHubId().trim().isEmpty()) {
-            String loadedHubId = config.getHubId();
+        if (config != null && config.getTenantId() != null && !config.getTenantId().trim().isEmpty()) {
+            String loadedTenantId = config.getTenantId();
             this.cachedDatasourceId = trimToNull(config.getDatasourceId());
             this.cachedRefreshUrl = trimToNull(config.getRefreshUrl());
             this.cachedSchemaSyncUrl = trimToNull(config.getSchemaSyncUrl());
             this.cachedRuntimeVersion = trimToNull(config.getRuntimeVersion());
-            setHubId(loadedHubId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
-            log.debug("HubId loaded from persistent storage: hubId={}, datasourceId={}",
-                    loadedHubId, cachedDatasourceId);
-            return loadedHubId;
+            setTenantId(loadedTenantId, false); // 저장소에서 로드한 것이므로 저장 불필요 (콜백 미호출)
+            log.debug("TenantId loaded from persistent storage: tenantId={}, datasourceId={}",
+                    loadedTenantId, cachedDatasourceId);
+            return loadedTenantId;
         }
-        log.debug("No hubId in persistent storage");
+        log.debug("No tenantId in persistent storage");
         return null;
     }
     
     /**
-     * hubId 설정 (변경 감지 및 콜백 호출)
+     * tenantId 설정 (변경 감지 및 콜백 호출)
      * 
-     * @param hubId 새로운 hubId
+     * @param tenantId 새로운 tenantId
      * @param saveToStorage 영구저장소에 저장할지 여부
      */
-    public void setHubId(String hubId, boolean saveToStorage) {
-        String oldHubId = this.cachedHubId;
+    public void setTenantId(String tenantId, boolean saveToStorage) {
+        String oldTenantId = this.cachedTenantId;
         
-        // hubId가 변경되었는지 확인
-        if (oldHubId != null && oldHubId.equals(hubId)) {
+        // tenantId가 변경되었는지 확인
+        if (oldTenantId != null && oldTenantId.equals(tenantId)) {
             // 변경 없음
             return;
         }
         
-        // hubId 업데이트
-        this.cachedHubId = hubId;
+        // tenantId 업데이트
+        this.cachedTenantId = tenantId;
         
         // 영구저장소에 저장
-        if (saveToStorage && hubId != null && !hubId.trim().isEmpty()) {
+        if (saveToStorage && tenantId != null && !tenantId.trim().isEmpty()) {
             String instanceId = instanceIdProvider.getInstanceId();
-            configStorage.saveConfig(hubId, hubUrl, instanceId, null,
+            configStorage.saveConfig(tenantId, hubUrl, instanceId, null,
                     cachedDatasourceId,
                     cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
-            log.debug("HubId saved: hubId={}", hubId);
+            log.debug("TenantId saved: tenantId={}", tenantId);
         }
         
-        // 변경 콜백 호출: 저장소에서 로드한 초기값(null→hubId)이 아닐 때만 호출 (풀 커넥션별 중복 콜백 방지)
-        boolean isRealChange = saveToStorage || (oldHubId != null);
+        // 변경 콜백 호출: 저장소에서 로드한 초기값(null→tenantId)이 아닐 때만 호출 (풀 커넥션별 중복 콜백 방지)
+        boolean isRealChange = saveToStorage || (oldTenantId != null);
         if (changeCallback != null && isRealChange) {
             try {
-                changeCallback.onHubIdChanged(oldHubId, hubId);
-                log.debug("HubId change callback invoked: oldHubId={}, newHubId={}", oldHubId, hubId);
+                changeCallback.onTenantIdChanged(oldTenantId, tenantId);
+                log.debug("TenantId change callback invoked: oldTenantId={}, newTenantId={}", oldTenantId, tenantId);
             } catch (Exception e) {
-                log.warn("HubId change callback failed: {}", e.getMessage());
+                log.warn("TenantId change callback failed: {}", e.getMessage());
             }
         }
     }
     
     /**
-     * 현재 캐시된 hubId 조회
+     * 현재 캐시된 tenantId 조회
      * 
-     * @return 캐시된 hubId (없으면 null)
+     * @return 캐시된 tenantId (없으면 null)
      */
-    public String getCachedHubId() {
-        return cachedHubId;
+    public String getCachedTenantId() {
+        return cachedTenantId;
     }
 
-    public void setWrapperEnrollment(String hubId,
+    public void setWrapperEnrollment(String tenantId,
                                      String datasourceId,
                                      String refreshUrl,
                                      String schemaSyncUrl,
                                      String runtimeVersion,
                                      boolean saveToStorage) {
-        if (hubId == null || hubId.trim().isEmpty()) {
+        if (tenantId == null || tenantId.trim().isEmpty()) {
             return;
         }
-        if (cachedHubId != null && !cachedHubId.equals(hubId)) {
-            log.warn("Wrapper enrollment ignored due to hubId mismatch: cachedHubId={}, requestedHubId={}", cachedHubId, hubId);
+        if (cachedTenantId != null && !cachedTenantId.equals(tenantId)) {
+            log.warn("Wrapper enrollment ignored due to tenantId mismatch: cachedTenantId={}, requestedTenantId={}", cachedTenantId, tenantId);
             return;
         }
-        setHubId(hubId, false);
+        setTenantId(tenantId, false);
         if (datasourceId != null && !datasourceId.trim().isEmpty()) {
             this.cachedDatasourceId = datasourceId.trim();
         }
@@ -161,10 +161,10 @@ public class HubIdManager {
         }
         if (saveToStorage) {
             String instanceId = instanceIdProvider.getInstanceId();
-            configStorage.saveConfig(hubId, hubUrl, instanceId, null,
+            configStorage.saveConfig(tenantId, hubUrl, instanceId, null,
                     cachedDatasourceId,
                     cachedRefreshUrl, cachedSchemaSyncUrl, cachedRuntimeVersion);
-            log.debug("Wrapper enrollment saved: hubId={}, datasourceId={}", hubId, cachedDatasourceId);
+            log.debug("Wrapper enrollment saved: tenantId={}, datasourceId={}", tenantId, cachedDatasourceId);
         }
     }
 
@@ -185,36 +185,36 @@ public class HubIdManager {
     }
 
     public boolean hasRuntimeEnrollment() {
-        return hasHubId()
+        return hasTenantId()
                 && cachedDatasourceId != null && !cachedDatasourceId.trim().isEmpty()
                 && cachedRefreshUrl != null && !cachedRefreshUrl.trim().isEmpty()
                 && cachedSchemaSyncUrl != null && !cachedSchemaSyncUrl.trim().isEmpty();
     }
     
     /**
-     * hubId가 있는지 확인
+     * tenantId가 있는지 확인
      * 
-     * @return hubId가 있으면 true
+     * @return tenantId가 있으면 true
      */
-    public boolean hasHubId() {
-        return cachedHubId != null && !cachedHubId.trim().isEmpty();
+    public boolean hasTenantId() {
+        return cachedTenantId != null && !cachedTenantId.trim().isEmpty();
     }
     
     /**
-     * hubId 초기화 (테스트용)
+     * tenantId 초기화 (테스트용)
      */
     public void clear() {
-        String oldHubId = this.cachedHubId;
-        this.cachedHubId = null;
+        String oldTenantId = this.cachedTenantId;
+        this.cachedTenantId = null;
         this.cachedDatasourceId = null;
         this.cachedRefreshUrl = null;
         this.cachedSchemaSyncUrl = null;
         this.cachedRuntimeVersion = null;
-        if (changeCallback != null && oldHubId != null) {
+        if (changeCallback != null && oldTenantId != null) {
             try {
-                changeCallback.onHubIdChanged(oldHubId, null);
+                changeCallback.onTenantIdChanged(oldTenantId, null);
             } catch (Exception e) {
-                log.warn("HubId clear callback failed: {}", e.getMessage());
+                log.warn("TenantId clear callback failed: {}", e.getMessage());
             }
         }
     }

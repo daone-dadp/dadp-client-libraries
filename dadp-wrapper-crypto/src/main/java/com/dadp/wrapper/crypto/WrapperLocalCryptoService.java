@@ -20,31 +20,36 @@ public class WrapperLocalCryptoService {
     private final Map<String, PolicyMaterial> policiesByCode = new ConcurrentHashMap<String, PolicyMaterial>();
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis) {
-        this(hubBaseUrl, timeoutMillis, (String) null, (String) null, false, "1hour");
+        this(hubBaseUrl, timeoutMillis, (String) null, false, "1hour");
     }
 
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis, String hubAuthId, String hubAuthSecret) {
-        this(hubBaseUrl, timeoutMillis, hubAuthId, hubAuthSecret, false, "1hour");
-    }
-
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String tenantId, String hubAuthId, String hubAuthSecret) {
-        this(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret, false, "1hour");
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis, String ignoredAuthId, String ignoredAuthSecret) {
+        this(hubBaseUrl, timeoutMillis, (String) null, false, "1hour");
     }
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String hubAuthId, String hubAuthSecret,
+                                     String tenantId, String ignoredAuthId, String ignoredAuthSecret) {
+        this(hubBaseUrl, timeoutMillis, tenantId, false, "1hour");
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String ignoredAuthId, String ignoredAuthSecret,
                                      boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
-        this(hubBaseUrl, timeoutMillis, null, hubAuthId, hubAuthSecret,
-                cryptoStatsEnabled, cryptoStatsAggregationLevel);
+        this(hubBaseUrl, timeoutMillis, (String) null, cryptoStatsEnabled, cryptoStatsAggregationLevel);
     }
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String tenantId, String hubAuthId, String hubAuthSecret,
+                                     String tenantId, String ignoredAuthId, String ignoredAuthSecret,
+                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
+        this(hubBaseUrl, timeoutMillis, tenantId, cryptoStatsEnabled, cryptoStatsAggregationLevel);
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String tenantId,
                                      boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         this(hubBaseUrl, timeoutMillis,
-                createAuthHeaderProvider(tenantId, hubAuthId, hubAuthSecret),
-                createStatsSender(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret,
+                createAuthHeaderProvider(tenantId),
+                createStatsSender(hubBaseUrl, timeoutMillis, tenantId,
                         cryptoStatsEnabled, cryptoStatsAggregationLevel));
     }
 
@@ -257,11 +262,7 @@ public class WrapperLocalCryptoService {
     }
 
 
-    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String hubAuthId, String hubAuthSecret) {
-        return createAuthHeaderProvider(null, hubAuthId, hubAuthSecret);
-    }
-
-    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String tenantId, String hubAuthId, String hubAuthSecret) {
+    private static HubRuntimeHeaderProvider createAuthHeaderProvider(String tenantId) {
         if (tenantId != null && !tenantId.trim().isEmpty()) {
             return new HubTenantHeaderProvider(tenantId);
         }
@@ -270,14 +271,12 @@ public class WrapperLocalCryptoService {
 
     private static WrapperCryptoStatsSender createStatsSender(String hubBaseUrl, int timeoutMillis,
                                                               String tenantId,
-                                                              String hubAuthId, String hubAuthSecret,
                                                               boolean cryptoStatsEnabled,
                                                               String cryptoStatsAggregationLevel) {
         if (!cryptoStatsEnabled) {
             return null;
         }
-        return new WrapperCryptoStatsSender(hubBaseUrl, timeoutMillis, tenantId, hubAuthId, hubAuthSecret,
-                cryptoStatsAggregationLevel);
+        return new WrapperCryptoStatsSender(hubBaseUrl, timeoutMillis, tenantId, cryptoStatsAggregationLevel);
     }
 
     public void close() {

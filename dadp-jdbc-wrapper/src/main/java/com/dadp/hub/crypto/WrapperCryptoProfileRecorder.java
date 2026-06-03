@@ -27,14 +27,14 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
 
     private final Path outputPath;
     private final String instanceId;
-    private final String hubId;
+    private final String tenantId;
     private final String datasourceId;
     private final ObjectMapper objectMapper;
 
-    public WrapperCryptoProfileRecorder(String outputPath, String instanceId, String hubId, String datasourceId) {
+    public WrapperCryptoProfileRecorder(String outputPath, String instanceId, String tenantId, String datasourceId) {
         this.outputPath = Paths.get(outputPath);
         this.instanceId = instanceId;
-        this.hubId = hubId;
+        this.tenantId = tenantId;
         this.datasourceId = datasourceId;
         this.objectMapper = new ObjectMapper();
     }
@@ -54,7 +54,7 @@ public class WrapperCryptoProfileRecorder implements CryptoProfileRecorder {
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("timestamp", System.currentTimeMillis());
             line.put("instanceId", instanceId);
-            line.put("hubId", hubId);
+            line.put("tenantId", tenantId);
             line.put("datasourceId", datasourceId);
             line.putAll(event);
 

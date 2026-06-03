@@ -2,7 +2,6 @@ package com.dadp.common.sync.schema;
 
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
-import com.dadp.common.sync.config.HubIdSaver;
 
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -12,11 +11,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 재시도 로직이 포함된 스키마 동기화 서비스 (공통)
  * 
- * AOP와 Wrapper 모두에서 사용하는 공통 스키마 동기화 서비스입니다.
- * 재시도 로직을 포함하여 스키마가 비어있을 때 자동으로 재시도합니다.
+ * Wrapper schema synchronization service.
+ * Includes retry logic while DB tables are being created.
  * 
  * 모든 공통 로직은 여기에 있고, 통신 부분은 SchemaSyncExecutor 인터페이스를 통해 분리됩니다.
- * hubId 저장은 HubIdSaver 콜백을 통해 각 최종 모듈에서 처리합니다.
+ * DADP 6 tenant IDs are issued by CLI schema-register, not by schema-sync responses.
  * 
  * @author DADP Development Team
  * @version 5.1.0
@@ -32,7 +31,6 @@ public class RetryableSchemaSyncService {
     protected final String hubUrl;
     protected final SchemaCollector schemaCollector;
     protected final SchemaSyncExecutor schemaSyncExecutor;
-    protected final HubIdSaver hubIdSaver;  // hubId 저장 콜백 (각 최종 모듈에서 구현)
     protected final SchemaStorage schemaStorage;  // 스키마 영구 저장소 (null 가능)
     
     // 재시도 설정
@@ -43,24 +41,24 @@ public class RetryableSchemaSyncService {
     public RetryableSchemaSyncService(String hubUrl, 
                                      SchemaCollector schemaCollector,
                                      SchemaSyncExecutor schemaSyncExecutor,
-                                     HubIdSaver hubIdSaver) {
-        this(hubUrl, schemaCollector, schemaSyncExecutor, hubIdSaver, null, 5, 3000, 2000);
+                                     com.dadp.common.sync.config.TenantIdSaver ignoredTenantIdSaver) {
+        this(hubUrl, schemaCollector, schemaSyncExecutor, ignoredTenantIdSaver, null, 5, 3000, 2000);
     }
     
     public RetryableSchemaSyncService(String hubUrl,
                                      SchemaCollector schemaCollector,
                                      SchemaSyncExecutor schemaSyncExecutor,
-                                     HubIdSaver hubIdSaver,
+                                     com.dadp.common.sync.config.TenantIdSaver ignoredTenantIdSaver,
                                      int maxRetries,
                                      long initialDelayMs,
                                      long backoffMs) {
-        this(hubUrl, schemaCollector, schemaSyncExecutor, hubIdSaver, null, maxRetries, initialDelayMs, backoffMs);
+        this(hubUrl, schemaCollector, schemaSyncExecutor, ignoredTenantIdSaver, null, maxRetries, initialDelayMs, backoffMs);
     }
     
     public RetryableSchemaSyncService(String hubUrl,
                                      SchemaCollector schemaCollector,
                                      SchemaSyncExecutor schemaSyncExecutor,
-                                     HubIdSaver hubIdSaver,
+                                     com.dadp.common.sync.config.TenantIdSaver ignoredTenantIdSaver,
                                      SchemaStorage schemaStorage,
                                      int maxRetries,
                                      long initialDelayMs,
@@ -68,7 +66,6 @@ public class RetryableSchemaSyncService {
         this.hubUrl = hubUrl;
         this.schemaCollector = schemaCollector;
         this.schemaSyncExecutor = schemaSyncExecutor;
-        this.hubIdSaver = hubIdSaver;
         this.schemaStorage = schemaStorage;
         this.maxRetries = maxRetries;
         this.initialDelayMs = initialDelayMs;
@@ -193,12 +190,12 @@ public class RetryableSchemaSyncService {
      * 2. 스키마 로드 성공
      * 3. Hub로 스키마 전송
      * 
-     * @param hubId Hub ID
+     * @param tenantId Hub ID
      * @param instanceId 인스턴스 ID
      * @param currentVersion 현재 버전 (null 가능)
      * @return 동기화 성공 여부
      */
-    public boolean syncSchemaToHub(String hubId, String instanceId, Long currentVersion) {
+    public boolean syncSchemaToHub(String tenantId, String instanceId, Long currentVersion) {
         try {
             // 초기 대기 (테이블 생성 대기, Hibernate DDL 실행 시간 고려)
             Thread.sleep(initialDelayMs);
@@ -218,22 +215,20 @@ public class RetryableSchemaSyncService {
                     
                     // 2. 스키마 로드 성공
                     
-                    // hubId가 null이면 재등록 중이므로 해시 캐시를 사용하지 않고 바로 동기화 수행
-                    // hubId가 있으면 해시 캐시를 사용하여 중복 동기화 방지
-                    if (hubId != null && !hubId.trim().isEmpty()) {
+                    if (tenantId != null && !tenantId.trim().isEmpty()) {
                         // 스키마 해시 계산 (변경 감지용)
                         String currentHash = calculateSchemaHash(schemas);
-                        String lastHash = lastSchemaHash.get(hubId);
+                        String lastHash = lastSchemaHash.get(tenantId);
                         
                         // 스키마가 변경되지 않았으면 동기화 건너뛰기
                         if (lastHash != null && currentHash.equals(lastHash)) {
-                            log.trace("Schema unchanged, skipping sync: hubId={} (hash: {})",
-                                    hubId, currentHash.substring(0, Math.min(8, currentHash.length())) + "...");
+                            log.trace("Schema unchanged, skipping sync: tenantId={} (hash: {})",
+                                    tenantId, currentHash.substring(0, Math.min(8, currentHash.length())) + "...");
                             return true;
                         }
                     }
                     
-                    // 3. Hub로 스키마 전송 (hubId가 null이면 재등록, 있으면 업데이트)
+                    // 3. Hub로 스키마 전송
                     // 전송 전에 각 스키마의 datasourceId 포함 로그 (INFO 레벨)
                     if (schemas != null && !schemas.isEmpty()) {
                         for (SchemaMetadata schema : schemas) {
@@ -242,29 +237,15 @@ public class RetryableSchemaSyncService {
                                 schema.getDatasourceId(), schema.getDatabaseName(), schema.getDbVendor());
                         }
                     }
-                    boolean synced = schemaSyncExecutor.syncToHub(schemas, hubId, instanceId, currentVersion);
+                    boolean synced = schemaSyncExecutor.syncToHub(schemas, tenantId, instanceId, currentVersion);
                     
                     if (synced) {
-                        // 응답에서 받은 hubId 추출 (재등록 시 hubId가 응답에 포함됨)
-                        String receivedHubId = schemaSyncExecutor.getReceivedHubId();
+                        schemaSyncExecutor.clearReceivedTenantId();
                         
-                        // hubId가 응답에 포함되어 있으면 저장 (재등록 시)
-                        if (receivedHubId != null && !receivedHubId.trim().isEmpty()) {
-                            // hubId 저장 (HubIdSaver 콜백 사용)
-                            if (hubIdSaver != null) {
-                                hubIdSaver.saveHubId(receivedHubId, instanceId);
-                                log.debug("Received hubId saved: hubId={}", receivedHubId);
-                            }
-                            hubId = receivedHubId; // 이후 로직에서 사용할 hubId 업데이트
-                        }
-                        
-                        // ThreadLocal 정리
-                        schemaSyncExecutor.clearReceivedHubId();
-                        
-                        // hubId가 있으면 해시 캐시에 저장 (중복 동기화 방지)
-                        if (hubId != null && !hubId.trim().isEmpty()) {
+                        // tenantId가 있으면 해시 캐시에 저장 (중복 동기화 방지)
+                        if (tenantId != null && !tenantId.trim().isEmpty()) {
                             String currentHash = calculateSchemaHash(schemas);
-                            lastSchemaHash.put(hubId, currentHash);
+                            lastSchemaHash.put(tenantId, currentHash);
                         }
                         
                         // 스키마 영구저장소에 저장 (재시작 시 변경 여부 확인용)
@@ -273,7 +254,7 @@ public class RetryableSchemaSyncService {
                         }
                         
                         success = true;
-                        log.info("Schema metadata sync succeeded: hubId={}, alias={}, attempts={}/{}", hubId, instanceId, retryCount + 1, maxRetries);
+                        log.info("Schema metadata sync succeeded: tenantId={}, alias={}, attempts={}/{}", tenantId, instanceId, retryCount + 1, maxRetries);
                     } else {
                         throw new RuntimeException("Schema sync failed: syncToHub returned false");
                     }
@@ -283,10 +264,8 @@ public class RetryableSchemaSyncService {
                     boolean isSchemaEmpty = schemaSyncExecutor.isSchemaEmptyException(e);
                     boolean is404 = is404Exception(e);
                     
-                    // 404 응답: hubId를 찾을 수 없음 -> 재등록 필요 (예외가 아닌 정상 응답 코드)
                     if (is404) {
-                        log.warn("Hub could not find hubId (404), re-registration required");
-                        // false 반환하여 호출하는 쪽에서 재등록 처리
+                        log.warn("Hub could not find tenantId (404). Run CLI schema-register and manual wrapper refresh.");
                         return false;
                     }
                     
@@ -369,14 +348,14 @@ public class RetryableSchemaSyncService {
     /**
      * 스키마 해시 캐시 초기화
      * 
-     * @param hubId Hub ID
+     * @param tenantId Hub-issued wrapper tenant ID
      */
-    public void clearSchemaHash(String hubId) {
-        lastSchemaHash.remove(hubId);
+    public void clearSchemaHash(String tenantId) {
+        lastSchemaHash.remove(tenantId);
     }
     
     /**
-     * 404 예외인지 확인 (정상적인 응답 코드이지만 재등록이 필요함을 표시)
+     * 404 예외인지 확인
      * 
      * @param e 예외
      * @return 404 예외면 true
@@ -391,6 +370,6 @@ public class RetryableSchemaSyncService {
             return true;
         }
         String errorMsg = e.getMessage();
-        return errorMsg != null && (errorMsg.contains("404") || errorMsg.contains("re-registration is required"));
+        return errorMsg != null && errorMsg.contains("404");
     }
 }

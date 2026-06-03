@@ -14,7 +14,7 @@ import java.lang.reflect.Method;
  * Hub 엔드포인트 동기화 서비스
  * 
  * Hub에서 암복호화 엔드포인트 정보를 조회합니다.
- * AOP에서 사용하며, DADP_CRYPTO_BASE_URL이 없을 때 Hub에서 자동으로 조회합니다.
+ * Hub crypto endpoint synchronization helper.
  * 
  * @author DADP Development Team
  * @version 1.0.0

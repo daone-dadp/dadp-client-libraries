@@ -158,19 +158,19 @@ public class DadpProxyConnection implements Connection {
         this.mappingSyncService = this.orchestrator.getMappingSyncService();
         this.endpointSyncService = this.orchestrator.getEndpointSyncService();
         this.directCryptoAdapter = this.orchestrator.getDirectCryptoAdapter();
-        String hubId = this.orchestrator.getCachedHubId();
+        String tenantId = this.orchestrator.getCachedTenantId();
         this.datasourceId = this.orchestrator.getCachedDatasourceId();
         applyCryptoMode(this.directCryptoAdapter);
         applySingleTransportMode(this.directCryptoAdapter);
         applyEngineTransport(this.directCryptoAdapter);
         
-        // hubId가 없으면 외부 요청 차단
-        if (hubId == null || hubId.trim().isEmpty()) {
+        // tenantId가 없으면 외부 요청 차단
+        if (tenantId == null || tenantId.trim().isEmpty()) {
             if (config.isFailOpen()) {
-                log.warn("hubId not available but continuing in fail-open mode. External requests may be limited.");
-                // hubId는 null로 유지 (instanceId로 대체하지 않음)
+                log.warn("tenantId not available but continuing in fail-open mode. External requests may be limited.");
+                // tenantId는 null로 유지 (instanceId로 대체하지 않음)
             } else {
-                throw new RuntimeException("hubId is not available. Please check Hub connection or enable fail-open mode.");
+                throw new RuntimeException("tenantId is not available. Please check Hub connection or enable fail-open mode.");
             }
         }
         
@@ -179,13 +179,13 @@ public class DadpProxyConnection implements Connection {
         
         // TelemetryStatsSender 초기화 (오케스트레이터에서 가져온 endpointStorage 사용)
         EndpointStorage endpointStorage = this.orchestrator.getEndpointStorage();
-        this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, hubId, this.datasourceId);
+        this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, tenantId, this.datasourceId);
 
         this.cryptoProfileRecorder = config.isCryptoProfileEnabled()
                 ? new WrapperCryptoProfileRecorder(
                         config.getCryptoProfilePath(),
                         config.getInstanceId(),
-                        hubId,
+                        tenantId,
                         this.datasourceId)
                 : null;
         applyCryptoProfileRecorder(this.directCryptoAdapter);
@@ -207,9 +207,9 @@ public class DadpProxyConnection implements Connection {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
-            String effectiveTenantId = orchestrator != null ? orchestrator.getCachedHubId() : null;
+            String effectiveTenantId = orchestrator != null ? orchestrator.getCachedTenantId() : null;
             if (effectiveTenantId == null || effectiveTenantId.trim().isEmpty()) {
-                effectiveTenantId = config.getHubId();
+                effectiveTenantId = config.getTenantId();
             }
             adapter.setCryptoMode(
                     config.getCryptoMode(),
@@ -241,16 +241,16 @@ public class DadpProxyConnection implements Connection {
      * 기존 데이터 초기화
      * 재등록 시 로컬 상태를 초기화합니다.
      * 
-     * @param hubId Hub ID (null 가능)
+     * @param tenantId Hub ID (null 가능)
      * @deprecated 오케스트레이터에서 처리됨
      */
     @Deprecated
-    private void resetLocalData(String hubId) {
+    private void resetLocalData(String tenantId) {
         // 스키마 해시 캐시 초기화 (재등록 시 강제 동기화를 위해)
-        if (hubId != null && schemaSyncService != null) {
-            schemaSyncService.clearSchemaHash(hubId);
+        if (tenantId != null && schemaSyncService != null) {
+            schemaSyncService.clearSchemaHash(tenantId);
         }
-        log.debug("Local data reset completed: hubId={}", hubId);
+        log.debug("Local data reset completed: tenantId={}", tenantId);
     }
     
     /**

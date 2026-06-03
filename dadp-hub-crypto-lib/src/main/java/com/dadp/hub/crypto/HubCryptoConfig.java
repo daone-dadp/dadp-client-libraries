@@ -33,8 +33,7 @@ public class HubCryptoConfig {
         
         log.info("HubCryptoService bean created: cryptoUrl={}, apiPath={} (auto-detect, dynamic URL set by DirectCryptoAdapter)", cryptoUrl, apiPath);
         
-        // DADP_ENABLE_LOGGING 환경 변수를 자동으로 확인하도록 null 전달
-        return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, null);
+        return HubCryptoService.createInstance(cryptoUrl, apiPath, 5000, false);
     }
     
     /**

@@ -27,41 +27,41 @@ public class EndpointSyncService {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointSyncService.class);
     
     private final String hubUrl;
-    private final String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
+    private final String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final EndpointStorage endpointStorage;
     
-    public EndpointSyncService(String hubUrl, String hubId, String alias) {
-        this(hubUrl, hubId, alias, new EndpointStorage(requireAlias(alias)), null, null);
+    public EndpointSyncService(String hubUrl, String tenantId, String alias) {
+        this(hubUrl, tenantId, alias, new EndpointStorage(requireAlias(alias)), null, null);
     }
     
-    public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName) {
-        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), null, null);
+    public EndpointSyncService(String hubUrl, String tenantId, String alias, String storageDir, String fileName) {
+        this(hubUrl, tenantId, alias, new EndpointStorage(storageDir, fileName), null, null);
     }
 
-    public EndpointSyncService(String hubUrl, String hubId, String alias, String storageDir, String fileName,
+    public EndpointSyncService(String hubUrl, String tenantId, String alias, String storageDir, String fileName,
                                String ignoredAuthKey, String ignoredAuthSecret) {
-        this(hubUrl, hubId, alias, new EndpointStorage(storageDir, fileName), ignoredAuthKey, ignoredAuthSecret);
+        this(hubUrl, tenantId, alias, new EndpointStorage(storageDir, fileName), ignoredAuthKey, ignoredAuthSecret);
     }
     
     /**
      * EndpointStorage 인스턴스를 직접 받는 생성자 (싱글톤 인스턴스 재사용)
      * 
      * @param hubUrl Hub URL
-     * @param hubId Hub가 발급한 고유 ID
+     * @param tenantId Hub가 발급한 고유 ID
      * @param alias 사용자가 설정한 instanceId (별칭)
      * @param endpointStorage EndpointStorage 인스턴스 (싱글톤 재사용)
      */
-    public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage) {
-        this(hubUrl, hubId, alias, endpointStorage, null, null);
+    public EndpointSyncService(String hubUrl, String tenantId, String alias, EndpointStorage endpointStorage) {
+        this(hubUrl, tenantId, alias, endpointStorage, null, null);
     }
 
-    public EndpointSyncService(String hubUrl, String hubId, String alias, EndpointStorage endpointStorage,
+    public EndpointSyncService(String hubUrl, String tenantId, String alias, EndpointStorage endpointStorage,
                                String ignoredAuthKey, String ignoredAuthSecret) {
         this.hubUrl = hubUrl;
-        this.hubId = hubId;
+        this.tenantId = tenantId;
         this.alias = alias;
         this.httpClient = Java8HttpClientAdapterFactory.create(5000, 10000);
         this.objectMapper = new ObjectMapper();
@@ -90,7 +90,7 @@ public class EndpointSyncService {
     private java.util.Map<String, String> signedHeaders(String method, URI uri) {
         java.util.Map<String, String> headers = new HashMap<>();
         headers.put("Accept", "application/json");
-        headers.put("X-DADP-Tenant-Id", hubId);
+        headers.put("X-DADP-Tenant-Id", tenantId);
         return headers;
     }
 

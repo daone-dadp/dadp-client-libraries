@@ -17,33 +17,33 @@ public class HubNotificationService {
 
     private static final DadpLogger log = DadpLoggerFactory.getLogger(HubNotificationService.class);
 
-    private final String hubId;  // Hub가 발급한 고유 ID
+    private final String tenantId;  // Hub가 발급한 고유 ID
     private final String alias;  // 사용자가 설정한 instanceId (별칭)
 
     /**
      * 생성자
      *
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
-     * @param hubId Hub가 발급한 고유 ID
+     * @param tenantId Hub가 발급한 고유 ID
      * @param alias 사용자가 설정한 instanceId (별칭)
      * @param enableLogging 로그 활성화
      */
-    public HubNotificationService(String hubBaseUrl, String hubId, String alias, Boolean enableLogging) {
-        this.hubId = hubId;
+    public HubNotificationService(String hubBaseUrl, String tenantId, String alias, Boolean enableLogging) {
+        this.tenantId = tenantId;
         this.alias = alias;
-        log.debug("HubNotificationService initialized (no-op): hubBaseUrl={}, hubId={}, alias={}",
-                hubBaseUrl, hubId, alias);
+        log.debug("HubNotificationService initialized (no-op): hubBaseUrl={}, tenantId={}, alias={}",
+                hubBaseUrl, tenantId, alias);
     }
 
     /**
      * 생성자
      *
      * @param hubBaseUrl Hub base URL (예: http://hub:9004)
-     * @param hubId Hub가 발급한 고유 ID
+     * @param tenantId Hub가 발급한 고유 ID
      * @param alias 사용자가 설정한 instanceId (별칭)
      */
-    public HubNotificationService(String hubBaseUrl, String hubId, String alias) {
-        this(hubBaseUrl, hubId, alias, null);
+    public HubNotificationService(String hubBaseUrl, String tenantId, String alias) {
+        this(hubBaseUrl, tenantId, alias, null);
     }
 
     /**

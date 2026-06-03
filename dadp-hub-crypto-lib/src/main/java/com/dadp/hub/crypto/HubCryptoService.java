@@ -176,11 +176,9 @@ public class HubCryptoService {
 
     /**
      * 자동 초기화 메서드 - Spring Bean이 아닌 경우 사용
-     * DADP_ENABLE_LOGGING 환경 변수를 자동으로 확인합니다.
      */
     public static HubCryptoService createInstance() {
-        boolean enableLogging = isLoggingEnabled();
-        return createInstance("http://localhost:9003", 5000, enableLogging);
+        return createInstance("http://localhost:9003", 5000, false);
     }
 
     /**
@@ -188,27 +186,12 @@ public class HubCryptoService {
      * @param hubUrl Hub 또는 Engine URL (예: http://localhost:9003 또는 http://hub:9004/hub)
      *               base URL만 제공하면 자동으로 경로 감지
      * @param timeout 타임아웃 (ms)
-     * @param enableLogging 로깅 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
+     * @param enableLogging 로깅 활성화 (null이면 false)
      */
     public static HubCryptoService createInstance(String hubUrl, int timeout, Boolean enableLogging) {
-        // enableLogging이 null이면 DADP_ENABLE_LOGGING 환경 변수 확인
-        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
+        boolean logging = Boolean.TRUE.equals(enableLogging);
         // apiBasePath를 null로 전달하여 자동 감지
         return createInstance(hubUrl, null, timeout, logging);
-    }
-    
-    /**
-     * DADP_ENABLE_LOGGING 환경 변수 확인
-     * 
-     * @return 로그 활성화 여부
-     */
-    private static boolean isLoggingEnabled() {
-        String enableLogging = System.getenv("DADP_ENABLE_LOGGING");
-        if (enableLogging == null || enableLogging.trim().isEmpty()) {
-            enableLogging = System.getProperty("dadp.enable-logging");
-        }
-        return enableLogging != null && !enableLogging.trim().isEmpty() && 
-               ("true".equalsIgnoreCase(enableLogging) || "1".equals(enableLogging));
     }
     
     /**
@@ -254,12 +237,11 @@ public class HubCryptoService {
      * @param apiBasePath API 기본 경로 (Engine: "/api"만 허용)
      *                   null이면 "/api"로 설정 (Hub 경로는 사용 불가)
      * @param timeout 타임아웃 (ms)
-     * @param enableLogging 로깅 활성화 (null이면 DADP_ENABLE_LOGGING 환경 변수 확인)
+     * @param enableLogging 로깅 활성화 (null이면 false)
      * @throws IllegalStateException Hub 경로가 감지된 경우
      */
     public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging) {
-        // enableLogging이 null이면 DADP_ENABLE_LOGGING 환경 변수 확인
-        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
+        boolean logging = Boolean.TRUE.equals(enableLogging);
         HubCryptoService instance = new HubCryptoService();
         
         // base URL 추출 (경로 제거)

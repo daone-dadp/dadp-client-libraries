@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.HubIdManager;
+import com.dadp.common.sync.config.TenantIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
@@ -64,10 +64,10 @@ class JdbcPolicyMappingSyncServiceTest {
                 schemaStorage,
                 "ds-test");
 
-        Field hubIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("hubIdManager");
-        hubIdManagerField.setAccessible(true);
-        HubIdManager hubIdManager = (HubIdManager) hubIdManagerField.get(service);
-        hubIdManager.setHubId("hub-test", false);
+        Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
+        tenantIdManagerField.setAccessible(true);
+        TenantIdManager tenantIdManager = (TenantIdManager) tenantIdManagerField.get(service);
+        tenantIdManager.setTenantId("hub-test", false);
 
         MappingSyncService.StatsAggregatorInfo statsAggregator = new MappingSyncService.StatsAggregatorInfo();
         statsAggregator.setEnabled(Boolean.TRUE);
@@ -87,7 +87,7 @@ class JdbcPolicyMappingSyncServiceTest {
         EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
         assertNotNull(endpointData);
         assertEquals("http://engine:9003", endpointData.getCryptoUrl());
-        assertEquals("hub-test", endpointData.getHubId());
+        assertEquals("hub-test", endpointData.getTenantId());
         assertEquals(Long.valueOf(77L), endpointData.getVersion());
         assertEquals(Boolean.TRUE, endpointData.getStatsAggregatorEnabled());
         assertEquals("http://aggregator:9005", endpointData.getStatsAggregatorUrl());
@@ -128,10 +128,10 @@ class JdbcPolicyMappingSyncServiceTest {
         instanceIdField.setAccessible(true);
         assertEquals("alias-only-wrapper", instanceIdField.get(service));
 
-        Field hubIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("hubIdManager");
-        hubIdManagerField.setAccessible(true);
-        HubIdManager hubIdManager = (HubIdManager) hubIdManagerField.get(service);
-        hubIdManager.setHubId("pi_alias_only", true);
+        Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
+        tenantIdManagerField.setAccessible(true);
+        TenantIdManager tenantIdManager = (TenantIdManager) tenantIdManagerField.get(service);
+        tenantIdManager.setTenantId("pi_alias_only", true);
 
         assertTrue(configStorage.getStoragePath().replace('\\', '/').contains("/proxy-config.json"));
         assertNotNull(configStorage.loadConfig("http://hub:9004", "alias-only-wrapper"));

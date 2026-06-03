@@ -1,7 +1,7 @@
 package com.dadp.jdbc.sync;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.HubIdManager;
+import com.dadp.common.sync.config.TenantIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.config.StoragePathResolver;
@@ -54,7 +54,7 @@ public class JdbcBootstrapOrchestrator {
     private final InstanceConfigStorage configStorage;
     private final SchemaStorage schemaStorage;
     private DirectCryptoAdapter directCryptoAdapter;
-    private final HubIdManager hubIdManager; 
+    private final TenantIdManager tenantIdManager; 
     private final InstanceIdProvider instanceIdProvider; 
     
     
@@ -104,15 +104,15 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.schemaStorage = new SchemaStorage(instanceId);
-        this.hubIdManager = new HubIdManager(
+        this.tenantIdManager = new TenantIdManager(
             configStorage,
             config.getHubUrl(),
             instanceIdProvider,
-            (oldHubId, newHubId) -> {
+            (oldTenantId, newTenantId) -> {
                 
-                if (newHubId != null && !newHubId.equals(oldHubId)) {
-                    log.debug("hubId changed: {} -> {}, recreating MappingSyncService", oldHubId, newHubId);
-                    initializeServicesWithHubId(newHubId);
+                if (newTenantId != null && !newTenantId.equals(oldTenantId)) {
+                    log.debug("tenantId changed: {} -> {}, recreating MappingSyncService", oldTenantId, newTenantId);
+                    initializeServicesWithTenantId(newTenantId);
                 }
             }
         );
@@ -133,7 +133,7 @@ public class JdbcBootstrapOrchestrator {
             "/hub/api/v1/runtime/wrappers",
             config,
             policyResolver,
-            hubIdManager,
+            tenantIdManager,
             5,      
             3000,   
             2000    
@@ -228,11 +228,11 @@ public class JdbcBootstrapOrchestrator {
         if (!instanceStarted.compareAndSet(false, true)) {
             log.trace("JdbcBootstrapOrchestrator already executed (alias={})", instanceId);
             
-            String loadedHubId = hubIdManager.loadFromStorage();
-            if (loadedHubId != null && !loadedHubId.trim().isEmpty()) {
+            String loadedTenantId = tenantIdManager.loadFromStorage();
+            if (loadedTenantId != null && !loadedTenantId.trim().isEmpty()) {
                 this.initialized = true;
-                if (hubIdManager.getCachedDatasourceId() != null) {
-                    this.cachedDatasourceId = hubIdManager.getCachedDatasourceId();
+                if (tenantIdManager.getCachedDatasourceId() != null) {
+                    this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
                 }
                 
                 if (hasStoredMetadata()) {
@@ -282,9 +282,9 @@ public class JdbcBootstrapOrchestrator {
             
             
             log.info("Step 2: Loading data from persistent storage");
-            String hubId = hubIdManager.loadFromStorage();
-            if (hubIdManager.getCachedDatasourceId() != null) {
-                this.cachedDatasourceId = hubIdManager.getCachedDatasourceId();
+            String tenantId = tenantIdManager.loadFromStorage();
+            if (tenantIdManager.getCachedDatasourceId() != null) {
+                this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
             }
             loadOtherDataFromPersistentStorage();
             
@@ -295,16 +295,16 @@ public class JdbcBootstrapOrchestrator {
                 String exportedDatasourceId = ExportedConfigLoader.loadIfExists(
                     storageDir,
                     instanceId,
-                    hubIdManager,
+                    tenantIdManager,
                     policyResolver,
                     endpointStorage,
                     config
                 );
                 if (exportedDatasourceId != null) {
-                    hubId = hubIdManager.getCachedHubId();
+                    tenantId = tenantIdManager.getCachedTenantId();
                     this.cachedDatasourceId = exportedDatasourceId;
-                    log.info("Step 2.5: Applied exported config: hubId={}, datasourceId={}",
-                            hubId, exportedDatasourceId);
+                    log.info("Step 2.5: Applied exported config: tenantId={}, datasourceId={}",
+                            tenantId, exportedDatasourceId);
                 }
             }
 
@@ -317,49 +317,49 @@ public class JdbcBootstrapOrchestrator {
             log.info("Step 3: Hub 6 runtime enrollment validation");
             boolean runtimeEnrollmentAvailable = false;
 
-            if (hubIdManager.hasRuntimeEnrollment()) {
-                hubId = hubIdManager.getCachedHubId();
-                this.cachedDatasourceId = hubIdManager.getCachedDatasourceId();
+            if (tenantIdManager.hasRuntimeEnrollment()) {
+                tenantId = tenantIdManager.getCachedTenantId();
+                this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
                 recreateSchemaRuntimeServices();
                 runtimeEnrollmentAvailable = true;
-                log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", hubId, cachedDatasourceId);
+                log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", tenantId, cachedDatasourceId);
             } else {
                 log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and store tenantId, datasourceId, refreshUrl and schemaSyncUrl before wrapper runtime sync.");
             }
             
             
-            if (hubId == null || hubId.trim().isEmpty()) {
-                log.warn("Cannot initialize services without hubId.");
+            if (tenantId == null || tenantId.trim().isEmpty()) {
+                log.warn("Cannot initialize services without tenantId.");
                 initialized = false;
                 return false;
             }
             
             
-            hubIdManager.setHubId(hubId, true);
+            tenantIdManager.setTenantId(tenantId, true);
             
             
             
             log.info("Step 4: Service initialization (crypto service initialized regardless of Hub registration result)");
-            initializeServicesWithHubId(hubId);
+            initializeServicesWithTenantId(tenantId);
             
             
             if (runtimeEnrollmentAvailable) {
                 log.info("Step 5: Policy mapping sync service initialization");
-                initializePolicyMappingSyncService(hubId);
+                initializePolicyMappingSyncService(tenantId);
                 
                 
                 initialized = true;
                 if (policyMappingSyncService != null) {
-                    policyMappingSyncService.setInitialized(true, hubId);
+                    policyMappingSyncService.setInitialized(true, tenantId);
                 }
-                log.info("JDBC Wrapper bootstrap flow completed: hubId={}, datasourceId={}", hubIdManager.getCachedHubId(), cachedDatasourceId);
+                log.info("JDBC Wrapper bootstrap flow completed: tenantId={}, datasourceId={}", tenantIdManager.getCachedTenantId(), cachedDatasourceId);
             } else {
                 
                 
                 log.warn("Runtime enrollment unavailable: crypto service initialized but policy mapping sync not started.");
                 initialized = true; 
-                log.info("JDBC Wrapper bootstrap flow completed (limited): hubId={}, datasourceId={}, crypto available",
-                        hubIdManager.getCachedHubId(), cachedDatasourceId);
+                log.info("JDBC Wrapper bootstrap flow completed (limited): tenantId={}, datasourceId={}, crypto available",
+                        tenantIdManager.getCachedTenantId(), cachedDatasourceId);
             }
             return true;
             
@@ -392,8 +392,8 @@ public class JdbcBootstrapOrchestrator {
         
         EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
         if (endpointData != null) {
-            log.debug("Endpoint info loaded from persistent storage: cryptoUrl={}, hubId={}, version={}",
-                    endpointData.getCryptoUrl(), endpointData.getHubId(), endpointData.getVersion());
+            log.debug("Endpoint info loaded from persistent storage: cryptoUrl={}, tenantId={}, version={}",
+                    endpointData.getCryptoUrl(), endpointData.getTenantId(), endpointData.getVersion());
         }
         
         
@@ -622,13 +622,13 @@ public class JdbcBootstrapOrchestrator {
                 "/hub/api/v1/runtime/wrappers",
                 config,
                 policyResolver,
-                hubIdManager,
+                tenantIdManager,
                 5,
                 3000,
                 2000,
                 null,
                 null,
-                hubIdManager.getCachedSchemaSyncUrl()
+                tenantIdManager.getCachedSchemaSyncUrl()
         );
         List<SchemaMetadata> allStoredSchemas = schemaStorage.loadSchemas();
         boolean needsUpdate = false;
@@ -644,20 +644,20 @@ public class JdbcBootstrapOrchestrator {
                     cachedDatasourceId, allStoredSchemas.size());
         }
     }
-    private void initializeServicesWithHubId(String hubId) {
+    private void initializeServicesWithTenantId(String tenantId) {
         
         
         String instanceId = instanceIdProvider.getInstanceId();
         this.mappingSyncService = new MappingSyncService(
             config.getHubUrl(),
-            hubId,
+            tenantId,
             instanceId,
             cachedDatasourceId,
             "/hub/api/v1/runtime/wrappers",
             policyResolver,
             null,
             null,
-            hubIdManager.getCachedRefreshUrl()
+            tenantIdManager.getCachedRefreshUrl()
         );
         
         
@@ -665,7 +665,7 @@ public class JdbcBootstrapOrchestrator {
         String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),
-            hubId,
+            tenantId,
             instanceId,
             endpointStorageDir,
             endpointFileName
@@ -682,8 +682,8 @@ public class JdbcBootstrapOrchestrator {
         if (endpointData != null && endpointData.getCryptoUrl() != null && 
             !endpointData.getCryptoUrl().trim().isEmpty()) {
             directCryptoAdapter.setEndpointData(endpointData);
-            log.info("Crypto adapter initialized: cryptoUrl={}, hubId={}, version={}",
-                    endpointData.getCryptoUrl(), endpointData.getHubId(), endpointData.getVersion());
+            log.info("Crypto adapter initialized: cryptoUrl={}, tenantId={}, version={}",
+                    endpointData.getCryptoUrl(), endpointData.getTenantId(), endpointData.getVersion());
         }
         
         
@@ -691,11 +691,11 @@ public class JdbcBootstrapOrchestrator {
             try {
                 this.notificationService = new HubNotificationService(
                     config.getHubUrl(),
-                    hubId,
+                    tenantId,
                     instanceId,
                     config.isEnableLogging()
                 );
-                log.debug("Hub notification service initialized (shared): hubId={}", hubId);
+                log.debug("Hub notification service initialized (shared): tenantId={}", tenantId);
             } catch (Exception e) {
                 log.warn("Hub notification service initialization failed (ignored): {}", e.getMessage());
                 this.notificationService = null;
@@ -710,7 +710,7 @@ public class JdbcBootstrapOrchestrator {
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
-                    hubIdManager.getCachedHubId(),
+                    tenantIdManager.getCachedTenantId(),
                     null,
                     null,
                     config.isWrapperCryptoStatsEnabled(),
@@ -718,7 +718,7 @@ public class JdbcBootstrapOrchestrator {
         }
     }
 
-    private void initializePolicyMappingSyncService(String hubId) {
+    private void initializePolicyMappingSyncService(String tenantId) {
         try {
             
             
@@ -736,7 +736,7 @@ public class JdbcBootstrapOrchestrator {
             );
             
             
-            log.info("JdbcPolicyMappingSyncService initialized: hubId={}", hubId);
+            log.info("JdbcPolicyMappingSyncService initialized: tenantId={}", tenantId);
         } catch (Exception e) {
             log.warn("JdbcPolicyMappingSyncService initialization failed: {}", e.getMessage());
         }
@@ -970,9 +970,9 @@ public class JdbcBootstrapOrchestrator {
         return directCryptoAdapter;
     }
     
-    public String getCachedHubId() {
+    public String getCachedTenantId() {
         
-        return hubIdManager.getCachedHubId();
+        return tenantIdManager.getCachedTenantId();
     }
     
     public String getCachedDatasourceId() {
@@ -1003,13 +1003,13 @@ public class JdbcBootstrapOrchestrator {
             return;
         }
 
-        String hubId = hubIdManager.getCachedHubId();
-        if (hubId == null || hubId.trim().isEmpty()) {
-            log.warn("Schema force reload failed: hubId not available");
+        String tenantId = tenantIdManager.getCachedTenantId();
+        if (tenantId == null || tenantId.trim().isEmpty()) {
+            log.warn("Schema force reload failed: tenantId not available");
             return;
         }
 
-        log.info("Schema force reload starting: nativeUrl={}, hubId={}", nativeJdbcUrl, hubId);
+        log.info("Schema force reload starting: nativeUrl={}, tenantId={}", nativeJdbcUrl, tenantId);
 
         Connection connection = null;
         try {

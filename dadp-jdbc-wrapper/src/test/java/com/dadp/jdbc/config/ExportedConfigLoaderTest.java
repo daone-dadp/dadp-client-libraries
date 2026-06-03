@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.HubIdManager;
+import com.dadp.common.sync.config.TenantIdManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.policy.PolicyResolver;
@@ -43,22 +43,22 @@ class ExportedConfigLoaderTest {
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        HubIdManager hubIdManager =
-                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        TenantIdManager tenantIdManager =
+                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
 
         String datasourceId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
-                hubIdManager,
+                tenantIdManager,
                 policyResolver,
                 endpointStorage);
 
         assertEquals("ds-test", datasourceId);
         InstanceConfigStorage.ConfigData saved = configStorage.loadConfig("http://hub:9004", "wrapper-test");
         assertNotNull(saved);
-        assertEquals("wtenant_test", saved.getHubId());
+        assertEquals("wtenant_test", saved.getTenantId());
         assertEquals("ds-test", saved.getDatasourceId());
         assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", saved.getRefreshUrl());
         assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync", saved.getSchemaSyncUrl());
@@ -73,7 +73,7 @@ class ExportedConfigLoaderTest {
 
         String json = "{\n"
                 + "  \"exportVersion\": 1,\n"
-                + "  \"hubId\": \"legacy-hub\",\n"
+                + "  \"tenantId\": \"legacy-hub\",\n"
                 + "  \"instanceId\": \"wrapper-test\",\n"
                 + "  \"datasourceId\": \"ds-test\",\n"
                 + "  \"cryptoUrl\": \"http://engine:9003\"\n"
@@ -82,13 +82,13 @@ class ExportedConfigLoaderTest {
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        HubIdManager hubIdManager =
-                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        TenantIdManager tenantIdManager =
+                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
 
         String datasourceId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
-                hubIdManager,
+                tenantIdManager,
                 new PolicyResolver(storageDir.toString(), "policy-mappings.json"),
                 new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
 
@@ -115,8 +115,8 @@ class ExportedConfigLoaderTest {
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        HubIdManager hubIdManager =
-                new HubIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        TenantIdManager tenantIdManager =
+                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         HashMap<String, String> existingMappings = new HashMap<>();
         existingMappings.put("users.email", "dadp");
@@ -125,7 +125,7 @@ class ExportedConfigLoaderTest {
         String datasourceId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
                 "wrapper-test",
-                hubIdManager,
+                tenantIdManager,
                 policyResolver,
                 new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
 
