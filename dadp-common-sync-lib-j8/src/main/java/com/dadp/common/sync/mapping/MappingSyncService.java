@@ -22,9 +22,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
  * Hub로부터 정책 매핑 정보를 가져와서 PolicyResolver에 저장합니다.
  * Java 버전에 따라 적절한 HTTP 클라이언트를 자동으로 선택합니다.
  * 
- * WRAPPER와 AOP 모두 사용 가능하도록 설계되었습니다.
- * - WRAPPER: apiBasePath = "/hub/api/v1/runtime/wrappers", datasourceId 사용
- * - AOP: apiBasePath = "/hub/api/v1/aop", datasourceId = null
+ * Wrapper runtime mapping refresh service.
  * 
  * @author DADP Development Team
  * @version 5.0.4
@@ -37,7 +35,7 @@ public class MappingSyncService {
     private final String hubUrl;
     private final String hubId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용)
     private final String alias;  // 사용자가 설정한 instanceId (별칭, 검색/표시용)
-    private final String apiBasePath;  // API Base Path: "/hub/api/v1/runtime/wrappers" 또는 "/hub/api/v1/aop"
+    private final String apiBasePath;
     private final String datasourceId;  // Datasource ID (재등록을 위해 필요)
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
@@ -48,12 +46,7 @@ public class MappingSyncService {
     private volatile PolicySnapshot lastSnapshot = null;
     
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, PolicyResolver policyResolver) {
-        // 기본값: datasourceId가 있으면 Wrapper runtime, 없으면 AOP
-        this(hubUrl, hubId, alias, datasourceId, 
-            (datasourceId != null && !datasourceId.trim().isEmpty()) 
-                ? "/hub/api/v1/runtime/wrappers"
-                : "/hub/api/v1/aop", 
-            policyResolver);
+        this(hubUrl, hubId, alias, datasourceId, "/hub/api/v1/runtime/wrappers", policyResolver);
     }
     
     public MappingSyncService(String hubUrl, String hubId, String alias, String datasourceId, String apiBasePath, PolicyResolver policyResolver) {
@@ -72,11 +65,8 @@ public class MappingSyncService {
         this.hubId = hubId;
         this.alias = alias;
         this.datasourceId = datasourceId;
-        // 기본값: datasourceId가 있으면 Wrapper runtime, 없으면 AOP
         if (apiBasePath == null || apiBasePath.trim().isEmpty()) {
-            this.apiBasePath = (datasourceId != null && !datasourceId.trim().isEmpty()) 
-                ? "/hub/api/v1/runtime/wrappers"
-                : "/hub/api/v1/aop";
+            this.apiBasePath = "/hub/api/v1/runtime/wrappers";
         } else {
             this.apiBasePath = apiBasePath;
         }
@@ -307,8 +297,6 @@ public class MappingSyncService {
                     for (PolicyMapping mapping : snapshot.getMappings()) {
                         // enabled가 true이고 policyName이 있는 경우만 추가
                         if (mapping.isEnabled() && mapping.getPolicyName() != null && !mapping.getPolicyName().trim().isEmpty()) {
-                            // WRAPPER: datasourceId:schema.table.column
-                            // AOP: schema.table.column
                             String key;
                             if (datasourceId != null && !datasourceId.trim().isEmpty() && mapping.getDatasourceId() != null && !mapping.getDatasourceId().trim().isEmpty()) {
                                 key = mapping.getDatasourceId() + ":" + 
@@ -316,7 +304,6 @@ public class MappingSyncService {
                                       mapping.getTableName() + "." + 
                                       mapping.getColumnName();
                             } else {
-                                // AOP: schema.table.column
                                 key = mapping.getSchemaName() + "." + 
                                       mapping.getTableName() + "." + 
                                       mapping.getColumnName();
@@ -658,8 +645,6 @@ public class MappingSyncService {
         try {
             log.trace("Loading policy mappings from Hub: hubId={}", hubId);
             
-            // 공통 라이브러리로 통합하면서 파라미터 이름을 instanceId로 통일
-            // hubId가 null이면 alias 사용 (AOP 초기 등록 시나리오)
             String instanceId = (hubId != null && !hubId.trim().isEmpty()) ? hubId : alias;
             String mappingsPath = apiBasePath + "/mappings";
             String mappingsUrl = hubUrl + mappingsPath + "?instanceId=" + instanceId;

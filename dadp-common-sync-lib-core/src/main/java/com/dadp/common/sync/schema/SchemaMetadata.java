@@ -3,9 +3,7 @@ package com.dadp.common.sync.schema;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
- * 스키마 메타데이터 DTO (공통)
- * 
- * AOP와 Wrapper 모두에서 사용하는 공통 스키마 메타데이터 DTO입니다.
+ * Wrapper schema metadata DTO.
  * 
  * @author DADP Development Team
  * @version 5.2.2
@@ -18,12 +16,12 @@ public class SchemaMetadata {
     private String schemaName;      // DADP 기준 논리 스키마명
     private String tableName;
     private String columnName;
-    private String columnType;      // Wrapper에서 사용 (AOP에서는 null 가능)
-    private Boolean isNullable;     // Wrapper에서 사용 (AOP에서는 null 가능)
-    private String columnDefault;   // Wrapper에서 사용 (AOP에서는 null 가능)
+    private String columnType;
+    private Boolean isNullable;
+    private String columnDefault;
     
     @JsonIgnore
-    private String policyName;      // AOP에서 사용 (Wrapper에서는 null 가능) - Hub 전송 시 제외
+    private String policyName;      // runtime-local cache only - excluded from Hub schema payload
     @JsonIgnore
     private String status;          // 스키마 상태: "CREATED", "REGISTERED", "DELETED" - Hub 전송 시 제외
     
@@ -128,16 +126,12 @@ public class SchemaMetadata {
     /**
      * 스키마 키 생성 (datasourceId:schema.table.column 또는 schema.table.column)
      * 
-     * Wrapper: datasourceId가 있으면 "datasourceId:schema.table.column" 형식
-     * AOP: datasourceId가 없으면 "schema.table.column" 형식
-     * 
      * JSON 직렬화에서 제외
      */
     @JsonIgnore
     public String getKey() {
         String effectiveSchemaName = schemaName;
         if (datasourceId != null && !datasourceId.trim().isEmpty()) {
-            // Wrapper: datasourceId:schema.table.column
             effectiveSchemaName = datasourceId + ":" + (schemaName != null ? schemaName : "");
         }
         return (effectiveSchemaName != null ? effectiveSchemaName : "") + "." +
@@ -145,4 +139,3 @@ public class SchemaMetadata {
                (columnName != null ? columnName : "");
     }
 }
-

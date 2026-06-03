@@ -13,7 +13,7 @@ import com.dadp.wrapper.crypto.WrapperLocalCryptoService;
  * Hub를 거치지 않고 Engine/Gateway에 직접 암복호화 요청을 수행합니다.
  * 엔드포인트 정보는 영구 저장소에서 로드하여 사용합니다.
  * 
- * Wrapper와 AOP 모두에서 사용하는 공통 컴포넌트입니다.
+ * Wrapper runtime crypto component.
  * 
  * @author DADP Development Team
  * @version 5.0.5

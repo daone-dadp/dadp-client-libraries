@@ -17,9 +17,7 @@ import java.nio.file.Paths;
  * Hub에서 받은 hubId 및 설정 정보를 파일에 저장하고,
  * 재시작 시에도 저장된 정보를 사용합니다.
  * 
- * WRAPPER와 AOP 모두 사용 가능하도록 설계되었습니다.
- * - WRAPPER: ~/.dadp-wrapper/proxy-config.json
- * - AOP: ~/.dadp-aop/aop-config.json
+ * Wrapper runtime enrollment and snapshot state storage.
  * 
  * @author DADP Development Team
  * @version 5.0.9

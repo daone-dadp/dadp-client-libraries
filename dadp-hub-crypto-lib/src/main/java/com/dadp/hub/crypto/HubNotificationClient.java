@@ -134,7 +134,7 @@ public class HubNotificationClient {
      * @param level 알림 레벨 (예: ERROR, WARNING, INFO)
      * @param title 알림 제목
      * @param message 알림 메시지
-     * @param entityType 엔티티 타입 (예: ENGINE, PROXY, AOP)
+     * @param entityType 엔티티 타입 (예: ENGINE, PROXY)
      * @param entityId 엔티티 ID
      * @param metadata 메타데이터 (JSON 문자열, 선택사항)
      * @return 전송 성공 여부
@@ -224,4 +224,3 @@ public class HubNotificationClient {
         return hubBaseUrl;
     }
 }
-

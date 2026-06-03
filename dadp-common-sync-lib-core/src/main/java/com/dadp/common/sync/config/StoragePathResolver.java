@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Resolves the persistent storage directory for wrapper/aop runtime files.
+ * Resolves the persistent storage directory for wrapper runtime files.
  *
  * <p>Resolution order:
  * <ol>

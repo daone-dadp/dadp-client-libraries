@@ -25,7 +25,7 @@ public class HubEndpointSyncService {
     private static final Logger log = LoggerFactory.getLogger(HubEndpointSyncService.class);
     
     private final String hubUrl;
-    private final String instanceId;  // AOP 인스턴스 ID (선택적, X-DADP-TENANT 헤더에 사용)
+    private final String instanceId;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     

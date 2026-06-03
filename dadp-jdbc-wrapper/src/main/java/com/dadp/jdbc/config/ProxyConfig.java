@@ -113,7 +113,7 @@ public class ProxyConfig {
         this.enabled = true;
 
         // hubId는 HubIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
-        // 생성자에서 파일을 읽지 않음 (AOP 플로우와 일치)
+        // 생성자에서 파일을 읽지 않음
         this.hubId = null;
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
