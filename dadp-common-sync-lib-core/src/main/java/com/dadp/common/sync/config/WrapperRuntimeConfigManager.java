@@ -126,8 +126,10 @@ public class WrapperRuntimeConfigManager {
         if (enabled != null) {
             this.enabled = enabled.booleanValue();
         }
-        String normalizedCryptoMode = normalizeCryptoMode(cryptoMode);
-        this.cryptoMode = normalizedCryptoMode;
+        String normalizedCryptoMode = trimToNull(cryptoMode);
+        if (normalizedCryptoMode != null) {
+            this.cryptoMode = normalizeCryptoMode(normalizedCryptoMode);
+        }
         if (failOpen != null) {
             this.failOpen = failOpen.booleanValue();
         }

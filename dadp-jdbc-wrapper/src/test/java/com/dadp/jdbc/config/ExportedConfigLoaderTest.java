@@ -118,4 +118,28 @@ class ExportedConfigLoaderTest {
         assertEquals(Long.valueOf(6L), policyResolver.getCurrentVersion());
         assertEquals("dadp", policyResolver.resolvePolicy(null, null, "users", "email"));
     }
+
+    @Test
+    void refreshWithoutCryptoModeDoesNotResetStoredLocalModeToRemote() throws Exception {
+        Path storageDir = tempDir.resolve("wrapper-runtime-options");
+        Files.createDirectories(storageDir);
+
+        InstanceConfigStorage configStorage =
+                new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
+        WrapperRuntimeConfigManager manager =
+                new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+
+        assertEquals("remote", manager.getCryptoMode());
+
+        manager.applyRefreshOptions(Boolean.TRUE, "local", Boolean.FALSE, Boolean.FALSE, "7", true);
+        assertEquals("local", manager.getCryptoMode());
+
+        manager.applyRefreshOptions(Boolean.TRUE, null, Boolean.FALSE, Boolean.FALSE, "8", true);
+        assertEquals("local", manager.getCryptoMode());
+
+        WrapperRuntimeConfigManager reloaded =
+                new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        reloaded.loadFromStorage();
+        assertEquals("local", reloaded.getCryptoMode());
+    }
 }

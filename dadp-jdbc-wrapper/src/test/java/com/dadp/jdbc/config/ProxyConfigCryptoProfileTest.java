@@ -19,16 +19,6 @@ class ProxyConfigCryptoProfileTest {
         System.clearProperty("dadp.proxy.hub-url");
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
-        System.clearProperty("dadp.wrapper.single-transport-mode");
-        System.clearProperty("dadp.wrapper.engine-transport");
-        System.clearProperty("dadp.wrapper.engine-binary-port");
-        System.clearProperty("dadp.wrapper.crypto-mode");
-        System.clearProperty("dadp.wrapper.crypto-local.fallback-remote");
-        System.clearProperty("dadp.wrapper.crypto-local.timeout-ms");
-        System.clearProperty("dadp.wrapper.crypto-stats.enabled");
-        System.clearProperty("dadp.wrapper.crypto-stats.aggregation-level");
-        System.clearProperty("dadp.wrapper.sql-mapping-debug.enabled");
-        System.clearProperty("dadp.wrapper.policy-sync.auto.enabled");
     }
 
     @Test

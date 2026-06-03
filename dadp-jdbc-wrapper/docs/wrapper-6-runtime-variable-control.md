@@ -6,13 +6,18 @@ This document defines where wrapper runtime variables may come from, whether the
 
 All wrapper runtime values are controlled by `WrapperRuntimeConfigManager`.
 
-Allowed sources, in priority order:
+Allowed sources:
 
-1. Hub `/refresh` values for mutable runtime options.
-2. Startup JDBC URL values for immutable bootstrap inputs.
-3. Persistent wrapper storage for previously refreshed mutable options and the Hub-issued tenantId.
+1. Startup JDBC URL values for immutable bootstrap inputs.
+2. Persistent wrapper storage for the Hub-issued tenantId and the last refreshed mutable options.
+3. Hub `/refresh` values for mutable runtime options after refresh is executed.
 
 `hubUrl` and `alias` are not mutable runtime options. They must be read from the JDBC URL on every startup and must not be overwritten by refresh, exported config, system properties, environment variables, or stored files.
+
+`cryptoMode` defaults to `remote`. It must not be enabled from JDBC URL,
+environment variables, or system properties. Runtime `local` mode is accepted
+only when Hub `/refresh` returns `cryptoMode=local`; the refreshed value is then
+persisted for the next startup.
 
 ## Variable Rules
 
@@ -24,7 +29,7 @@ Allowed sources, in priority order:
 | `refreshUrl` | None | No | Not accepted as stored/configured state | Derived canonically as `/hub/api/v1/runtime/wrappers/{tenantId}/refresh`. |
 | `schemaSyncUrl` | None | No | Not accepted as stored/configured state | Derived canonically as `/hub/api/v1/runtime/wrappers/{tenantId}/schema-sync` by collector/schema-sync helper only. |
 | `enabled` | Hub `/refresh` only | No | Applied to current JVM memory only | Defaults to `true` on every startup. |
-| `cryptoMode` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `remote` when no stored value exists; otherwise stored value is used. |
+| `cryptoMode` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `remote` when no stored value exists. A stored value is only the last Hub refresh result, not an external override. |
 | `failOpen` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `false` when no stored value exists; otherwise stored value is used. |
 | `policySyncAutoEnabled` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `false` when no stored value exists; otherwise stored value is used. |
 | `storageDir` | Environment variable `DADP_STORAGE_DIR` only | No | Not controlled by refresh | Defaults to `{user.dir}/dadp/wrapper/{alias}` when env is missing. |
@@ -36,7 +41,7 @@ Wrapper startup:
 
 1. Parse `hubUrl` and `alias` from the JDBC URL.
 2. Resolve storage directory from `DADP_STORAGE_DIR` or default path.
-3. Load persistent `tenantId`, `cryptoMode`, `failOpen`, `policySyncAutoEnabled`, and `runtimeVersion`.
+3. Load persistent `tenantId`, last refreshed `cryptoMode`, `failOpen`, `policySyncAutoEnabled`, and `runtimeVersion`.
 4. Initialize crypto/runtime services from the loaded state.
 5. Do not collect DB schemas.
 6. Start automatic refresh only when `policySyncAutoEnabled=true`.
@@ -47,7 +52,7 @@ Manual and automatic refresh:
 2. Load policy bindings, engine endpoint, logging, and wrapper runtime options from Hub.
 3. Persist only `cryptoMode`, `failOpen`, `policySyncAutoEnabled`, and `runtimeVersion`.
 4. Apply `enabled` in memory only.
-5. Apply crypto mode and fail-open immediately to the active crypto adapter.
+5. Apply crypto mode and fail-open immediately to the active crypto adapter. If Hub does not provide `cryptoMode`, keep the current value; if neither refresh nor storage has provided it, the value remains `remote`.
 
 Schema collection:
 
