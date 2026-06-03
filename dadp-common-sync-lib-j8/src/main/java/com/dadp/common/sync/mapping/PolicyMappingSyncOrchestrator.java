@@ -2,7 +2,7 @@ package com.dadp.common.sync.mapping;
 
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.common.sync.schema.SchemaStorage;
 import java.util.Map;
@@ -23,7 +23,7 @@ public class PolicyMappingSyncOrchestrator {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(PolicyMappingSyncOrchestrator.class);
     
-    private final TenantIdManager tenantIdManager;
+    private final WrapperRuntimeConfigManager tenantIdManager;
     private volatile MappingSyncService mappingSyncService;  // tenantId 변경 시 재생성 필요
     private final PolicyResolver policyResolver;
     private final SchemaStorage schemaStorage;
@@ -59,7 +59,7 @@ public class PolicyMappingSyncOrchestrator {
      * @param callbacks 동기화 콜백
      */
     public PolicyMappingSyncOrchestrator(
-            TenantIdManager tenantIdManager,
+            WrapperRuntimeConfigManager tenantIdManager,
             MappingSyncService mappingSyncService,
             PolicyResolver policyResolver,
             SchemaStorage schemaStorage,

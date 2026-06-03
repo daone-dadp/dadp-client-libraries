@@ -40,12 +40,6 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
     private volatile WindowCounters currentWindow;
 
     public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
-                                    String ignoredAuthId, String ignoredAuthSecret,
-                                    String aggregationLevel) {
-        this(hubBaseUrl, timeoutMillis, null, aggregationLevel);
-    }
-
-    public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
                                     String tenantId,
                                     String aggregationLevel) {
         this(hubBaseUrl, timeoutMillis,
@@ -54,12 +48,6 @@ public class WrapperCryptoStatsSender implements AutoCloseable {
                 new SystemTimeProvider(),
                 new HttpTransport(),
                 true);
-    }
-
-    public WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,
-                                    String tenantId, String ignoredAuthId, String ignoredAuthSecret,
-                                    String aggregationLevel) {
-        this(hubBaseUrl, timeoutMillis, tenantId, aggregationLevel);
     }
 
     WrapperCryptoStatsSender(String hubBaseUrl, int timeoutMillis,

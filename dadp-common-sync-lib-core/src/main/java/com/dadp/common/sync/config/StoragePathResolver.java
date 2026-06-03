@@ -8,7 +8,6 @@ import java.nio.file.Paths;
  *
  * <p>Resolution order:
  * <ol>
- *   <li>System property {@code dadp.storage.dir}</li>
  *   <li>Environment variable {@code DADP_STORAGE_DIR}</li>
  *   <li>{@code {user.dir}/dadp/wrapper/{instanceId}}</li>
  *   <li>{@code {user.dir}/dadp/wrapper/shared}</li>
@@ -19,7 +18,6 @@ import java.nio.file.Paths;
  */
 public final class StoragePathResolver {
 
-    private static final String STORAGE_DIR_PROPERTY = "dadp.storage.dir";
     private static final String STORAGE_DIR_ENV = "DADP_STORAGE_DIR";
 
     private StoragePathResolver() {
@@ -32,10 +30,7 @@ public final class StoragePathResolver {
     public static String resolveStorageDir(String instanceId) {
         String normalizedInstanceId = normalize(instanceId);
 
-        String configuredRoot = normalize(System.getProperty(STORAGE_DIR_PROPERTY));
-        if (configuredRoot == null) {
-            configuredRoot = normalize(System.getenv(STORAGE_DIR_ENV));
-        }
+        String configuredRoot = normalize(System.getenv(STORAGE_DIR_ENV));
 
         if (configuredRoot != null) {
             return appendInstanceIdIfNeeded(configuredRoot, normalizedInstanceId);

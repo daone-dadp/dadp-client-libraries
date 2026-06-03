@@ -65,17 +65,8 @@ public class HubCryptoService {
     private volatile String lastUsedEndpoint = null;
     private volatile long endpointUsageCount = 0;
 
-    /**
-     * DADP_CA_CERT_PATH 환경 변수에서 DADP CA 인증서 경로 가져오기
-     * 
-     * @return DADP CA 인증서 파일 경로 또는 null
-     */
     private static String getDadpCaCertPath() {
-        String caCertPath = System.getenv("DADP_CA_CERT_PATH");
-        if (caCertPath == null || caCertPath.trim().isEmpty()) {
-            caCertPath = System.getProperty("dadp.ca.cert.path");
-        }
-        return caCertPath != null && !caCertPath.trim().isEmpty() ? caCertPath.trim() : null;
+        return null;
     }
     
     /**
@@ -93,8 +84,8 @@ public class HubCryptoService {
     }
     
     /**
-     * DADP CA 인증서만 신뢰하는 SSLContext 생성
-     * DADP_CA_CERT_PATH 환경 변수로 DADP CA 인증서 경로 지정
+     * DADP CA 인증서만 신뢰하는 SSLContext 생성.
+     * Wrapper 6.0 does not accept CA certificate path through env or system property.
      */
     private static SSLContext createDadpCaSSLContext() {
         String caCertPath = getDadpCaCertPath();
@@ -132,9 +123,7 @@ public class HubCryptoService {
     
     /**
      * SSL 설정이 적용된 RestTemplate 생성
-     * 우선순위:
-     * 1. DADP_CA_CERT_PATH: DADP CA 인증서만 신뢰 (운영 환경 권장)
-     * 2. 기본: Java 기본 TrustStore 사용
+     * 기본: Java 기본 TrustStore 사용
      */
     private static RestTemplate createRestTemplateWithSSL() {
         SSLContext sslContext = null;

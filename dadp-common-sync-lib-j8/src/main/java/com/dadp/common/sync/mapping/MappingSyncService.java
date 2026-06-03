@@ -39,7 +39,6 @@ public class MappingSyncService {
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
     private final PolicyResolver policyResolver;
-    private final String runtimeRefreshUrl;
     
     // 마지막으로 받은 정책 스냅샷 (엔드포인트 정보 포함)
     private volatile PolicySnapshot lastSnapshot = null;
@@ -49,17 +48,6 @@ public class MappingSyncService {
     }
     
     public MappingSyncService(String hubUrl, String tenantId, String alias, String datasourceId, String apiBasePath, PolicyResolver policyResolver) {
-        this(hubUrl, tenantId, alias, datasourceId, apiBasePath, policyResolver, null, null);
-    }
-
-    public MappingSyncService(String hubUrl, String tenantId, String alias, String datasourceId, String apiBasePath,
-                              PolicyResolver policyResolver, String ignoredAuthKey, String ignoredAuthSecret) {
-        this(hubUrl, tenantId, alias, datasourceId, apiBasePath, policyResolver, ignoredAuthKey, ignoredAuthSecret, null);
-    }
-
-    public MappingSyncService(String hubUrl, String tenantId, String alias, String datasourceId, String apiBasePath,
-                              PolicyResolver policyResolver, String ignoredAuthKey, String ignoredAuthSecret,
-                              String runtimeRefreshUrl) {
         this.hubUrl = hubUrl;
         this.tenantId = tenantId;
         this.alias = alias;
@@ -74,7 +62,6 @@ public class MappingSyncService {
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         this.policyResolver = policyResolver;
-        this.runtimeRefreshUrl = runtimeRefreshUrl;
     }
     
     /**
@@ -120,8 +107,8 @@ public class MappingSyncService {
 
     private int loadRuntimeWrapperSnapshotFromHub() {
         try {
-            String refreshUrl = resolveRuntimeRefreshUrl();
-            URI uri = URI.create(refreshUrl);
+            String canonicalRefreshUrl = resolveRuntimeRefreshUrl();
+            URI uri = URI.create(canonicalRefreshUrl);
             HttpClientAdapter.HttpResponse response = httpClient.get(uri, signedHeaders("GET", uri));
             int statusCode = response.getStatusCode();
 
@@ -168,14 +155,6 @@ public class MappingSyncService {
     }
 
     private String resolveRuntimeRefreshUrl() {
-        if (runtimeRefreshUrl != null && !runtimeRefreshUrl.trim().isEmpty()) {
-            if (runtimeRefreshUrl.startsWith("http://") || runtimeRefreshUrl.startsWith("https://")) {
-                return appendVersion(runtimeRefreshUrl);
-            }
-            String base = hubUrl != null && hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
-            String path = runtimeRefreshUrl.startsWith("/") ? runtimeRefreshUrl : "/" + runtimeRefreshUrl;
-            return appendVersion(base + path);
-        }
         return appendVersion(hubUrl + apiBasePath + "/" + tenantId + "/refresh");
     }
 
@@ -257,6 +236,22 @@ public class MappingSyncService {
             }
             if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
                 wrapperConfig.setCryptoMode(cryptoMode.trim());
+                hasWrapperConfig = true;
+            }
+            JsonNode failOpen = wrapper.path("failOpen");
+            if (failOpen.isMissingNode() || failOpen.isNull()) {
+                failOpen = wrapper.path("options").path("failOpen");
+            }
+            if (!failOpen.isMissingNode() && !failOpen.isNull()) {
+                wrapperConfig.setFailOpen(Boolean.valueOf(failOpen.asBoolean(false)));
+                hasWrapperConfig = true;
+            }
+            JsonNode policySyncAutoEnabled = wrapper.path("policySyncAutoEnabled");
+            if (policySyncAutoEnabled.isMissingNode() || policySyncAutoEnabled.isNull()) {
+                policySyncAutoEnabled = wrapper.path("options").path("policySyncAutoEnabled");
+            }
+            if (!policySyncAutoEnabled.isMissingNode() && !policySyncAutoEnabled.isNull()) {
+                wrapperConfig.setPolicySyncAutoEnabled(Boolean.valueOf(policySyncAutoEnabled.asBoolean(false)));
                 hasWrapperConfig = true;
             }
             if (hasWrapperConfig) {
@@ -462,10 +457,16 @@ public class MappingSyncService {
     public static class WrapperConfig {
         private Boolean enabled;
         private String cryptoMode;
+        private Boolean failOpen;
+        private Boolean policySyncAutoEnabled;
         public Boolean getEnabled() { return enabled; }
         public void setEnabled(Boolean enabled) { this.enabled = enabled; }
         public String getCryptoMode() { return cryptoMode; }
         public void setCryptoMode(String cryptoMode) { this.cryptoMode = cryptoMode; }
+        public Boolean getFailOpen() { return failOpen; }
+        public void setFailOpen(Boolean failOpen) { this.failOpen = failOpen; }
+        public Boolean getPolicySyncAutoEnabled() { return policySyncAutoEnabled; }
+        public void setPolicySyncAutoEnabled(Boolean policySyncAutoEnabled) { this.policySyncAutoEnabled = policySyncAutoEnabled; }
     }
 
     /**

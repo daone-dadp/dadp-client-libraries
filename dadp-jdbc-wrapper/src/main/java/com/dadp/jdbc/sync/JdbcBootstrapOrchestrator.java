@@ -1,7 +1,7 @@
 package com.dadp.jdbc.sync;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.config.StoragePathResolver;
@@ -54,7 +54,7 @@ public class JdbcBootstrapOrchestrator {
     private final InstanceConfigStorage configStorage;
     private final SchemaStorage schemaStorage;
     private DirectCryptoAdapter directCryptoAdapter;
-    private final TenantIdManager tenantIdManager; 
+    private final WrapperRuntimeConfigManager tenantIdManager; 
     private final InstanceIdProvider instanceIdProvider; 
     
     
@@ -104,7 +104,7 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.schemaStorage = new SchemaStorage(instanceId);
-        this.tenantIdManager = new TenantIdManager(
+        this.tenantIdManager = new WrapperRuntimeConfigManager(
             configStorage,
             config.getHubUrl(),
             instanceIdProvider,
@@ -234,18 +234,6 @@ public class JdbcBootstrapOrchestrator {
                 if (tenantIdManager.getCachedDatasourceId() != null) {
                     this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
                 }
-                
-                if (hasStoredMetadata()) {
-                    try {
-                        String cached = com.dadp.jdbc.config.DatasourceStorage.loadDatasourceId(
-                            instanceId, storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
-                        if (cached != null && !cached.trim().isEmpty()) {
-                            this.cachedDatasourceId = cached;
-                        }
-                    } catch (Exception e) {
-                        log.debug("datasourceId load failed (ignored): {}", e.getMessage());
-                    }
-                }
                 return true;
             }
             
@@ -272,13 +260,7 @@ public class JdbcBootstrapOrchestrator {
             storeMetadataFrom(connection);
             
             
-            log.info("Step 1: DB schema collection (one-time)");
-            List<SchemaMetadata> currentSchemas = schemaSyncService.collectSchemasWithRetry(connection, 5, 2000);
-            if (currentSchemas == null || currentSchemas.isEmpty()) {
-                log.warn("Schema collection failed or returned 0 (continuing in fail-open mode)");
-            } else {
-                log.info("Schema collection completed: {} schemas", currentSchemas.size());
-            }
+            log.info("Step 1: Runtime storage load (DB schema collection is disabled in wrapper 6.0 runtime)");
             
             
             log.info("Step 2: Loading data from persistent storage");
@@ -309,22 +291,16 @@ public class JdbcBootstrapOrchestrator {
             }
 
             
-            if (currentSchemas != null && !currentSchemas.isEmpty()) {
-                saveSchemasToStorage(currentSchemas);
-            }
-
-            
             log.info("Step 3: Hub 6 runtime enrollment validation");
             boolean runtimeEnrollmentAvailable = false;
 
             if (tenantIdManager.hasRuntimeEnrollment()) {
                 tenantId = tenantIdManager.getCachedTenantId();
                 this.cachedDatasourceId = tenantIdManager.getCachedDatasourceId();
-                recreateSchemaRuntimeServices();
                 runtimeEnrollmentAvailable = true;
                 log.info("Runtime enrollment loaded: tenantId={}, datasourceId={}", tenantId, cachedDatasourceId);
             } else {
-                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and store tenantId, datasourceId, refreshUrl and schemaSyncUrl before wrapper runtime sync.");
+                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and manual refresh before wrapper runtime sync.");
             }
             
             
@@ -333,10 +309,6 @@ public class JdbcBootstrapOrchestrator {
                 initialized = false;
                 return false;
             }
-            
-            
-            tenantIdManager.setTenantId(tenantId, true);
-            
             
             
             log.info("Step 4: Service initialization (crypto service initialized regardless of Hub registration result)");
@@ -403,191 +375,8 @@ public class JdbcBootstrapOrchestrator {
         }
         
         
-        if (hasStoredMetadata()) {
-            try {
-                String cached = com.dadp.jdbc.config.DatasourceStorage.loadDatasourceId(
-                    instanceIdProvider.getInstanceId(), storedDbVendor, storedHost, storedPort, storedDatabase, storedSchema);
-                if (cached != null && !cached.trim().isEmpty()) {
-                    this.cachedDatasourceId = cached;
-                    log.debug("Stored datasourceId loaded: datasourceId={}", this.cachedDatasourceId);
-                }
-            } catch (Exception e) {
-                log.warn("Failed to load datasourceId: {}", e.getMessage());
-            }
-        }
+        log.debug("DatasourceId is loaded only from wrapper runtime enrollment storage.");
     }
-    
-    private String ensureRootCACertificate(String hubUrl, String instanceId) {
-        log.info("Root CA certificate verification starting: hubUrl={}, alias={}", hubUrl, instanceId);
-        
-        
-        String manualCaCertPath = System.getProperty("dadp.ca.cert.path");
-        if (manualCaCertPath == null || manualCaCertPath.trim().isEmpty()) {
-            manualCaCertPath = System.getenv("DADP_CA_CERT_PATH");
-        }
-        if (manualCaCertPath != null && !manualCaCertPath.trim().isEmpty()) {
-            
-            java.nio.file.Path certPath = java.nio.file.Paths.get(manualCaCertPath);
-            if (java.nio.file.Files.exists(certPath)) {
-                if (validateRootCACertificate(certPath)) {
-                    log.info("Manually configured Root CA certificate verified: path={}", manualCaCertPath);
-                    return manualCaCertPath;
-                } else {
-                    log.warn("Manually configured Root CA certificate verification failed: path={}", manualCaCertPath);
-                    return null;
-                }
-            } else {
-                log.warn("Manually configured Root CA certificate file does not exist: path={}", manualCaCertPath);
-                return null;
-            }
-        }
-        
-        java.nio.file.Path wrapperDir = java.nio.file.Paths.get(
-            System.getProperty("user.dir"), "dadp", "wrapper", instanceId);
-        java.nio.file.Path caCertPath = wrapperDir.resolve("dadp-root-ca.crt");
-        
-        log.debug("Root CA certificate storage path: {}", caCertPath.toAbsolutePath());
-        
-        try {
-            
-            boolean certExists = java.nio.file.Files.exists(caCertPath);
-            
-            if (certExists) {
-                log.info("Root CA certificate found in storage: path={}", caCertPath);
-            } else {
-                log.info("Root CA certificate not found in storage (manual config or file placement required): path={}", caCertPath);
-                return null;
-            }
-            
-            
-            if (validateRootCACertificate(caCertPath)) {
-                String certPathStr = caCertPath.toAbsolutePath().toString();
-                log.info("Root CA certificate verified: path={}", certPathStr);
-                
-                if (verifySSLContextCreation(certPathStr)) {
-                    log.info("SSLContext creation verified with Root CA certificate: path={}", certPathStr);
-                    return certPathStr;
-                } else {
-                    log.warn("SSLContext creation failed with Root CA certificate: path={}", certPathStr);
-                    return null;
-                }
-            } else {
-                log.warn("Root CA certificate verification failed: path={}", caCertPath);
-                try {
-                    java.nio.file.Files.deleteIfExists(caCertPath);
-                } catch (Exception deleteEx) {
-                    log.warn("Failed to delete Root CA certificate file: error={}", deleteEx.getMessage());
-                }
-                return null;
-            }
-            
-        } catch (Exception e) {
-            String errorMessage = e.getMessage();
-            if (errorMessage == null || errorMessage.trim().isEmpty()) {
-                errorMessage = e.getClass().getSimpleName();
-            }
-            log.warn("Root CA certificate setup failed: error={}", errorMessage);
-            return null;
-        }
-    }
-    
-    
-    private boolean verifySSLContextCreation(String caCertPath) {
-        try {
-            
-            String pem = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(caCertPath)), "UTF-8");
-            if (pem == null || pem.trim().isEmpty()) {
-                log.warn("SSLContext creation verification failed: certificate file is empty");
-                return false;
-            }
-            
-            
-            String certContent = pem.replace("-----BEGIN CERTIFICATE-----", "")
-                                    .replace("-----END CERTIFICATE-----", "")
-                                    .replaceAll("\\s", "");
-            byte[] certBytes = java.util.Base64.getDecoder().decode(certContent);
-            java.security.cert.CertificateFactory certFactory = 
-                java.security.cert.CertificateFactory.getInstance("X.509");
-            java.security.cert.X509Certificate caCert = 
-                (java.security.cert.X509Certificate) certFactory.generateCertificate(
-                    new java.io.ByteArrayInputStream(certBytes));
-            
-            
-            java.security.KeyStore trustStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType());
-            trustStore.load(null, null);
-            trustStore.setCertificateEntry("dadp-root-ca", caCert);
-            
-            
-            javax.net.ssl.TrustManagerFactory trustManagerFactory = 
-                javax.net.ssl.TrustManagerFactory.getInstance(
-                    javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
-            trustManagerFactory.init(trustStore);
-            
-            
-            javax.net.ssl.SSLContext sslContext = javax.net.ssl.SSLContext.getInstance("TLS");
-            sslContext.init(null, trustManagerFactory.getTrustManagers(), new java.security.SecureRandom());
-            
-            
-            return true;
-        } catch (Exception e) {
-            
-            String errorMessage = e.getMessage();
-            if (errorMessage == null || errorMessage.trim().isEmpty()) {
-                errorMessage = e.getClass().getSimpleName();
-            }
-            log.warn("SSLContext creation verification failed: error={}", errorMessage);
-            return false;
-        }
-    }
-    
-    
-    private boolean validateRootCACertificate(java.nio.file.Path certPath) {
-        try {
-            
-            String pem = new String(java.nio.file.Files.readAllBytes(certPath), "UTF-8");
-            if (pem == null || pem.trim().isEmpty()) {
-                log.warn("Root CA certificate file is empty");
-                return false;
-            }
-            
-            
-            String certContent = pem.replace("-----BEGIN CERTIFICATE-----", "")
-                                    .replace("-----END CERTIFICATE-----", "")
-                                    .replaceAll("\\s", "");
-            
-            if (certContent.isEmpty()) {
-                log.warn("Root CA certificate PEM format is invalid");
-                return false;
-            }
-            
-            byte[] certBytes = java.util.Base64.getDecoder().decode(certContent);
-            java.security.cert.CertificateFactory certFactory = 
-                java.security.cert.CertificateFactory.getInstance("X.509");
-            java.security.cert.X509Certificate cert = 
-                (java.security.cert.X509Certificate) certFactory.generateCertificate(
-                    new java.io.ByteArrayInputStream(certBytes));
-            
-            
-            cert.checkValidity();
-            
-            log.debug("Root CA certificate verified: Subject={}, Valid From={}, Valid To={}",
-                cert.getSubjectX500Principal().getName(),
-                cert.getNotBefore(),
-                cert.getNotAfter());
-            
-            return true;
-        } catch (java.security.cert.CertificateExpiredException e) {
-            log.warn("Root CA certificate has expired: {}", e.getMessage());
-            return false;
-        } catch (java.security.cert.CertificateNotYetValidException e) {
-            log.warn("Root CA certificate is not yet valid: {}", e.getMessage());
-            return false;
-        } catch (Exception e) {
-            log.warn("Root CA certificate validation failed: error={}", e.getMessage());
-            return false;
-        }
-    }
-    
     
     private void saveSchemasToStorage(List<SchemaMetadata> currentSchemas) {
         if (currentSchemas == null || currentSchemas.isEmpty()) {
@@ -611,38 +400,7 @@ public class JdbcBootstrapOrchestrator {
     }
     
     private void recreateSchemaRuntimeServices() {
-        if (cachedDatasourceId == null || cachedDatasourceId.trim().isEmpty()) {
-            log.warn("Cannot recreate runtime schema services without datasourceId.");
-            return;
-        }
-        this.schemaCollector = new JdbcSchemaCollector(cachedDatasourceId, config);
-        this.schemaSyncService = new JdbcSchemaSyncService(
-                config.getHubUrl(),
-                schemaCollector,
-                "/hub/api/v1/runtime/wrappers",
-                config,
-                policyResolver,
-                tenantIdManager,
-                5,
-                3000,
-                2000,
-                null,
-                null,
-                tenantIdManager.getCachedSchemaSyncUrl()
-        );
-        List<SchemaMetadata> allStoredSchemas = schemaStorage.loadSchemas();
-        boolean needsUpdate = false;
-        for (SchemaMetadata schema : allStoredSchemas) {
-            if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
-                schema.setDatasourceId(cachedDatasourceId);
-                needsUpdate = true;
-            }
-        }
-        if (needsUpdate) {
-            schemaStorage.saveSchemas(allStoredSchemas);
-            log.info("Stored schemas updated with datasourceId: datasourceId={}, schemaCount={}",
-                    cachedDatasourceId, allStoredSchemas.size());
-        }
+        log.debug("Runtime schema services are disabled in wrapper 6.0 runtime.");
     }
     private void initializeServicesWithTenantId(String tenantId) {
         
@@ -654,10 +412,7 @@ public class JdbcBootstrapOrchestrator {
             instanceId,
             cachedDatasourceId,
             "/hub/api/v1/runtime/wrappers",
-            policyResolver,
-            null,
-            null,
-            tenantIdManager.getCachedRefreshUrl()
+            policyResolver
         );
         
         
@@ -674,7 +429,7 @@ public class JdbcBootstrapOrchestrator {
         
         
         
-        this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
+        this.directCryptoAdapter = new DirectCryptoAdapter(tenantIdManager.isFailOpen());
         applyCryptoMode(this.directCryptoAdapter);
         
         
@@ -705,14 +460,13 @@ public class JdbcBootstrapOrchestrator {
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
+            adapter.setFailOpen(tenantIdManager.isFailOpen());
             adapter.setCryptoMode(
-                    config.getCryptoMode(),
+                    tenantIdManager.getCryptoMode(),
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     tenantIdManager.getCachedTenantId(),
-                    null,
-                    null,
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }
@@ -978,6 +732,14 @@ public class JdbcBootstrapOrchestrator {
     public String getCachedDatasourceId() {
         return cachedDatasourceId;
     }
+
+    public String getRuntimeCryptoMode() {
+        return tenantIdManager.getCryptoMode();
+    }
+
+    public boolean isRuntimeFailOpen() {
+        return tenantIdManager.isFailOpen();
+    }
     
     public JdbcSchemaSyncService getSchemaSyncService() {
         return schemaSyncService;
@@ -998,67 +760,6 @@ public class JdbcBootstrapOrchestrator {
 
     
     public void forceReloadSchemas() {
-        if (nativeJdbcUrl == null || nativeJdbcUrl.trim().isEmpty()) {
-            log.warn("Schema force reload failed: native JDBC URL not available");
-            return;
-        }
-
-        String tenantId = tenantIdManager.getCachedTenantId();
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            log.warn("Schema force reload failed: tenantId not available");
-            return;
-        }
-
-        log.info("Schema force reload starting: nativeUrl={}, tenantId={}", nativeJdbcUrl, tenantId);
-
-        Connection connection = null;
-        try {
-            
-            if (nativeJdbcProperties != null && !nativeJdbcProperties.isEmpty()) {
-                connection = java.sql.DriverManager.getConnection(nativeJdbcUrl, nativeJdbcProperties);
-            } else {
-                connection = java.sql.DriverManager.getConnection(nativeJdbcUrl);
-            }
-
-            
-            List<SchemaMetadata> reloadedSchemas = schemaSyncService.collectSchemasWithRetry(connection, 3, 2000);
-            if (reloadedSchemas == null || reloadedSchemas.isEmpty()) {
-                log.warn("Schema force reload: no schemas collected");
-                return;
-            }
-
-            log.info("Schema force reload: collected {} schemas", reloadedSchemas.size());
-
-            
-            if (cachedDatasourceId != null) {
-                for (SchemaMetadata schema : reloadedSchemas) {
-                    if (schema != null && (schema.getDatasourceId() == null || schema.getDatasourceId().trim().isEmpty())) {
-                        schema.setDatasourceId(cachedDatasourceId);
-                    }
-                }
-            }
-
-            
-            saveSchemasToStorage(reloadedSchemas);
-
-            
-            boolean synced = schemaSyncService.syncSpecificSchemasToHub(reloadedSchemas);
-            if (synced) {
-                log.info("Schema force reload completed: {} schemas sent to Hub", reloadedSchemas.size());
-            } else {
-                log.warn("Schema force reload: Hub sync failed (will retry on next cycle)");
-            }
-
-        } catch (Exception e) {
-            log.warn("Schema force reload failed: {}", e.getMessage());
-        } finally {
-            if (connection != null) {
-                try {
-                    connection.close();
-                } catch (SQLException e) {
-                    log.debug("Failed to close schema reload connection: {}", e.getMessage());
-                }
-            }
-        }
+        log.warn("Schema force reload is disabled in wrapper 6.0 runtime. Use the collector/CLI schema-register flow.");
     }
 }

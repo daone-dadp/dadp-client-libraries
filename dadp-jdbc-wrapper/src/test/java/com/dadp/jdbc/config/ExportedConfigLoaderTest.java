@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.policy.PolicyResolver;
@@ -30,11 +30,6 @@ class ExportedConfigLoaderTest {
                 + "  \"exportVersion\": 6,\n"
                 + "  \"tenantId\": \"wtenant_test\",\n"
                 + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"runtime\": {\n"
-                + "    \"refreshUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/refresh\",\n"
-                + "    \"schemaSyncUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync\"\n"
-                + "  },\n"
-                + "  \"wrapperAuthSecret\": \"must-be-ignored\",\n"
                 + "  \"hubUrl\": \"http://must-not-be-used:9004\",\n"
                 + "  \"mappings\": {\"users.email\":\"dadp\"},\n"
                 + "  \"statsConfig\": {\"enabled\": true, \"url\": \"http://aggregator:9005\"}\n"
@@ -43,8 +38,8 @@ class ExportedConfigLoaderTest {
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        TenantIdManager tenantIdManager =
-                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        WrapperRuntimeConfigManager tenantIdManager =
+                new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
 
@@ -60,8 +55,6 @@ class ExportedConfigLoaderTest {
         assertNotNull(saved);
         assertEquals("wtenant_test", saved.getTenantId());
         assertEquals("ds-test", saved.getDatasourceId());
-        assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", saved.getRefreshUrl());
-        assertEquals("/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync", saved.getSchemaSyncUrl());
         assertEquals(null, endpointStorage.loadEndpoints());
         assertEquals(Long.valueOf(0L), policyResolver.getCurrentVersion());
     }
@@ -82,8 +75,8 @@ class ExportedConfigLoaderTest {
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        TenantIdManager tenantIdManager =
-                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        WrapperRuntimeConfigManager tenantIdManager =
+                new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
 
         String datasourceId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
@@ -105,18 +98,14 @@ class ExportedConfigLoaderTest {
                 + "  \"exportVersion\": 6,\n"
                 + "  \"tenantId\": \"wtenant_test\",\n"
                 + "  \"datasourceId\": \"ds-test\",\n"
-                + "  \"runtime\": {\n"
-                + "    \"refreshUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/refresh\",\n"
-                + "    \"schemaSyncUrl\": \"/hub/api/v1/runtime/wrappers/wtenant_test/schema-sync\"\n"
-                + "  },\n"
                 + "  \"mappings\": {}\n"
                 + "}\n";
         Files.write(storageDir.resolve("exported-config.json"), json.getBytes(StandardCharsets.UTF_8));
 
         InstanceConfigStorage configStorage =
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
-        TenantIdManager tenantIdManager =
-                new TenantIdManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        WrapperRuntimeConfigManager tenantIdManager =
+                new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
         HashMap<String, String> existingMappings = new HashMap<>();
         existingMappings.put("users.email", "dadp");

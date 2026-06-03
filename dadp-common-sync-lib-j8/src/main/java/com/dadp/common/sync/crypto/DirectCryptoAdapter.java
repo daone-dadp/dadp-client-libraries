@@ -23,7 +23,7 @@ public class DirectCryptoAdapter {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DirectCryptoAdapter.class);
     
-    private final boolean failOpen;
+    private volatile boolean failOpen;
     private volatile boolean endpointAvailable = true; // 엔드포인트 연결 가능 여부
     
     // 현재 사용 중인 HubCryptoService (Engine/Gateway 직접 연결)
@@ -47,6 +47,11 @@ public class DirectCryptoAdapter {
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
         log.trace("Direct crypto adapter created: failOpen={}", failOpen);
+    }
+
+    public void setFailOpen(boolean failOpen) {
+        this.failOpen = failOpen;
+        log.info("Direct crypto adapter failOpen updated: {}", failOpen);
     }
     
     /**
@@ -133,24 +138,12 @@ public class DirectCryptoAdapter {
     }
 
     public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote, Integer timeoutMillis) {
-        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis, null, null, false, "1hour");
-    }
-
-    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
-                              Integer timeoutMillis, String ignoredAuthId, String ignoredAuthSecret) {
         setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis,
-                ignoredAuthId, ignoredAuthSecret, false, "1hour");
+                null, false, "1hour");
     }
 
     public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
-                              Integer timeoutMillis, String ignoredAuthId, String ignoredAuthSecret,
-                              boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
-        setCryptoMode(cryptoMode, hubBaseUrl, localFallbackRemote, timeoutMillis,
-                null, ignoredAuthId, ignoredAuthSecret, cryptoStatsEnabled, cryptoStatsAggregationLevel);
-    }
-
-    public void setCryptoMode(String cryptoMode, String hubBaseUrl, boolean localFallbackRemote,
-                              Integer timeoutMillis, String hubTenantId, String ignoredAuthId, String ignoredAuthSecret,
+                              Integer timeoutMillis, String hubTenantId,
                               boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         String normalized = cryptoMode != null ? cryptoMode.trim().toLowerCase() : "remote";
         if (!"local".equals(normalized)) {

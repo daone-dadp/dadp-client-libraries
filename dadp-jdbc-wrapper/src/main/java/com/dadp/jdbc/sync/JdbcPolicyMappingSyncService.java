@@ -3,7 +3,7 @@ package com.dadp.jdbc.sync;
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.config.InstanceIdProvider;
 import com.dadp.common.sync.config.StoragePathResolver;
@@ -45,7 +45,7 @@ public class JdbcPolicyMappingSyncService {
     private final AtomicBoolean enabled = new AtomicBoolean(false);
     
     
-    private final TenantIdManager tenantIdManager;
+    private final WrapperRuntimeConfigManager tenantIdManager;
     
     
     private final PolicyMappingSyncOrchestrator syncOrchestrator;
@@ -88,7 +88,7 @@ public class JdbcPolicyMappingSyncService {
         
         String hubUrl = config.getHubUrl();
         final JdbcPolicyMappingSyncService self = this;
-        this.tenantIdManager = new TenantIdManager(
+        this.tenantIdManager = new WrapperRuntimeConfigManager(
             configStorage,
             hubUrl,
             instanceIdProvider,
@@ -158,7 +158,7 @@ public class JdbcPolicyMappingSyncService {
         }
         
         
-        if (!config.isAutoPolicyMappingSyncEnabled()) {
+        if (!tenantIdManager.isPolicySyncAutoEnabled()) {
             setEnabled(false);
             log.info("Automatic policy mapping sync disabled by default in DADP 6.0: tenantId={}, alias={}", tenantId, instanceId);
             return;
@@ -191,8 +191,7 @@ public class JdbcPolicyMappingSyncService {
                     return;
                 }
                 
-                log.trace("Wrapper policy mapping version check starting");
-                checkMappingChange();
+                refreshFromHub("auto");
             } catch (Exception e) {
                 
                 log.warn("Exception during periodic policy mapping version check (will retry next cycle): {}", e.getMessage(), e);
@@ -222,38 +221,38 @@ public class JdbcPolicyMappingSyncService {
             instanceId,
             datasourceId,
             apiBasePath,
-            policyResolver,
-            null,
-            null,
-            tenantIdManager.getCachedRefreshUrl());
+            policyResolver);
         log.info("MappingSyncService recreated: tenantId={}", tenantId);
     }
     
     
     private void checkMappingChange() {
-        
-        syncOrchestrator.checkMappingChange();
+        refreshFromHub("auto");
     }
 
     public void refreshNow() {
+        refreshFromHub("manual");
+    }
+
+    private void refreshFromHub(String trigger) {
         if (!initialized) {
-            log.warn("Manual policy mapping refresh skipped: service not initialized");
+            log.warn("Policy mapping refresh skipped: service not initialized, trigger={}", trigger);
             return;
         }
         String tenantId = tenantIdManager.getCachedTenantId();
         if (tenantId == null || tenantId.trim().isEmpty()) {
-            log.warn("Manual policy mapping refresh skipped: tenantId not available");
+            log.warn("Policy mapping refresh skipped: tenantId not available, trigger={}", trigger);
             return;
         }
-        log.info("Manual policy mapping refresh starting: tenantId={}, alias={}", tenantId, instanceId);
+        log.info("Policy mapping refresh starting: trigger={}, tenantId={}, alias={}", trigger, tenantId, instanceId);
         try {
             Long currentVersion = policyResolver.getCurrentVersion();
             int loadedCount = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
             updateSchemaPolicyNames();
             applySnapshotAfterPolicyRefresh(mappingSyncService.getLastSnapshot(), loadedCount);
-            log.info("Manual policy mapping refresh completed: tenantId={}, mappings={}", tenantId, loadedCount);
+            log.info("Policy mapping refresh completed: trigger={}, tenantId={}, mappings={}", trigger, tenantId, loadedCount);
         } catch (Exception e) {
-            log.warn("Manual policy mapping refresh failed: {}", e.getMessage());
+            log.warn("Policy mapping refresh failed: trigger={}, error={}", trigger, e.getMessage());
         }
     }
 
@@ -416,15 +415,29 @@ public class JdbcPolicyMappingSyncService {
         }
         MappingSyncService.WrapperConfig wrapperConfig = snapshot.getWrapperConfig();
         if (wrapperConfig == null) return;
+        String runtimeVersion = snapshot.getVersion() != null
+                ? String.valueOf(snapshot.getVersion())
+                : tenantIdManager.getCachedRuntimeVersion();
         if (configStorage != null) {
             try {
                 configStorage.saveRuntimeOptions(
+                        wrapperConfig.getCryptoMode(),
+                        wrapperConfig.getFailOpen(),
+                        wrapperConfig.getPolicySyncAutoEnabled(),
+                        runtimeVersion);
+                tenantIdManager.applyRefreshOptions(
                         wrapperConfig.getEnabled(),
                         wrapperConfig.getCryptoMode(),
-                        tenantIdManager.getCachedRuntimeVersion());
+                        wrapperConfig.getFailOpen(),
+                        wrapperConfig.getPolicySyncAutoEnabled(),
+                        runtimeVersion,
+                        false);
             } catch (Exception e) {
                 log.warn("Failed to persist runtime wrapper options from Hub refresh: {}", e.getMessage());
             }
+        }
+        if (wrapperConfig.getFailOpen() != null && directCryptoAdapter != null) {
+            directCryptoAdapter.setFailOpen(wrapperConfig.getFailOpen().booleanValue());
         }
         if (wrapperConfig.getCryptoMode() != null && !wrapperConfig.getCryptoMode().trim().isEmpty()
                 && directCryptoAdapter != null) {
@@ -435,8 +448,6 @@ public class JdbcPolicyMappingSyncService {
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     tenantIdManager.getCachedTenantId(),
-                    null,
-                    null,
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
             log.info("Wrapper crypto mode applied from Hub refresh: cryptoMode={}", cryptoMode);

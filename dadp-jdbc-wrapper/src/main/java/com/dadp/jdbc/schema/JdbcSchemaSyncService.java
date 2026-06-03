@@ -2,7 +2,7 @@ package com.dadp.jdbc.schema;
 
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.schema.RetryableSchemaSyncService;
 import com.dadp.common.sync.schema.SchemaCollector;
 import com.dadp.common.sync.schema.SchemaMetadata;
@@ -31,8 +31,7 @@ public class JdbcSchemaSyncService {
     private final String apiBasePath;
     private final ProxyConfig proxyConfig;
     private final com.dadp.common.sync.policy.PolicyResolver policyResolver;
-    private final TenantIdManager tenantIdManager; // TenantIdManager (null 가능, 있으면 사용)
-    private final String runtimeSchemaSyncUrl;
+    private final WrapperRuntimeConfigManager tenantIdManager; // WrapperRuntimeConfigManager (null 가능, 있으면 사용)
     
     public JdbcSchemaSyncService(String hubUrl, 
                                 SchemaCollector schemaCollector,
@@ -67,38 +66,21 @@ public class JdbcSchemaSyncService {
                                 String apiBasePath,
                                 ProxyConfig proxyConfig,
                                 com.dadp.common.sync.policy.PolicyResolver policyResolver,
-                                TenantIdManager tenantIdManager,
+                                WrapperRuntimeConfigManager tenantIdManager,
                                 int maxRetries,
                                 long initialDelayMs,
                                 long backoffMs) {
-        this(hubUrl, schemaCollector, apiBasePath, proxyConfig, policyResolver, tenantIdManager,
-                maxRetries, initialDelayMs, backoffMs, null, null, null);
-    }
-
-    public JdbcSchemaSyncService(String hubUrl,
-                                SchemaCollector schemaCollector,
-                                String apiBasePath,
-                                ProxyConfig proxyConfig,
-                                com.dadp.common.sync.policy.PolicyResolver policyResolver,
-                                TenantIdManager tenantIdManager,
-                                int maxRetries,
-                                long initialDelayMs,
-                                long backoffMs,
-                                String ignoredAuthKey,
-                                String ignoredAuthSecret,
-                                String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.proxyConfig = proxyConfig;
         this.policyResolver = policyResolver;
         this.tenantIdManager = tenantIdManager;
-        this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         
         // RetryableSchemaSyncService 생성 (공통 로직 사용)
         this.schemaSyncService = new RetryableSchemaSyncService(
             hubUrl,
             schemaCollector,
-            createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeSchemaSyncUrl),
+            createExecutor(hubUrl, apiBasePath, proxyConfig),
             null,
             maxRetries,
             initialDelayMs,
@@ -107,11 +89,6 @@ public class JdbcSchemaSyncService {
     }
     
     private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig) {
-        return createExecutor(hubUrl, apiBasePath, proxyConfig, null);
-    }
-
-    private static SchemaSyncExecutor createExecutor(String hubUrl, String apiBasePath, ProxyConfig proxyConfig,
-                                                     String runtimeSchemaSyncUrl) {
         // 공통 인터페이스 사용 (Java 8용 HTTP 클라이언트)
         com.dadp.common.sync.http.HttpClientAdapter httpClient = com.dadp.common.sync.http.Java8HttpClientAdapterFactory.create(5000, 10000);
         String instanceType = (apiBasePath != null && apiBasePath.contains("/runtime/wrappers")) ? "JDBC" : null;
@@ -119,10 +96,7 @@ public class JdbcSchemaSyncService {
                 hubUrl,
                 apiBasePath,
                 instanceType,
-                httpClient,
-                null,
-                null,
-                runtimeSchemaSyncUrl);
+                httpClient);
     }
     
     /**
@@ -196,7 +170,7 @@ public class JdbcSchemaSyncService {
         try {
             // SchemaSyncExecutor를 직접 사용하여 특정 스키마만 전송
             enrichPolicyCodes(schemas);
-            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig, runtimeSchemaSyncUrl);
+            SchemaSyncExecutor executor = createExecutor(hubUrl, apiBasePath, proxyConfig);
             boolean synced = executor.syncToHub(schemas, tenantId, proxyConfig.getAlias(), currentVersion);
             
             if (synced) {
@@ -233,7 +207,7 @@ public class JdbcSchemaSyncService {
      * 영구저장소에서 tenantId 로드
      */
     private String loadTenantIdFromStorage() {
-        // TenantIdManager가 있으면 TenantIdManager 사용, 없으면 ProxyConfig 사용 (하위 호환성)
+        // WrapperRuntimeConfigManager가 있으면 WrapperRuntimeConfigManager 사용, 없으면 ProxyConfig 사용 (하위 호환성)
         if (tenantIdManager != null) {
             return tenantIdManager.getCachedTenantId();
         } else {

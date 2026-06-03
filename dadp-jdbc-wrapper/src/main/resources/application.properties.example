@@ -7,5 +7,4 @@ spring.datasource.driver-class-name=com.dadp.jdbc.DadpJdbcDriver
 spring.datasource.username=root
 spring.datasource.password=password
 
-# Storage bootstrap (optional)
-dadp.storage.dir=/app/dadp/wrapper
+# Storage bootstrap (optional): set DADP_STORAGE_DIR=/app/dadp/wrapper

@@ -211,14 +211,15 @@ public class DadpProxyConnection implements Connection {
             if (effectiveTenantId == null || effectiveTenantId.trim().isEmpty()) {
                 effectiveTenantId = config.getTenantId();
             }
+            if (orchestrator != null) {
+                adapter.setFailOpen(orchestrator.isRuntimeFailOpen());
+            }
             adapter.setCryptoMode(
-                    config.getCryptoMode(),
+                    orchestrator != null ? orchestrator.getRuntimeCryptoMode() : config.getCryptoMode(),
                     config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     effectiveTenantId,
-                    null,
-                    null,
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }

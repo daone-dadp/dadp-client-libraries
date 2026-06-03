@@ -23,25 +23,8 @@ public class WrapperLocalCryptoService {
         this(hubBaseUrl, timeoutMillis, (String) null, false, "1hour");
     }
 
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis, String ignoredAuthId, String ignoredAuthSecret) {
-        this(hubBaseUrl, timeoutMillis, (String) null, false, "1hour");
-    }
-
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String tenantId, String ignoredAuthId, String ignoredAuthSecret) {
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis, String tenantId) {
         this(hubBaseUrl, timeoutMillis, tenantId, false, "1hour");
-    }
-
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String ignoredAuthId, String ignoredAuthSecret,
-                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
-        this(hubBaseUrl, timeoutMillis, (String) null, cryptoStatsEnabled, cryptoStatsAggregationLevel);
-    }
-
-    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
-                                     String tenantId, String ignoredAuthId, String ignoredAuthSecret,
-                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
-        this(hubBaseUrl, timeoutMillis, tenantId, cryptoStatsEnabled, cryptoStatsAggregationLevel);
     }
 
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,

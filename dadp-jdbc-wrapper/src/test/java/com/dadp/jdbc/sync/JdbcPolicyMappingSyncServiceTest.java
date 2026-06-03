@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.config.InstanceConfigStorage;
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.endpoint.EndpointSyncService;
@@ -66,7 +66,7 @@ class JdbcPolicyMappingSyncServiceTest {
 
         Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
         tenantIdManagerField.setAccessible(true);
-        TenantIdManager tenantIdManager = (TenantIdManager) tenantIdManagerField.get(service);
+        WrapperRuntimeConfigManager tenantIdManager = (WrapperRuntimeConfigManager) tenantIdManagerField.get(service);
         tenantIdManager.setTenantId("hub-test", false);
 
         MappingSyncService.StatsAggregatorInfo statsAggregator = new MappingSyncService.StatsAggregatorInfo();
@@ -130,7 +130,7 @@ class JdbcPolicyMappingSyncServiceTest {
 
         Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
         tenantIdManagerField.setAccessible(true);
-        TenantIdManager tenantIdManager = (TenantIdManager) tenantIdManagerField.get(service);
+        WrapperRuntimeConfigManager tenantIdManager = (WrapperRuntimeConfigManager) tenantIdManagerField.get(service);
         tenantIdManager.setTenantId("pi_alias_only", true);
 
         assertTrue(configStorage.getStoragePath().replace('\\', '/').contains("/proxy-config.json"));
@@ -233,8 +233,6 @@ class JdbcPolicyMappingSyncServiceTest {
                 eq(true),
                 eq(30000),
                 eq("wtenant_manual"),
-                isNull(),
-                isNull(),
                 eq(false),
                 eq("1hour"));
     }

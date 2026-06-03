@@ -149,11 +149,7 @@ public class HubCryptoService {
     // SSL helpers
 
     private static String getDadpCaCertPath() {
-        String caCertPath = System.getenv("DADP_CA_CERT_PATH");
-        if (caCertPath == null || caCertPath.trim().isEmpty()) {
-            caCertPath = System.getProperty("dadp.ca.cert.path");
-        }
-        return caCertPath != null && !caCertPath.trim().isEmpty() ? caCertPath.trim() : null;
+        return null;
     }
 
     private static X509Certificate pemToCertificate(String pem) throws Exception {

@@ -1,7 +1,7 @@
 package com.dadp.jdbc.config;
 
 import com.dadp.common.sync.config.EndpointStorage;
-import com.dadp.common.sync.config.TenantIdManager;
+import com.dadp.common.sync.config.WrapperRuntimeConfigManager;
 import com.dadp.common.sync.policy.PolicyResolver;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -25,11 +25,7 @@ import java.util.Map;
  * {
  *   "exportVersion": 6,
  *   "tenantId": "wtenant_xxxxxxxxxxxx",
- *   "datasourceId": "ds_xxxxxxxxxxxx",
- *   "runtime": {
- *     "refreshUrl": "/hub/api/v1/runtime/wrappers/wtenant_xxxxxxxxxxxx/refresh",
- *     "schemaSyncUrl": "/hub/api/v1/runtime/wrappers/wtenant_xxxxxxxxxxxx/schema-sync"
- *   }
+ *   "datasourceId": "ds_xxxxxxxxxxxx"
  * }
  * </pre>
  *
@@ -51,7 +47,7 @@ public class ExportedConfigLoader {
      *
      * @param storageDir storage directory path (e.g., ./dadp/wrapper/{instanceId})
      * @param instanceId instance identifier
-     * @param tenantIdManager TenantIdManager to save the tenantId
+     * @param tenantIdManager WrapperRuntimeConfigManager to save the tenantId
      * @param policyResolver PolicyResolver to refresh policy mappings
      * @param endpointStorage EndpointStorage to save endpoint info
      * @return the loaded datasourceId if config was loaded and applied successfully, null otherwise
@@ -60,20 +56,20 @@ public class ExportedConfigLoader {
     public static String loadIfExists(
             String storageDir,
             String instanceId,
-            TenantIdManager tenantIdManager,
+            WrapperRuntimeConfigManager tenantIdManager,
             PolicyResolver policyResolver,
             EndpointStorage endpointStorage) {
         return loadIfExists(storageDir, instanceId, tenantIdManager, policyResolver, endpointStorage, null);
     }
 
     /**
-     * Try to load exported config (with ProxyConfig for wrapperEnabled support).
+     * Try to load exported config.
      */
     @SuppressWarnings("unchecked")
     public static String loadIfExists(
             String storageDir,
             String instanceId,
-            TenantIdManager tenantIdManager,
+            WrapperRuntimeConfigManager tenantIdManager,
             PolicyResolver policyResolver,
             EndpointStorage endpointStorage,
             ProxyConfig proxyConfig) {
@@ -104,30 +100,12 @@ public class ExportedConfigLoader {
 
             String tenantId = getStringValue(config, "tenantId");
             String datasourceId = getStringValue(config, "datasourceId");
-            Map<String, Object> runtime = (Map<String, Object>) config.get("runtime");
-            String refreshUrl = getStringValue(runtime, "refreshUrl");
-            String schemaSyncUrl = getStringValue(runtime, "schemaSyncUrl");
-            if (refreshUrl == null) {
-                refreshUrl = getStringValue(config, "refreshUrl");
-            }
-            if (schemaSyncUrl == null) {
-                schemaSyncUrl = getStringValue(config, "schemaSyncUrl");
-            }
-
             if (tenantId == null || tenantId.trim().isEmpty()) {
                 log.warn("Exported config missing required field: tenantId");
                 return null;
             }
             if (datasourceId == null || datasourceId.trim().isEmpty()) {
                 log.warn("Exported config missing required field: datasourceId");
-                return null;
-            }
-            if (refreshUrl == null || refreshUrl.trim().isEmpty()) {
-                log.warn("Exported config missing required field: runtime.refreshUrl");
-                return null;
-            }
-            if (schemaSyncUrl == null || schemaSyncUrl.trim().isEmpty()) {
-                log.warn("Exported config missing required field: runtime.schemaSyncUrl");
                 return null;
             }
 
@@ -140,9 +118,7 @@ public class ExportedConfigLoader {
                 return null;
             }
 
-            tenantIdManager.setTenantId(tenantId, true);
-            tenantIdManager.setWrapperEnrollment(tenantId, datasourceId,
-                    refreshUrl, schemaSyncUrl, "6.0", true);
+            tenantIdManager.setWrapperEnrollment(tenantId, datasourceId, "6.0", true);
             log.info("Exported config loaded successfully: tenantId={}, datasourceId={}",
                     tenantId, datasourceId);
 

@@ -52,7 +52,7 @@ public class SchemaCollectionConfigStorage {
     
     /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
-     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
+     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
      */
     public SchemaCollectionConfigStorage() {
         this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);

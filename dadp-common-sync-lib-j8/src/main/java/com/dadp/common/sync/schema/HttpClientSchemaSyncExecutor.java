@@ -32,31 +32,16 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     private final String instanceType;
     private final HttpClientAdapter httpClient;
     private final ObjectMapper objectMapper;
-    private final String runtimeSchemaSyncUrl;
     
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, HttpClientAdapter httpClient) {
         this(hubUrl, apiBasePath, null, httpClient);
     }
     
     public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType, HttpClientAdapter httpClient) {
-        this(hubUrl, apiBasePath, instanceType, httpClient, null, null);
-    }
-
-    public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
-                                        HttpClientAdapter httpClient,
-                                        String ignoredAuthKey, String ignoredAuthSecret) {
-        this(hubUrl, apiBasePath, instanceType, httpClient, ignoredAuthKey, ignoredAuthSecret, null);
-    }
-
-    public HttpClientSchemaSyncExecutor(String hubUrl, String apiBasePath, String instanceType,
-                                        HttpClientAdapter httpClient,
-                                        String ignoredAuthKey, String ignoredAuthSecret,
-                                        String runtimeSchemaSyncUrl) {
         this.hubUrl = hubUrl;
         this.apiBasePath = apiBasePath;
         this.instanceType = instanceType;
         this.httpClient = httpClient;
-        this.runtimeSchemaSyncUrl = runtimeSchemaSyncUrl;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -127,14 +112,6 @@ public class HttpClientSchemaSyncExecutor implements SchemaSyncExecutor {
     }
 
     private String resolveRuntimeSchemaSyncUrl(String tenantId) {
-        if (runtimeSchemaSyncUrl != null && !runtimeSchemaSyncUrl.trim().isEmpty()) {
-            if (runtimeSchemaSyncUrl.startsWith("http://") || runtimeSchemaSyncUrl.startsWith("https://")) {
-                return runtimeSchemaSyncUrl;
-            }
-            String base = hubUrl != null && hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
-            String path = runtimeSchemaSyncUrl.startsWith("/") ? runtimeSchemaSyncUrl : "/" + runtimeSchemaSyncUrl;
-            return base + path;
-        }
         return hubUrl + apiBasePath + "/" + tenantId + "/schema-sync";
     }
 

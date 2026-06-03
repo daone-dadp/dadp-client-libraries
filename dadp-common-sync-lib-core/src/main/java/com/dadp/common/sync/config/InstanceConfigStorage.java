@@ -69,7 +69,7 @@ public class InstanceConfigStorage {
      * @return 저장 성공 여부
      */
     public boolean saveConfig(String tenantId, String hubUrl, String instanceId, Boolean failOpen) {
-        return saveConfig(tenantId, hubUrl, instanceId, failOpen, null, null, null, null);
+        return saveConfig(tenantId, hubUrl, instanceId, failOpen, null, null);
     }
 
     /**
@@ -80,8 +80,6 @@ public class InstanceConfigStorage {
                               String instanceId,
                               Boolean failOpen,
                               String datasourceId,
-                              String refreshUrl,
-                              String schemaSyncUrl,
                               String runtimeVersion) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save instance config");
@@ -98,20 +96,12 @@ public class InstanceConfigStorage {
                 data.setTenantId(tenantId);
             }
             data.setHubUrl(null);
-            if (instanceId != null) {
-                data.setInstanceId(instanceId);
-            }
+            data.setInstanceId(null);
             if (failOpen != null) {
                 data.setFailOpen(failOpen);
             }
             if (datasourceId != null) {
                 data.setDatasourceId(datasourceId);
-            }
-            if (refreshUrl != null) {
-                data.setRefreshUrl(refreshUrl);
-            }
-            if (schemaSyncUrl != null) {
-                data.setSchemaSyncUrl(schemaSyncUrl);
             }
             if (runtimeVersion != null) {
                 data.setRuntimeVersion(runtimeVersion);
@@ -138,7 +128,10 @@ public class InstanceConfigStorage {
      * startup can use them as the local third-priority snapshot, but they must not change
      * immutable bootstrap values such as JDBC URL hubUrl or alias.</p>
      */
-    public boolean saveRuntimeOptions(Boolean wrapperEnabled, String cryptoMode, String runtimeVersion) {
+    public boolean saveRuntimeOptions(String cryptoMode,
+                                      Boolean failOpen,
+                                      Boolean policySyncAutoEnabled,
+                                      String runtimeVersion) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save runtime options");
             return false;
@@ -150,11 +143,14 @@ public class InstanceConfigStorage {
                 data = new ConfigData();
             }
             data.setTimestamp(System.currentTimeMillis());
-            if (wrapperEnabled != null) {
-                data.setWrapperEnabled(wrapperEnabled);
-            }
             if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
                 data.setCryptoMode(cryptoMode.trim());
+            }
+            if (failOpen != null) {
+                data.setFailOpen(failOpen);
+            }
+            if (policySyncAutoEnabled != null) {
+                data.setPolicySyncAutoEnabled(policySyncAutoEnabled);
             }
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 data.setRuntimeVersion(runtimeVersion.trim());
@@ -162,8 +158,8 @@ public class InstanceConfigStorage {
 
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            log.debug("Runtime options saved: wrapperEnabled={}, cryptoMode={}, runtimeVersion={} -> {}",
-                    data.getWrapperEnabled(), data.getCryptoMode(), data.getRuntimeVersion(), storagePath);
+            log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={} -> {}",
+                    data.getCryptoMode(), data.getFailOpen(), data.getPolicySyncAutoEnabled(), data.getRuntimeVersion(), storagePath);
             return true;
         } catch (IOException e) {
             log.warn("Runtime option save failed: {}", storagePath, e);
@@ -200,7 +196,7 @@ public class InstanceConfigStorage {
             
             // hubUrl is not a persisted runtime source in DADP 6 wrapper.
             // It must come from the JDBC URL on every startup.
-            if (instanceId != null && !instanceId.equals(data.getInstanceId())) {
+            if (instanceId != null && data.getInstanceId() != null && !instanceId.equals(data.getInstanceId())) {
                 log.debug("Instance ID mismatch, skipping config load: stored={}, requested={}",
                         data.getInstanceId(), instanceId);
                 return null;
@@ -289,11 +285,9 @@ public class InstanceConfigStorage {
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open mode; Hub runtime refresh has priority.
         private String datasourceId;  // Hub-owned shared datasource ID
-        private String refreshUrl;  // Hub 6 runtime refresh URL
-        private String schemaSyncUrl;  // Hub 6 runtime schema-sync URL
         private String runtimeVersion;  // Hub runtime contract version
-        private Boolean wrapperEnabled;  // Hub refresh runtime option
         private String cryptoMode;  // Hub refresh runtime option: remote | local
+        private Boolean policySyncAutoEnabled;  // Hub refresh runtime option
         
         public long getTimestamp() {
             return timestamp;
@@ -343,22 +337,6 @@ public class InstanceConfigStorage {
             this.datasourceId = datasourceId;
         }
 
-        public String getRefreshUrl() {
-            return refreshUrl;
-        }
-
-        public void setRefreshUrl(String refreshUrl) {
-            this.refreshUrl = refreshUrl;
-        }
-
-        public String getSchemaSyncUrl() {
-            return schemaSyncUrl;
-        }
-
-        public void setSchemaSyncUrl(String schemaSyncUrl) {
-            this.schemaSyncUrl = schemaSyncUrl;
-        }
-
         public String getRuntimeVersion() {
             return runtimeVersion;
         }
@@ -367,20 +345,20 @@ public class InstanceConfigStorage {
             this.runtimeVersion = runtimeVersion;
         }
 
-        public Boolean getWrapperEnabled() {
-            return wrapperEnabled;
-        }
-
-        public void setWrapperEnabled(Boolean wrapperEnabled) {
-            this.wrapperEnabled = wrapperEnabled;
-        }
-
         public String getCryptoMode() {
             return cryptoMode;
         }
 
         public void setCryptoMode(String cryptoMode) {
             this.cryptoMode = cryptoMode;
+        }
+
+        public Boolean getPolicySyncAutoEnabled() {
+            return policySyncAutoEnabled;
+        }
+
+        public void setPolicySyncAutoEnabled(Boolean policySyncAutoEnabled) {
+            this.policySyncAutoEnabled = policySyncAutoEnabled;
         }
     }
 }

@@ -42,7 +42,7 @@ class WrapperLocalCryptoServiceTest {
         try {
             String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
             WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
-                    "wtenant_local", "wrapper-test", "wrapper-secret");
+                    "wtenant_local");
 
             String encrypted = service.encrypt("local-wrapper-value", "customer-policy");
 

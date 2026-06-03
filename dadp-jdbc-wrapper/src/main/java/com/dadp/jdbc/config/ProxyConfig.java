@@ -34,7 +34,7 @@ public class ProxyConfig {
     private final boolean hubUrlConfigured;
     private final String alias;  // 공유 DB 그룹 별칭
     private final boolean aliasConfigured;
-    private volatile String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, TenantIdManager에서 관리)
+    private volatile String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, WrapperRuntimeConfigManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
     private final String singleTransportMode;  // 단건 암복호화 transport mode (json | binary-framed)
@@ -58,7 +58,7 @@ public class ProxyConfig {
     private final String schemaCollectionFailMode;  // 실패 모드 ("fail-open" 또는 "fail-close")
     private volatile boolean enabled;  // Wrapper 활성화 여부 (false면 암복호화 없이 순수 패스스루, Hub 설정으로 변경 가능)
 
-    // InstanceConfigStorage는 TenantIdManager에서 관리하므로 제거
+    // InstanceConfigStorage는 WrapperRuntimeConfigManager에서 관리하므로 제거
     
     /**
      * JDBC URL 쿼리 파라미터에서 Proxy 설정을 읽어서 생성
@@ -112,7 +112,7 @@ public class ProxyConfig {
 
         this.enabled = true;
 
-        // tenantId는 TenantIdManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
+        // tenantId는 WrapperRuntimeConfigManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음
         this.tenantId = null;
         
@@ -220,16 +220,16 @@ public class ProxyConfig {
     }
     
     /**
-     * tenantId 저장 (캐시만 업데이트, 영구저장소는 TenantIdManager에서 관리)
+     * tenantId 저장 (캐시만 업데이트, 영구저장소는 WrapperRuntimeConfigManager에서 관리)
      * 
      * @param tenantId Hub가 발급한 고유 ID
-     * @deprecated tenantId는 TenantIdManager에서 전역으로 관리되므로 이 메서드는 캐시만 업데이트합니다.
-     *             실제 저장은 TenantIdManager.setTenantId()를 사용하세요.
+     * @deprecated tenantId는 WrapperRuntimeConfigManager에서 전역으로 관리되므로 이 메서드는 캐시만 업데이트합니다.
+     *             실제 저장은 WrapperRuntimeConfigManager.setTenantId()를 사용하세요.
      */
     @Deprecated
     public void setTenantId(String tenantId) {
         // 캐시만 업데이트 (하위 호환성을 위해 유지)
-        // 실제 저장은 TenantIdManager에서 관리
+        // 실제 저장은 WrapperRuntimeConfigManager에서 관리
         this.tenantId = tenantId;
     }
     
@@ -497,5 +497,5 @@ public class ProxyConfig {
         }
     }
     
-    // InstanceConfigStorage는 TenantIdManager에서 관리하므로 제거됨
+    // InstanceConfigStorage는 WrapperRuntimeConfigManager에서 관리하므로 제거됨
 }

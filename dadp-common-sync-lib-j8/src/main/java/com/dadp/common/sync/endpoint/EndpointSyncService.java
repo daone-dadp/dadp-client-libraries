@@ -34,16 +34,11 @@ public class EndpointSyncService {
     private final EndpointStorage endpointStorage;
     
     public EndpointSyncService(String hubUrl, String tenantId, String alias) {
-        this(hubUrl, tenantId, alias, new EndpointStorage(requireAlias(alias)), null, null);
+        this(hubUrl, tenantId, alias, new EndpointStorage(requireAlias(alias)));
     }
     
     public EndpointSyncService(String hubUrl, String tenantId, String alias, String storageDir, String fileName) {
-        this(hubUrl, tenantId, alias, new EndpointStorage(storageDir, fileName), null, null);
-    }
-
-    public EndpointSyncService(String hubUrl, String tenantId, String alias, String storageDir, String fileName,
-                               String ignoredAuthKey, String ignoredAuthSecret) {
-        this(hubUrl, tenantId, alias, new EndpointStorage(storageDir, fileName), ignoredAuthKey, ignoredAuthSecret);
+        this(hubUrl, tenantId, alias, new EndpointStorage(storageDir, fileName));
     }
     
     /**
@@ -55,11 +50,6 @@ public class EndpointSyncService {
      * @param endpointStorage EndpointStorage 인스턴스 (싱글톤 재사용)
      */
     public EndpointSyncService(String hubUrl, String tenantId, String alias, EndpointStorage endpointStorage) {
-        this(hubUrl, tenantId, alias, endpointStorage, null, null);
-    }
-
-    public EndpointSyncService(String hubUrl, String tenantId, String alias, EndpointStorage endpointStorage,
-                               String ignoredAuthKey, String ignoredAuthSecret) {
         this.hubUrl = hubUrl;
         this.tenantId = tenantId;
         this.alias = alias;

@@ -42,7 +42,7 @@ public class SchemaCollectionConfigResolver {
     
     /**
      * 기본 저장 디렉토리 조회 (instanceId 사용)
-     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
+     * DADP_STORAGE_DIR 환경 변수에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
      * 
      * @param instanceId 인스턴스 ID (별칭, 앱 구동 시점에 알 수 있음)
      * @return 저장 디렉토리 경로
@@ -53,7 +53,7 @@ public class SchemaCollectionConfigResolver {
     
     /**
      * 싱글톤 인스턴스 조회 (기본 경로 사용)
-     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
+     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
      * 
      * @return 싱글톤 SchemaCollectionConfigResolver 인스턴스
      */
@@ -70,7 +70,7 @@ public class SchemaCollectionConfigResolver {
     
     /**
      * 기본 생성자 (영구 저장소 자동 초기화)
-     * 기본 경로는 시스템 프로퍼티(dadp.storage.dir) 또는 환경 변수(DADP_STORAGE_DIR)로 설정 가능
+     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
      */
     public SchemaCollectionConfigResolver() {
         this(new SchemaCollectionConfigStorage());
