@@ -47,20 +47,21 @@ public class DadpProxyConnection implements Connection {
     private final Connection actualConnection;
     private final ProxyConfig config;
     private volatile DirectCryptoAdapter directCryptoAdapter; // 직접 암복호화 어댑터
-    private final JdbcSchemaSyncService schemaSyncService;
-    private final MappingSyncService mappingSyncService;
-    private final EndpointSyncService endpointSyncService; // 엔드포인트 동기화 서비스
+    private JdbcSchemaSyncService schemaSyncService;
+    private MappingSyncService mappingSyncService;
+    private EndpointSyncService endpointSyncService; // 엔드포인트 동기화 서비스
     // EndpointStorage는 EndpointSyncService 내부에서 관리됨
-    private final TelemetryStatsSender telemetryStatsSender;
-    private final PolicyResolver policyResolver;
-    private final HubNotificationService notificationService;
+    private TelemetryStatsSender telemetryStatsSender;
+    private PolicyResolver policyResolver;
+    private HubNotificationService notificationService;
     private final String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
     private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
     private final JdbcVendorResolutionStrategy resolutionStrategy;
+    private volatile boolean wrapperRuntimeAvailable;
     private volatile String cachedSchemaName;  // 캐싱된 스키마 이름 (매 SQL마다 DB 조회 방지, setSchema() 시 갱신)
     private boolean closed = false;
     private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
-    private final WrapperCryptoProfileRecorder cryptoProfileRecorder;
+    private WrapperCryptoProfileRecorder cryptoProfileRecorder;
     
     public DadpProxyConnection(Connection actualConnection, String originalUrl) {
         this(actualConnection, originalUrl, null);
@@ -95,6 +96,7 @@ public class DadpProxyConnection implements Connection {
             this.notificationService = null;
             this.cryptoProfileRecorder = null;
             this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(null);
+            this.wrapperRuntimeAvailable = false;
             return;
         }
 
@@ -144,32 +146,45 @@ public class DadpProxyConnection implements Connection {
         // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
-            if (config.isFailOpen()) {
-                log.warn("Bootstrap flow failed (fail-open mode): continuing.");
-            } else {
-                throw new RuntimeException("JDBC Wrapper initialization failed");
-            }
+            log.warn("DADP Wrapper runtime is not initialized. Run CLI schema-register and trigger manual refresh to enable encryption/decryption. Current connection uses passthrough mode.");
+            this.policyResolver = null;
+            this.mappingSyncService = null;
+            this.endpointSyncService = null;
+            this.directCryptoAdapter = null;
+            this.schemaSyncService = null;
+            this.telemetryStatsSender = null;
+            this.notificationService = null;
+            this.cryptoProfileRecorder = null;
+            this.wrapperRuntimeAvailable = false;
+            return;
         }
         
         // 오케스트레이터에서 초기화된 서비스 가져오기
+        activateRuntimeServicesFromOrchestrator("startup");
+        
+        // Runtime synchronization is owned by JdbcBootstrapOrchestrator.
+        
+        // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
+        log.trace("DADP Proxy Connection created");
+    }
+
+    private boolean activateRuntimeServicesFromOrchestrator(String reason) {
+        if (orchestrator == null) {
+            return false;
+        }
+        String tenantId = this.orchestrator.getCachedTenantId();
+        if (tenantId == null || tenantId.trim().isEmpty()) {
+            log.warn("DADP Wrapper runtime activation skipped: tenantId not available, reason={}", reason);
+            this.wrapperRuntimeAvailable = false;
+            return false;
+        }
         this.policyResolver = this.orchestrator.getPolicyResolver();
         this.mappingSyncService = this.orchestrator.getMappingSyncService();
         this.endpointSyncService = this.orchestrator.getEndpointSyncService();
         this.directCryptoAdapter = this.orchestrator.getDirectCryptoAdapter();
-        String tenantId = this.orchestrator.getCachedTenantId();
         applyCryptoMode(this.directCryptoAdapter);
         applySingleTransportMode(this.directCryptoAdapter);
         applyEngineTransport(this.directCryptoAdapter);
-        
-        // tenantId가 없으면 외부 요청 차단
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            if (config.isFailOpen()) {
-                log.warn("tenantId not available but continuing in fail-open mode. External requests may be limited.");
-                // tenantId는 null로 유지 (instanceId로 대체하지 않음)
-            } else {
-                throw new RuntimeException("tenantId is not available. Please check Hub connection or enable fail-open mode.");
-            }
-        }
         
         // 스키마 동기화 서비스는 오케스트레이터에서 생성한 것을 사용 (중복 생성 제거)
         this.schemaSyncService = this.orchestrator.getSchemaSyncService();
@@ -189,17 +204,35 @@ public class DadpProxyConnection implements Connection {
         
         // Hub 알림 서비스: 오케스트레이터에서 instanceId당 1개 공유 (커넥션마다 생성하지 않음)
         this.notificationService = this.orchestrator.getNotificationService();
-        
-        // Runtime synchronization is owned by JdbcBootstrapOrchestrator.
-        
-        // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-        log.trace("DADP Proxy Connection created");
+        this.wrapperRuntimeAvailable = true;
+        log.info("DADP Wrapper runtime activated: tenantId={}, alias={}, reason={}",
+                tenantId, config.getAlias(), reason);
+        return true;
     }
 
     private void applyCryptoProfileRecorder(DirectCryptoAdapter adapter) {
         if (adapter != null && cryptoProfileRecorder != null) {
             adapter.setProfileRecorder(cryptoProfileRecorder);
         }
+    }
+
+    private boolean isWrapperRuntimeAvailable() {
+        return wrapperRuntimeAvailable && config.isRuntimeActive();
+    }
+
+    private synchronized boolean initializeRuntimeForRefreshTrigger() {
+        if (isWrapperRuntimeAvailable()) {
+            return true;
+        }
+        if (!config.isRuntimeActive() || orchestrator == null) {
+            return false;
+        }
+        boolean initialized = orchestrator.runBootstrapFlow(actualConnection);
+        if (!initialized) {
+            log.warn("Manual refresh skipped: wrapper runtime enrollment is not available in memory or storage");
+            return false;
+        }
+        return activateRuntimeServicesFromOrchestrator("manual-refresh");
     }
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
@@ -567,6 +600,9 @@ public class DadpProxyConnection implements Connection {
     public void refreshMappings() {
         new Thread(() -> {
             try {
+                if (!isWrapperRuntimeAvailable() && !initializeRuntimeForRefreshTrigger()) {
+                    return;
+                }
                 JdbcPolicyMappingSyncService syncService =
                         orchestrator != null ? orchestrator.getPolicyMappingSyncService() : null;
                 if (syncService != null) {
@@ -689,7 +725,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement() throws SQLException {
-        if (!config.isEnabled()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.createStatement();
         }
         ensureMappingsLoaded();
@@ -699,7 +735,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql);
         }
         log.trace("PreparedStatement created: {}", sql);
@@ -810,7 +846,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency);
         }
         ensureMappingsLoaded();
@@ -820,7 +856,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency);
         }
         ensureMappingsLoaded();
@@ -875,7 +911,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         ensureMappingsLoaded();
@@ -885,7 +921,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         ensureMappingsLoaded();
@@ -900,7 +936,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql, autoGeneratedKeys);
         }
         ensureMappingsLoaded();
@@ -910,7 +946,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int[] columnIndexes) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql, columnIndexes);
         }
         ensureMappingsLoaded();
@@ -920,7 +956,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, String[] columnNames) throws SQLException {
-        if (!config.isRuntimeActive()) {
+        if (!isWrapperRuntimeAvailable()) {
             return actualConnection.prepareStatement(sql, columnNames);
         }
         ensureMappingsLoaded();

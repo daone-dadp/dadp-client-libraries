@@ -230,10 +230,19 @@ public class JdbcBootstrapOrchestrator {
             
             String loadedTenantId = tenantIdManager.loadFromStorage();
             if (loadedTenantId != null && !loadedTenantId.trim().isEmpty()) {
+                loadOtherDataFromPersistentStorage();
+                initializeServicesWithTenantId(loadedTenantId);
+                initializePolicyMappingSyncService(loadedTenantId);
                 this.initialized = true;
+                if (policyMappingSyncService != null) {
+                    policyMappingSyncService.setInitialized(true, loadedTenantId);
+                }
+                log.info("JDBC Wrapper bootstrap flow completed from runtime enrollment: tenantId={}, alias={}",
+                        loadedTenantId, instanceId);
                 return true;
             }
             
+            log.warn("DADP 6.0 wrapper enrollment is still missing. Runtime remains in passthrough mode until schema-register/manual refresh is completed.");
             return false;
         }
         
@@ -343,6 +352,7 @@ public class JdbcBootstrapOrchestrator {
     
     private void loadOtherDataFromPersistentStorage() {
         
+        policyResolver.reloadFromStorage();
         Long loadedPolicyVersion = policyResolver.getCurrentVersion();
         if (loadedPolicyVersion != null) {
             log.debug("Policy mappings loaded from persistent storage: version={}", loadedPolicyVersion);
