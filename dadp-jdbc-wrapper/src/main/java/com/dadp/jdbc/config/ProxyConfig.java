@@ -85,7 +85,7 @@ public class ProxyConfig {
             this.aliasConfigured = true;
         }
 
-        this.failOpen = false;
+        this.failOpen = true;
         this.enableLogging = false;
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
 

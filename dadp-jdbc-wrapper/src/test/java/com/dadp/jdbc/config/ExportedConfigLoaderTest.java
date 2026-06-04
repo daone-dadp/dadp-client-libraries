@@ -130,16 +130,20 @@ class ExportedConfigLoaderTest {
                 new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
 
         assertEquals("remote", manager.getCryptoMode());
+        assertEquals(true, manager.isFailOpen());
 
         manager.applyRefreshOptions(Boolean.TRUE, "local", Boolean.FALSE, Boolean.FALSE, "7", true);
         assertEquals("local", manager.getCryptoMode());
+        assertEquals(false, manager.isFailOpen());
 
         manager.applyRefreshOptions(Boolean.TRUE, null, Boolean.FALSE, Boolean.FALSE, "8", true);
         assertEquals("local", manager.getCryptoMode());
+        assertEquals(false, manager.isFailOpen());
 
         WrapperRuntimeConfigManager reloaded =
                 new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         reloaded.loadFromStorage();
         assertEquals("local", reloaded.getCryptoMode());
+        assertEquals(false, reloaded.isFailOpen());
     }
 }

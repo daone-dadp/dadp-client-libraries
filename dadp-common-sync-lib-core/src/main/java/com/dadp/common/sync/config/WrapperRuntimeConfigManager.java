@@ -31,7 +31,7 @@ public class WrapperRuntimeConfigManager {
     private volatile String cachedTenantId;
     private volatile String cachedRuntimeVersion;
     private volatile String cryptoMode = DEFAULT_CRYPTO_MODE;
-    private volatile boolean failOpen = false;
+    private volatile boolean failOpen = true;
     private volatile boolean policySyncAutoEnabled = false;
     private volatile boolean enabled = true;
 
@@ -59,7 +59,7 @@ public class WrapperRuntimeConfigManager {
 
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
-        this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
+        this.failOpen = !Boolean.FALSE.equals(stored.getFailOpen());
         this.policySyncAutoEnabled = Boolean.TRUE.equals(stored.getPolicySyncAutoEnabled());
 
         String storedTenantId = trimToNull(stored.getTenantId());
@@ -194,7 +194,7 @@ public class WrapperRuntimeConfigManager {
         this.cachedTenantId = null;
         this.cachedRuntimeVersion = null;
         this.cryptoMode = DEFAULT_CRYPTO_MODE;
-        this.failOpen = false;
+        this.failOpen = true;
         this.policySyncAutoEnabled = false;
         this.enabled = true;
         if (changeCallback != null && oldTenantId != null) {

@@ -29,6 +29,7 @@ class ProxyConfigCryptoProfileTest {
         assertTrue("json".equals(config.getSingleTransportMode()));
         assertTrue("http".equals(config.getEngineTransport()));
         assertTrue(config.getEngineBinaryPort() == 9104);
+        assertTrue(config.isFailOpen());
         assertTrue("remote".equals(config.getCryptoMode()));
         assertTrue(config.isCryptoLocalFallbackRemote());
         assertTrue(config.getCryptoLocalTimeoutMs() == 30000);

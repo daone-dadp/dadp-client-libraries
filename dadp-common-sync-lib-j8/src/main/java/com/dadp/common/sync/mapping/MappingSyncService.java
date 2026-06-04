@@ -228,25 +228,16 @@ public class MappingSyncService {
                 hasWrapperConfig = true;
             }
             String cryptoMode = text(wrapper.path("cryptoMode"));
-            if (cryptoMode == null || cryptoMode.trim().isEmpty()) {
-                cryptoMode = text(wrapper.path("options").path("cryptoMode"));
-            }
             if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
                 wrapperConfig.setCryptoMode(cryptoMode.trim());
                 hasWrapperConfig = true;
             }
             JsonNode failOpen = wrapper.path("failOpen");
-            if (failOpen.isMissingNode() || failOpen.isNull()) {
-                failOpen = wrapper.path("options").path("failOpen");
-            }
             if (!failOpen.isMissingNode() && !failOpen.isNull()) {
-                wrapperConfig.setFailOpen(Boolean.valueOf(failOpen.asBoolean(false)));
+                wrapperConfig.setFailOpen(Boolean.valueOf(failOpen.asBoolean(true)));
                 hasWrapperConfig = true;
             }
             JsonNode policySyncAutoEnabled = wrapper.path("policySyncAutoEnabled");
-            if (policySyncAutoEnabled.isMissingNode() || policySyncAutoEnabled.isNull()) {
-                policySyncAutoEnabled = wrapper.path("options").path("policySyncAutoEnabled");
-            }
             if (!policySyncAutoEnabled.isMissingNode() && !policySyncAutoEnabled.isNull()) {
                 wrapperConfig.setPolicySyncAutoEnabled(Boolean.valueOf(policySyncAutoEnabled.asBoolean(false)));
                 hasWrapperConfig = true;

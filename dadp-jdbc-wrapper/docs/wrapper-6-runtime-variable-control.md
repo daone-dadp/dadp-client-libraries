@@ -30,10 +30,28 @@ persisted for the next startup.
 | `schemaSyncUrl` | None | No | Not accepted as stored/configured state | Derived canonically as `/hub/api/v1/runtime/wrappers/{tenantId}/schema-sync` by collector/schema-sync helper only. |
 | `enabled` | Hub `/refresh` only | No | Applied to current JVM memory only | Defaults to `true` on every startup. |
 | `cryptoMode` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `remote` when no stored value exists. A stored value is only the last Hub refresh result, not an external override. |
-| `failOpen` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `false` when no stored value exists; otherwise stored value is used. |
+| `failOpen` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `true` when no stored value exists. A stored value is only the last Hub refresh result, not an external override. |
 | `policySyncAutoEnabled` | Hub `/refresh`; persistent storage after refresh | Yes | Updated and persisted | Defaults to `false` when no stored value exists; otherwise stored value is used. |
 | `storageDir` | Environment variable `DADP_STORAGE_DIR` only | No | Not controlled by refresh | Defaults to `{user.dir}/dadp/wrapper/{alias}` when env is missing. |
 | CA cert path | Not a wrapper runtime variable | No | Not controlled by refresh | Use the JVM/default trust store unless the crypto HTTP layer adds an explicit CA option later. |
+
+## Hub Refresh Wrapper Options
+
+Hub `/refresh` controls the following wrapper options under the top-level
+`wrapper` object. These values are not read from JDBC URL parameters,
+environment variables, or system properties.
+
+| Refresh field | Default | Function |
+| --- | --- | --- |
+| `enabled` | `true` | Turns wrapper encryption/decryption on or off. `false` means passthrough. |
+| `debugEnabled` | `false` | Enables wrapper logging from Hub runtime policy. |
+| `debugLevel` | `INFO` | Sets wrapper log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`. |
+| `cryptoMode` | `remote` | Selects crypto execution mode: `remote` or `local`. |
+| `policySyncAutoEnabled` | `false` | Enables periodic automatic refresh. Manual refresh remains available. |
+| `failOpen` | `true` | When crypto fails, keeps the application running and returns/stores the original value according to the active crypto path. |
+
+Older `wrapper.options.*` compatibility paths are not part of the DADP 6 wrapper
+runtime contract and are not parsed by the wrapper.
 
 ## Runtime Flow
 

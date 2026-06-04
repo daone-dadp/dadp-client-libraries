@@ -55,7 +55,8 @@ class MappingSyncServiceSnapshotTest {
         server.createContext("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", exchange -> {
             assertEquals("wtenant_test", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
             byte[] body = ("{"
-                    + "\"wrapper\":{\"enabled\":true,\"cryptoMode\":\"local\"},"
+                    + "\"wrapper\":{\"enabled\":true,\"debugEnabled\":true,\"debugLevel\":\"TRACE\","
+                    + "\"cryptoMode\":\"local\",\"policySyncAutoEnabled\":true,\"failOpen\":true},"
                     + "\"engine\":{\"wrapperEngineUrl\":\"http://engine:9003\"},"
                     + "\"runtimeVersion\":7,"
                     + "\"policyBindings\":[{"
@@ -89,6 +90,11 @@ class MappingSyncServiceSnapshotTest {
             assertNotNull(service.getLastSnapshot().getWrapperConfig());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getEnabled());
             assertEquals("local", service.getLastSnapshot().getWrapperConfig().getCryptoMode());
+            assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getPolicySyncAutoEnabled());
+            assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getFailOpen());
+            assertNotNull(service.getLastSnapshot().getLogConfig());
+            assertEquals(Boolean.TRUE, service.getLastSnapshot().getLogConfig().getEnabled());
+            assertEquals("TRACE", service.getLastSnapshot().getLogConfig().getLevel());
             assertNotNull(service.getLastSnapshot().getEndpoint());
             assertEquals("http://engine:9003", service.getLastSnapshot().getEndpoint().getCryptoUrl());
             assertEquals("PVTNFPQQ", resolver.resolvePolicy(null, "public", "users", "email"));
