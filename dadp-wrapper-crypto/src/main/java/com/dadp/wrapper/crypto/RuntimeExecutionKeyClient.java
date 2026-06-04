@@ -125,7 +125,10 @@ public class RuntimeExecutionKeyClient {
                 stringValue(data.get("materialEncoding")),
                 stringValue(data.get("executionKeyBase64")),
                 intValue(data.get("cacheTtlSeconds"), 0),
-                millisValue(data.get("expiresAt")));
+                millisValue(data.get("expiresAt")),
+                partialEnabled(data),
+                integerValue(firstPresent(data, "plainStart", "partialPlainStart")),
+                integerValue(firstPresent(data, "plainLength", "partialPlainLength")));
     }
 
     private static void validateMaterial(RuntimeExecutionKeyMaterial material) {
@@ -174,6 +177,65 @@ public class RuntimeExecutionKeyClient {
             return ((Number) value).intValue();
         }
         return Integer.parseInt(String.valueOf(value));
+    }
+
+    private static Integer integerValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return Integer.valueOf(((Number) value).intValue());
+        }
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object firstPresent(Map<String, Object> data, String... names) {
+        if (data == null) {
+            return null;
+        }
+        for (String name : names) {
+            if (data.containsKey(name)) {
+                return data.get(name);
+            }
+        }
+        String[] nestedNames = {"policyMetadata", "metadata", "policy", "attributes"};
+        for (String nestedName : nestedNames) {
+            Object nested = data.get(nestedName);
+            if (nested instanceof Map) {
+                Object value = firstPresent((Map<String, Object>) nested, names);
+                if (value != null) {
+                    return value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Boolean partialEnabled(Map<String, Object> data) {
+        Object usePlain = firstPresent(data, "usePlain");
+        if (usePlain != null) {
+            return Boolean.valueOf(booleanValue(usePlain, false));
+        }
+        Object partialEncryption = firstPresent(data, "partialEncryption", "partialEnabled");
+        if (partialEncryption != null) {
+            return Boolean.valueOf(booleanValue(partialEncryption, false));
+        }
+        return null;
+    }
+
+    private static boolean booleanValue(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean) {
+            return ((Boolean) value).booleanValue();
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     private static long millisValue(Object value) {

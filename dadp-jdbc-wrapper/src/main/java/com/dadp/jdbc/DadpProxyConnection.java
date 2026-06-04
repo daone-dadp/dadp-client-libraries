@@ -217,14 +217,16 @@ public class DadpProxyConnection implements Connection {
     }
 
     private boolean isWrapperRuntimeAvailable() {
-        return wrapperRuntimeAvailable && config.isRuntimeActive();
+        return wrapperRuntimeAvailable
+                && config.isStartupReady()
+                && (orchestrator == null || orchestrator.isRuntimeEnabled());
     }
 
     private synchronized boolean initializeRuntimeForRefreshTrigger() {
         if (isWrapperRuntimeAvailable()) {
             return true;
         }
-        if (!config.isRuntimeActive() || orchestrator == null) {
+        if (!config.isStartupReady() || orchestrator == null) {
             return false;
         }
         boolean initialized = orchestrator.runBootstrapFlow(actualConnection);

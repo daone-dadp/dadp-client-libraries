@@ -126,6 +126,7 @@ public class MappingSyncService {
                 return 0;
             }
             Map<String, String> policyMap = new HashMap<>();
+            Map<String, PolicyResolver.PolicyAttributes> policyAttributes = new HashMap<>();
             List<PolicyMapping> mappings = snapshot.getMappings();
             if (mappings != null) {
                 for (PolicyMapping mapping : mappings) {
@@ -135,13 +136,17 @@ public class MappingSyncService {
                                 + mapping.getTableName() + "."
                                 + mapping.getColumnName();
                         policyMap.put(key, mapping.getPolicyName());
+                        if (mapping.getUseIv() != null || mapping.getUsePlain() != null) {
+                            policyAttributes.put(mapping.getPolicyName(),
+                                    new PolicyResolver.PolicyAttributes(mapping.getUseIv(), mapping.getUsePlain()));
+                        }
                         log.trace("Runtime policy binding loaded: {} -> {}", key, mapping.getPolicyName());
                     }
                 }
             }
 
             Long version = snapshot.getVersion() != null ? snapshot.getVersion() : 1L;
-            policyResolver.refreshMappings(policyMap, version);
+            policyResolver.refreshMappings(policyMap, policyAttributes, version);
             this.lastSnapshot = snapshot;
             log.info("Hub runtime wrapper refresh loaded: version={}, {} policy bindings", version, policyMap.size());
             return policyMap.size();
@@ -205,6 +210,8 @@ public class MappingSyncService {
                 mapping.setTableName(text(binding.path("tableName")));
                 mapping.setColumnName(text(binding.path("columnName")));
                 mapping.setPolicyName(policyCode);
+                mapping.setUseIv(booleanOrNull(binding, "useIv", "deterministic", true));
+                mapping.setUsePlain(booleanOrNull(binding, "usePlain", "partialEncryption", false));
                 mapping.setEnabled(true);
                 mappings.add(mapping);
             }
@@ -274,6 +281,40 @@ public class MappingSyncService {
 
     private static String text(JsonNode node) {
         return node != null && !node.isMissingNode() && !node.isNull() ? node.asText() : null;
+    }
+
+    private static Boolean booleanOrNull(JsonNode root, String primary, String fallback, boolean invertFallback) {
+        JsonNode value = findField(root, primary);
+        if (value != null && !value.isMissingNode() && !value.isNull()) {
+            return Boolean.valueOf(value.asBoolean());
+        }
+        JsonNode fallbackValue = findField(root, fallback);
+        if (fallbackValue != null && !fallbackValue.isMissingNode() && !fallbackValue.isNull()) {
+            boolean parsed = fallbackValue.asBoolean();
+            return Boolean.valueOf(invertFallback ? !parsed : parsed);
+        }
+        return null;
+    }
+
+    private static JsonNode findField(JsonNode root, String fieldName) {
+        if (root == null || root.isMissingNode() || root.isNull()) {
+            return null;
+        }
+        JsonNode direct = root.path(fieldName);
+        if (!direct.isMissingNode() && !direct.isNull()) {
+            return direct;
+        }
+        String[] nestedNames = {"policyMetadata", "metadata", "policy", "attributes"};
+        for (String nestedName : nestedNames) {
+            JsonNode nested = root.path(nestedName);
+            if (!nested.isMissingNode() && !nested.isNull()) {
+                JsonNode nestedValue = findField(nested, fieldName);
+                if (nestedValue != null && !nestedValue.isMissingNode() && !nestedValue.isNull()) {
+                    return nestedValue;
+                }
+            }
+        }
+        return null;
     }
 
     /**

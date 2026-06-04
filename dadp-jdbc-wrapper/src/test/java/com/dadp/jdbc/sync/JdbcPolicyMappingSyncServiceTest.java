@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +24,8 @@ import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -231,5 +232,58 @@ class JdbcPolicyMappingSyncServiceTest {
                 eq("wtenant_manual"),
                 eq(false),
                 eq("1hour"));
+    }
+
+    @Test
+    void manualRefreshAppliesEnabledFalseInMemoryWithoutPersistingIt() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("manual-refresh-disabled-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+        when(proxyConfig.isEnabled()).thenReturn(true);
+        when(proxyConfig.isCryptoLocalFallbackRemote()).thenReturn(true);
+        when(proxyConfig.getCryptoLocalTimeoutMs()).thenReturn(30000);
+        when(proxyConfig.getWrapperCryptoStatsAggregationLevel()).thenReturn("1hour");
+        when(mappingSyncService.syncPolicyMappingsAndUpdateVersion(any())).thenReturn(1);
+
+        MappingSyncService.WrapperConfig wrapperConfig = new MappingSyncService.WrapperConfig();
+        wrapperConfig.setEnabled(Boolean.FALSE);
+        wrapperConfig.setCryptoMode("remote");
+        wrapperConfig.setFailOpen(Boolean.FALSE);
+        MappingSyncService.PolicySnapshot snapshot = new MappingSyncService.PolicySnapshot();
+        snapshot.setVersion(11L);
+        snapshot.setWrapperConfig(wrapperConfig);
+        when(mappingSyncService.getLastSnapshot()).thenReturn(snapshot);
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage);
+
+        service.setInitialized(true, "wtenant_disabled");
+        service.refreshNow();
+
+        verify(proxyConfig).setEnabled(false);
+        Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
+        tenantIdManagerField.setAccessible(true);
+        WrapperRuntimeConfigManager tenantIdManager = (WrapperRuntimeConfigManager) tenantIdManagerField.get(service);
+        assertFalse(tenantIdManager.isEnabled());
+        String storedJson = new String(Files.readAllBytes(tempDir.resolve("proxy-config.json")), StandardCharsets.UTF_8);
+        assertFalse(storedJson.contains("\"enabled\""));
     }
 }

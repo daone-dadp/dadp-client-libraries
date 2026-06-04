@@ -54,6 +54,41 @@ class WrapperLocalCryptoServiceTest {
     }
 
     @Test
+    void localPartialEncryptionUsesRuntimePolicyMetadata() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        byte[] key = new byte[32];
+        String keyData = Base64.getEncoder().encodeToString(key);
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
+                            + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
+                            + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
+                            + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
+                            + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":300,"
+                            + "\"partialEncryption\":true,\"plainStart\":0,\"plainLength\":3,"
+                            + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
+                            + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
+        });
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wtenant_local");
+
+            String encrypted = service.encryptByPolicyCode("01012345678", "ABCD1234");
+
+            assertTrue(encrypted.startsWith("010::ENC::hub:ABCD1234:"));
+            assertEquals("01012345678", service.decrypt(encrypted, null));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void localServiceRecordsCryptoStatsOnlyForLocalOperations() {
         PolicyMaterial policy = new PolicyMaterial("customer-policy", "ABCD1234", 1, "customer-key", 1,
                 "AES_256", Base64.getEncoder().encodeToString(new byte[32]), 0L, null, null, null);

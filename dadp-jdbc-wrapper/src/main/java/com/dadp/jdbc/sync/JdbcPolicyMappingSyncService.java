@@ -67,6 +67,21 @@ public class JdbcPolicyMappingSyncService {
             ProxyConfig config,
             InstanceConfigStorage configStorage,
             SchemaStorage schemaStorage) {
+        this(mappingSyncService, endpointSyncService, jdbcSchemaSyncService, policyResolver,
+                directCryptoAdapter, endpointStorage, config, configStorage, schemaStorage, null);
+    }
+
+    public JdbcPolicyMappingSyncService(
+            MappingSyncService mappingSyncService,
+            EndpointSyncService endpointSyncService,
+            JdbcSchemaSyncService jdbcSchemaSyncService,
+            PolicyResolver policyResolver,
+            DirectCryptoAdapter directCryptoAdapter,
+            EndpointStorage endpointStorage,
+            ProxyConfig config,
+            InstanceConfigStorage configStorage,
+            SchemaStorage schemaStorage,
+            WrapperRuntimeConfigManager sharedRuntimeConfigManager) {
         this.mappingSyncService = mappingSyncService;
         this.endpointSyncService = endpointSyncService;
         this.jdbcSchemaSyncService = jdbcSchemaSyncService;
@@ -85,22 +100,26 @@ public class JdbcPolicyMappingSyncService {
         
         String hubUrl = config.getHubUrl();
         final JdbcPolicyMappingSyncService self = this;
-        this.tenantIdManager = new WrapperRuntimeConfigManager(
-            configStorage,
-            hubUrl,
-            instanceIdProvider,
-            (oldTenantId, newTenantId) -> {
-                
-                if (newTenantId != null && !newTenantId.trim().isEmpty()) {
-                    self.updateMappingSyncService(newTenantId, instanceId);
-                    self.updateEndpointSyncService(newTenantId, instanceId);
-                    
-                    if (self.syncOrchestrator != null) {
-                        self.syncOrchestrator.updateMappingSyncService(self.mappingSyncService);
+        if (sharedRuntimeConfigManager != null) {
+            this.tenantIdManager = sharedRuntimeConfigManager;
+        } else {
+            this.tenantIdManager = new WrapperRuntimeConfigManager(
+                configStorage,
+                hubUrl,
+                instanceIdProvider,
+                (oldTenantId, newTenantId) -> {
+
+                    if (newTenantId != null && !newTenantId.trim().isEmpty()) {
+                        self.updateMappingSyncService(newTenantId, instanceId);
+                        self.updateEndpointSyncService(newTenantId, instanceId);
+
+                        if (self.syncOrchestrator != null) {
+                            self.syncOrchestrator.updateMappingSyncService(self.mappingSyncService);
+                        }
                     }
                 }
-            }
-        );
+            );
+        }
         this.tenantIdManager.loadFromStorage();
         
         
@@ -447,6 +466,14 @@ public class JdbcPolicyMappingSyncService {
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
             log.info("Wrapper crypto mode applied from Hub refresh: cryptoMode={}", cryptoMode);
+        }
+        if (wrapperConfig.getPolicySyncAutoEnabled() != null) {
+            if (wrapperConfig.getPolicySyncAutoEnabled().booleanValue()) {
+                setEnabled(true);
+                startPeriodicSync();
+            } else {
+                setEnabled(false);
+            }
         }
         if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
             if (config != null && config.isEnabled()) {

@@ -225,13 +225,13 @@ public class PolicyResolver {
     public void refreshMappings(Map<String, String> mappings, Map<String, PolicyAttributes> attributes, Long version) {
         refreshMappings(mappings, version);
 
-        
-        if (attributes != null && !attributes.isEmpty()) {
+        if (attributes != null) {
             policyAttributeCache.clear();
-            policyAttributeCache.putAll(attributes);
+            if (!attributes.isEmpty()) {
+                policyAttributeCache.putAll(attributes);
+            }
             log.debug("Policy attributes cache refreshed: {} policies", attributes.size());
 
-            
             storage.saveMappings(canonicalizeMappings(mappings), attributes, storedLogConfig, version);
         }
     }

@@ -482,10 +482,11 @@ public class JdbcBootstrapOrchestrator {
                 policyResolver,
                 directCryptoAdapter,
                 endpointStorage,
-                config,
-                configStorage,
-                schemaStorage
-            );
+	                config,
+	                configStorage,
+	                schemaStorage,
+	                tenantIdManager
+	            );
             
             
             log.info("JdbcPolicyMappingSyncService initialized: tenantId={}", tenantId);
@@ -733,6 +734,10 @@ public class JdbcBootstrapOrchestrator {
 
     public boolean isRuntimeFailOpen() {
         return tenantIdManager.isFailOpen();
+    }
+
+    public boolean isRuntimeEnabled() {
+        return tenantIdManager.isEnabled();
     }
     
     public JdbcSchemaSyncService getSchemaSyncService() {

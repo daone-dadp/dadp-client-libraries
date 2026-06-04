@@ -59,14 +59,24 @@ class MappingSyncServiceSnapshotTest {
                     + "\"cryptoMode\":\"local\",\"policySyncAutoEnabled\":true,\"failOpen\":true},"
                     + "\"engine\":{\"wrapperEngineUrl\":\"http://engine:9003\"},"
                     + "\"runtimeVersion\":7,"
-                    + "\"policyBindings\":[{"
-                    + "\"schemaName\":\"public\","
-                    + "\"tableName\":\"users\","
-                    + "\"columnName\":\"email\","
-                    + "\"policyCode\":\"PVTNFPQQ\","
-                    + "\"status\":\"ACTIVE\""
-                    + "}]"
-                    + "}").getBytes(StandardCharsets.UTF_8);
+	                    + "\"policyBindings\":[{"
+	                    + "\"schemaName\":\"public\","
+	                    + "\"tableName\":\"users\","
+	                    + "\"columnName\":\"email\","
+	                    + "\"policyCode\":\"PVTNFPQQ\","
+	                    + "\"deterministic\":true,"
+	                    + "\"status\":\"ACTIVE\""
+	                    + "},{"
+	                    + "\"schemaName\":\"public\","
+	                    + "\"tableName\":\"users\","
+	                    + "\"columnName\":\"phone\","
+	                    + "\"policyCode\":\"PARTIAL01\","
+	                    + "\"partialEncryption\":true,"
+	                    + "\"plainStart\":0,"
+	                    + "\"plainLength\":3,"
+	                    + "\"status\":\"ACTIVE\""
+	                    + "}]"
+	                    + "}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
@@ -85,8 +95,8 @@ class MappingSyncServiceSnapshotTest {
 
             int count = service.syncPolicyMappingsAndUpdateVersion(null);
 
-            assertEquals(1, count);
-            assertNotNull(service.getLastSnapshot());
+	            assertEquals(2, count);
+	            assertNotNull(service.getLastSnapshot());
             assertNotNull(service.getLastSnapshot().getWrapperConfig());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getEnabled());
             assertEquals("local", service.getLastSnapshot().getWrapperConfig().getCryptoMode());
@@ -95,11 +105,14 @@ class MappingSyncServiceSnapshotTest {
             assertNotNull(service.getLastSnapshot().getLogConfig());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getLogConfig().getEnabled());
             assertEquals("TRACE", service.getLastSnapshot().getLogConfig().getLevel());
-            assertNotNull(service.getLastSnapshot().getEndpoint());
-            assertEquals("http://engine:9003", service.getLastSnapshot().getEndpoint().getCryptoUrl());
-            assertEquals("PVTNFPQQ", resolver.resolvePolicy(null, "public", "users", "email"));
-        } finally {
-            server.stop(0);
-        }
+	            assertNotNull(service.getLastSnapshot().getEndpoint());
+	            assertEquals("http://engine:9003", service.getLastSnapshot().getEndpoint().getCryptoUrl());
+	            assertEquals("PVTNFPQQ", resolver.resolvePolicy(null, "public", "users", "email"));
+	            assertEquals("PARTIAL01", resolver.resolvePolicy(null, "public", "users", "phone"));
+	            assertEquals(true, resolver.isSearchEncryptionNeeded("PVTNFPQQ"));
+	            assertEquals(false, resolver.isSearchEncryptionNeeded("PARTIAL01"));
+	        } finally {
+	            server.stop(0);
+	        }
     }
 }

@@ -17,6 +17,9 @@ public final class RuntimeExecutionKeyMaterial {
     private final String executionKeyBase64;
     private final int cacheTtlSeconds;
     private final long expiresAtMillis;
+    private final Boolean usePlain;
+    private final Integer plainStart;
+    private final Integer plainLength;
 
     public RuntimeExecutionKeyMaterial(String policyCode, int policyVersion,
                                        String keyAlias, int keyVersion,
@@ -24,6 +27,18 @@ public final class RuntimeExecutionKeyMaterial {
                                        String algorithm, String materialType,
                                        String materialEncoding, String executionKeyBase64,
                                        int cacheTtlSeconds, long expiresAtMillis) {
+        this(policyCode, policyVersion, keyAlias, keyVersion, providerType, providerVendor,
+                algorithm, materialType, materialEncoding, executionKeyBase64,
+                cacheTtlSeconds, expiresAtMillis, null, null, null);
+    }
+
+    public RuntimeExecutionKeyMaterial(String policyCode, int policyVersion,
+                                       String keyAlias, int keyVersion,
+                                       String providerType, String providerVendor,
+                                       String algorithm, String materialType,
+                                       String materialEncoding, String executionKeyBase64,
+                                       int cacheTtlSeconds, long expiresAtMillis,
+                                       Boolean usePlain, Integer plainStart, Integer plainLength) {
         this.policyCode = require(policyCode, "policyCode");
         this.policyVersion = policyVersion;
         this.keyAlias = require(keyAlias, "keyAlias");
@@ -36,11 +51,14 @@ public final class RuntimeExecutionKeyMaterial {
         this.executionKeyBase64 = require(executionKeyBase64, "executionKeyBase64");
         this.cacheTtlSeconds = cacheTtlSeconds;
         this.expiresAtMillis = expiresAtMillis;
+        this.usePlain = usePlain;
+        this.plainStart = plainStart;
+        this.plainLength = plainLength;
     }
 
     public PolicyMaterial toPolicyMaterial(String policyName) {
         return new PolicyMaterial(policyName, policyCode, policyVersion, keyAlias, keyVersion,
-                algorithm, executionKeyBase64, expiresAtMillis, null, null, null);
+                algorithm, executionKeyBase64, expiresAtMillis, usePlain, plainStart, plainLength);
     }
 
     public String getPolicyCode() {
@@ -89,6 +107,18 @@ public final class RuntimeExecutionKeyMaterial {
 
     public long getExpiresAtMillis() {
         return expiresAtMillis;
+    }
+
+    public Boolean getUsePlain() {
+        return usePlain;
+    }
+
+    public Integer getPlainStart() {
+        return plainStart;
+    }
+
+    public Integer getPlainLength() {
+        return plainLength;
     }
 
     private static String require(String value, String name) {
