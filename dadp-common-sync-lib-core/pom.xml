@@ -68,6 +68,13 @@
             <artifactId>dadp-common-logging-lib</artifactId>
             <version>2.0.0</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.9.3</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     
     <build>
