@@ -100,19 +100,39 @@ public class MappingSyncService {
             log.warn("Unsupported policy snapshot API base path for DADP 6 wrapper runtime: {}", apiBasePath);
             return 0;
         }
-        return loadRuntimeWrapperSnapshotFromHub();
+        return loadRuntimeWrapperSnapshotFromHub(currentVersion);
     }
 
-    private int loadRuntimeWrapperSnapshotFromHub() {
+    private int loadRuntimeWrapperSnapshotFromHub(Long currentVersion) {
         try {
-            String canonicalRefreshUrl = resolveRuntimeRefreshUrl();
+            String canonicalRefreshUrl = resolveRuntimeRefreshUrl(currentVersion);
+            if (canonicalRefreshUrl == null || canonicalRefreshUrl.trim().isEmpty()) {
+                return 0;
+            }
             URI uri = URI.create(canonicalRefreshUrl);
             HttpClientAdapter.HttpResponse response = httpClient.get(uri, signedHeaders("GET", uri));
             int statusCode = response.getStatusCode();
 
+            if (statusCode == 304) {
+                log.debug("Hub runtime wrapper refresh unchanged: tenantId={}, version={}", tenantId, currentVersion);
+                return 0;
+            }
+            if (statusCode == 401) {
+                log.warn("Hub runtime wrapper refresh returned 401 for tenantId={}. Runtime refresh must use X-DADP-Tenant-Id, not JWT. Verify Hub wrapper registration/auth state.",
+                        tenantId);
+                return -4;
+            }
             if (statusCode == 404) {
                 log.warn("Hub runtime wrapper refresh returned 404 for tenantId={}, CLI enrollment is required", tenantId);
                 return -1;
+            }
+            if (statusCode == 409) {
+                log.warn("Hub runtime wrapper refresh returned 409 for tenantId={}. Run CLI wrapper schema collect and wrapper schema register, then manual refresh.", tenantId);
+                return -2;
+            }
+            if (statusCode == 400) {
+                log.warn("Hub runtime wrapper refresh returned 400 for tenantId={}. Check local runtime version format.", tenantId);
+                return -3;
             }
             if (statusCode < 200 || statusCode >= 300 || response.getBody() == null) {
                 log.warn("Failed to load Hub runtime wrapper refresh: HTTP {}", statusCode);
@@ -157,12 +177,20 @@ public class MappingSyncService {
         }
     }
 
-    private String resolveRuntimeRefreshUrl() {
-        return appendVersion(hubUrl + apiBasePath + "/" + tenantId + "/refresh");
+    private String resolveRuntimeRefreshUrl(Long currentVersion) {
+        if (hubUrl == null || hubUrl.trim().isEmpty()) {
+            log.warn("Hub runtime wrapper refresh URL is not configured");
+            return null;
+        }
+        String trimmed = hubUrl.trim();
+        if (trimmed.contains("/hub/api/v1/runtime/wrappers/") && trimmed.endsWith("/refresh")) {
+            return appendVersion(trimmed, currentVersion);
+        }
+        return appendVersion(hubUrl + apiBasePath + "/" + tenantId + "/refresh", currentVersion);
     }
 
-    private String appendVersion(String url) {
-        Long version = policyResolver != null ? policyResolver.getCurrentVersion() : null;
+    private String appendVersion(String url, Long currentVersion) {
+        Long version = currentVersion != null ? currentVersion : (policyResolver != null ? policyResolver.getCurrentVersion() : null);
         if (version == null || version <= 0) {
             return url;
         }
@@ -241,7 +269,7 @@ public class MappingSyncService {
             }
             JsonNode failOpen = wrapper.path("failOpen");
             if (!failOpen.isMissingNode() && !failOpen.isNull()) {
-                wrapperConfig.setFailOpen(Boolean.valueOf(failOpen.asBoolean(true)));
+                wrapperConfig.setFailOpen(Boolean.valueOf(failOpen.asBoolean(false)));
                 hasWrapperConfig = true;
             }
             JsonNode policySyncAutoEnabled = wrapper.path("policySyncAutoEnabled");
@@ -336,7 +364,19 @@ public class MappingSyncService {
         try {
             int loadedCount = loadPolicySnapshotFromHub(currentVersion);
             if (loadedCount == -1) {
-                log.warn("Hub runtime refresh returned 404 for tenantId. Run CLI schema-register and manual wrapper refresh.");
+                log.warn("Hub runtime refresh returned 404 for tenantId. Run CLI wrapper schema register and manual wrapper refresh.");
+                return 0;
+            }
+            if (loadedCount == -2) {
+                log.warn("Hub runtime refresh returned 409 for tenantId. Run CLI wrapper schema collect and wrapper schema register and manual wrapper refresh.");
+                return 0;
+            }
+            if (loadedCount == -3) {
+                log.warn("Hub runtime refresh returned 400. Check local runtime version format.");
+                return 0;
+            }
+            if (loadedCount == -4) {
+                log.warn("Hub runtime refresh returned 401. Runtime refresh must be tenantId-authenticated; verify Hub wrapper registration/auth state.");
                 return 0;
             }
             

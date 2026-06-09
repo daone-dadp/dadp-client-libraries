@@ -1,10 +1,9 @@
 # DADP JDBC Wrapper 설정 예시
 
-# JDBC URL (dadp: prefix + required DADP parameters)
-# hubUrl and alias must come from the JDBC URL only in wrapper 6.0.
-spring.datasource.url=jdbc:dadp:mysql://localhost:3306/mydb?hubUrl=http://your-hub:9004&alias=shared-db-a
+# JDBC URL (dadp: prefix + DB connection parameters only)
+spring.datasource.url=jdbc:dadp:mysql://localhost:3306/mydb?useSSL=false&serverTimezone=UTC
 spring.datasource.driver-class-name=com.dadp.jdbc.DadpJdbcDriver
 spring.datasource.username=root
 spring.datasource.password=password
 
-# Storage bootstrap (optional): set DADP_STORAGE_DIR=/app/dadp/wrapper
+# Wrapper storage is fixed by the first `dadp wrapper schema register` flow.

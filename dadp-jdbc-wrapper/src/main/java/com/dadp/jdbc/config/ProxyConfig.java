@@ -1,6 +1,7 @@
 package com.dadp.jdbc.config;
 
 import com.dadp.common.sync.config.StoragePathResolver;
+import com.dadp.common.sync.config.InstanceConfigStorage;
 // TODO: Hub API 구현 후 주석 해제
 // import com.dadp.common.sync.config.SchemaCollectionConfigResolver;
 // import com.dadp.common.sync.config.SchemaCollectionConfigStorage;
@@ -8,13 +9,16 @@ import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
 
 import java.util.Map;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Proxy 설정 관리
  *
  * 6.0 configuration boundary:
- * - JDBC URL: hubUrl and alias only
- * - ENV/system property: storage bootstrap only
+ * - JDBC URL: database connection parameters only
+ * - CLI wrapper storage config: tenant/runtime identity and options
  * - Hub runtime snapshot: failOpen, enabled, cryptoMode, debug/stats, policy bindings
  * 
  * @author DADP Development Team
@@ -34,6 +38,8 @@ public class ProxyConfig {
     private final boolean hubUrlConfigured;
     private final String alias;  // 공유 DB 그룹 별칭
     private final boolean aliasConfigured;
+    private final String storageDir;
+    private final String refreshUrl;
     private volatile String tenantId;  // Hub가 발급한 tenantId (X-DADP-Tenant-Id 헤더에 사용, WrapperRuntimeConfigManager에서 관리)
     private final boolean failOpen;
     private final boolean enableLogging;  // DADP 통합 로그 활성화
@@ -65,24 +71,17 @@ public class ProxyConfig {
      */
     public ProxyConfig(Map<String, String> urlParams) {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
-        String hubUrlProp = trimToNull(urlParams != null ? urlParams.get("hubUrl") : null);
-        if (hubUrlProp == null || hubUrlProp.trim().isEmpty()) {
-            this.hubUrl = null;
-            this.hubUrlConfigured = false;
-            emitMissingRequiredHubUrl();
-        } else {
-            this.hubUrl = hubUrlProp.trim();
-            this.hubUrlConfigured = true;
-        }
-
-        String aliasProp = trimToNull(urlParams != null ? urlParams.get("alias") : null);
-        if (aliasProp == null || aliasProp.trim().isEmpty()) {
-            this.alias = null;
-            this.aliasConfigured = false;
-            emitMissingRequiredAlias();
-        } else {
-            this.alias = aliasProp.trim();
-            this.aliasConfigured = true;
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage();
+        InstanceConfigStorage.ConfigData storedConfig = runtimeStorage != null ? runtimeStorage.configData : null;
+        String aliasProp = storedConfig != null ? firstNonBlank(storedConfig.getAlias(), runtimeStorage.aliasFromPath) : null;
+        this.alias = aliasProp;
+        this.aliasConfigured = aliasProp != null;
+        this.storageDir = runtimeStorage != null ? runtimeStorage.storageDir : null;
+        this.refreshUrl = storedConfig != null ? trimToNull(storedConfig.getRefreshUrl()) : null;
+        this.hubUrl = deriveHubBaseUrl(this.refreshUrl);
+        this.hubUrlConfigured = this.hubUrl != null;
+        if (!this.aliasConfigured) {
+            emitMissingRuntimeEnrollment();
         }
 
         this.failOpen = false;
@@ -102,7 +101,9 @@ public class ProxyConfig {
         this.sqlMappingDebugEnabled = false;
         this.autoPolicyMappingSyncEnabled = false;
         this.cryptoProfileEnabled = false;
-        String defaultProfileDir = StoragePathResolver.resolveStorageDir(this.alias);
+        String defaultProfileDir = this.storageDir != null
+                ? this.storageDir
+                : StoragePathResolver.resolveStorageDir("unconfigured");
         this.cryptoProfilePath = defaultProfileDir + java.io.File.separator + "crypto-stage-profile.ndjson";
 
         this.schemaCollectionTimeoutMs = DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS;
@@ -118,9 +119,10 @@ public class ProxyConfig {
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("Proxy config loaded:");
-        log.trace("   - Hub URL (schema sync + crypto routing): {}", this.hubUrl);
-        log.trace("   - Hub URL configured from JDBC URL: {}", this.hubUrlConfigured);
+        log.trace("   - Hub URL derived from refresh URL: {}", this.hubUrl);
+        log.trace("   - Runtime refresh URL: {}", this.refreshUrl);
         log.trace("   - Alias: {}", this.alias);
+        log.trace("   - Runtime storage dir: {}", this.storageDir);
         log.trace("   - Fail-open: {}", this.failOpen);
         log.trace("   - Wrapper enabled: {}", this.enabled);
         log.trace("   - DADP logging enabled: {}", this.enableLogging);
@@ -168,6 +170,14 @@ public class ProxyConfig {
         return hubUrl;
     }
 
+    public String getRefreshUrl() {
+        return refreshUrl;
+    }
+
+    public String getStorageDir() {
+        return storageDir;
+    }
+
     public boolean isHubUrlConfigured() {
         return hubUrlConfigured;
     }
@@ -186,23 +196,27 @@ public class ProxyConfig {
     }
 
     private static void emitMissingRequiredAlias() {
-        String message = "DADP wrapper startup failed: missing required alias. Configure JDBC URL alias.";
+        String message = "DADP wrapper startup incomplete: proxy-config.json with alias is missing under <wrapper-lib-dir>/dadp/wrapper/<alias>. Run CLI wrapper schema register and wrapper refresh.";
         System.err.println(message);
         try {
-            log.error(message);
+            log.warn(message);
         } catch (Exception ignored) {
             // System.err emission is the mandatory fallback for startup failure.
         }
     }
 
     private static void emitMissingRequiredHubUrl() {
-        String message = "DADP wrapper startup failed: missing required hubUrl. Configure JDBC URL hubUrl.";
+        String message = "DADP wrapper refresh URL is missing in proxy-config.json. Automatic refresh and local key pull are unavailable until CLI writes refreshUrl.";
         System.err.println(message);
         try {
-            log.error(message);
+            log.warn(message);
         } catch (Exception ignored) {
             // System.err emission is the mandatory fallback for startup failure.
         }
+    }
+
+    private static void emitMissingRuntimeEnrollment() {
+        emitMissingRequiredAlias();
     }
     
     /**
@@ -248,11 +262,11 @@ public class ProxyConfig {
     }
 
     public boolean isStartupReady() {
-        return hubUrlConfigured && aliasConfigured;
+        return aliasConfigured;
     }
 
     public boolean isRuntimeActive() {
-        return enabled && hubUrlConfigured && aliasConfigured;
+        return enabled && aliasConfigured;
     }
 
     /**
@@ -329,6 +343,96 @@ public class ProxyConfig {
      */
     public String getCryptoProfilePath() {
         return cryptoProfilePath;
+    }
+
+    private static RuntimeStorage discoverRuntimeStorage() {
+        String root;
+        try {
+            root = StoragePathResolver.resolveWrapperStorageRoot();
+        } catch (Exception e) {
+            log.warn("Wrapper runtime storage root cannot be resolved: {}", e.getMessage());
+            return null;
+        }
+
+        File rootDir = new File(root);
+        if (!rootDir.isDirectory()) {
+            log.warn("Wrapper runtime storage root not found: {}. Runtime remains in passthrough mode until CLI creates proxy-config.json.", root);
+            return null;
+        }
+
+        File[] children = rootDir.listFiles(File::isDirectory);
+        if (children == null || children.length == 0) {
+            log.warn("No wrapper runtime enrollment directory found under {}. Run CLI wrapper schema register and refresh.", root);
+            return null;
+        }
+
+        List<RuntimeStorage> candidates = new ArrayList<>();
+        for (File child : children) {
+            File configFile = new File(child, "proxy-config.json");
+            if (!configFile.isFile()) {
+                continue;
+            }
+            InstanceConfigStorage storage = new InstanceConfigStorage(child.getAbsolutePath(), "proxy-config.json");
+            InstanceConfigStorage.ConfigData configData = storage.loadConfig(null, null);
+            if (configData != null && trimToNull(configData.getTenantId()) != null) {
+                candidates.add(new RuntimeStorage(child.getAbsolutePath(), child.getName(), configData));
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            log.warn("No valid wrapper proxy-config.json found under {}. Runtime remains in passthrough mode.", root);
+            return null;
+        }
+        if (candidates.size() > 1) {
+            StringBuilder names = new StringBuilder();
+            for (RuntimeStorage candidate : candidates) {
+                if (names.length() > 0) {
+                    names.append(", ");
+                }
+                names.append(candidate.aliasFromPath);
+            }
+            log.warn("Multiple wrapper runtime enrollments found under {}: {}. Use an isolated wrapper lib dir or keep one alias directory.",
+                    root, names);
+            return null;
+        }
+        return candidates.get(0);
+    }
+
+    private static String deriveHubBaseUrl(String refreshUrl) {
+        String normalized = trimToNull(refreshUrl);
+        if (normalized == null) {
+            return null;
+        }
+        int apiIndex = normalized.indexOf("/hub/api/");
+        if (apiIndex > 0) {
+            return normalized.substring(0, apiIndex);
+        }
+        return null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static final class RuntimeStorage {
+        private final String storageDir;
+        private final String aliasFromPath;
+        private final InstanceConfigStorage.ConfigData configData;
+
+        private RuntimeStorage(String storageDir, String aliasFromPath, InstanceConfigStorage.ConfigData configData) {
+            this.storageDir = storageDir;
+            this.aliasFromPath = aliasFromPath;
+            this.configData = configData;
+        }
     }
 
     private static String normalizeSingleTransportMode(String mode) {

@@ -155,6 +155,17 @@ public class DirectCryptoAdapter {
         String normalizedStatsAggregationLevel =
                 "1day".equalsIgnoreCase(cryptoStatsAggregationLevel) ? "1day" : "1hour";
         if ("local".equals(normalized)) {
+            if (hubBaseUrl == null || hubBaseUrl.trim().isEmpty()) {
+                closeLocalCryptoService();
+                this.localCryptoService = null;
+                this.localHubBaseUrl = null;
+                this.localTimeoutMillis = effectiveTimeout;
+                this.localHubTenantId = hubTenantId;
+                this.localCryptoStatsEnabled = false;
+                this.localCryptoStatsAggregationLevel = "1hour";
+                log.warn("Wrapper local crypto requested but Hub base URL is unavailable. Local key material cannot be pulled; remote Engine path will be used when available.");
+                return;
+            }
             if (this.localCryptoService != null
                     && equalsNullable(this.localHubBaseUrl, hubBaseUrl)
                     && equalsNullable(this.localHubTenantId, hubTenantId)
@@ -399,11 +410,7 @@ public class DirectCryptoAdapter {
         
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
-            if (failOpen) {
-                return encryptedData;
-            } else {
-                throw new RuntimeException("Crypto service not initialized");
-            }
+            return encryptedData;
         }
 
         try {
@@ -426,12 +433,8 @@ public class DirectCryptoAdapter {
             
             endpointAvailable = false;
             
-            if (failOpen) {
-                log.debug("Fail-open mode: storing as plaintext");
-                return encryptedData;
-            } else {
-                throw new RuntimeException("Decryption failed (Fail-closed mode)", e);
-            }
+            log.debug("Decryption failure leaves original value unchanged");
+            return encryptedData;
         }
     }
     
@@ -573,10 +576,7 @@ public class DirectCryptoAdapter {
         }
         log.warn("Local decryption failed: policy={}, dataLength={}, dataPreview={}, error={}",
                 policyName, encryptedData != null ? encryptedData.length() : 0, preview(encryptedData), errorMsg);
-        if (failOpen) {
-            return encryptedData;
-        }
-        throw new RuntimeException("Local decryption failed (Fail-closed mode)", e);
+        return encryptedData;
     }
 
     private static String preview(String value) {
@@ -616,10 +616,7 @@ public class DirectCryptoAdapter {
     private String decryptRemote(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
-            if (failOpen) {
-                return encryptedData;
-            }
-            throw new RuntimeException("Crypto service not initialized");
+            return encryptedData;
         }
 
         try {
@@ -637,11 +634,8 @@ public class DirectCryptoAdapter {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("Direct decryption failed: {}", errorMessage);
             endpointAvailable = false;
-            if (failOpen) {
-                log.debug("Fail-open mode: storing as plaintext");
-                return encryptedData;
-            }
-            throw new RuntimeException("Decryption failed (Fail-closed mode)", e);
+            log.debug("Decryption failure leaves original value unchanged");
+            return encryptedData;
         }
     }
 }

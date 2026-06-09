@@ -81,6 +81,43 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void resultSetDecryptFailureReturnsOriginalValue() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(actualResultSet.getString(1)).thenReturn("legacy-or-unreadable-value");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(1);
+        when(metaData.getColumnName(1)).thenReturn("email");
+        when(metaData.getColumnLabel(1)).thenReturn("email");
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(7L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.decrypt("legacy-or-unreadable-value", "policy-email"))
+                .thenThrow(new RuntimeException("remote decrypt failed"));
+
+        DadpProxyResultSet proxyResultSet = new DadpProxyResultSet(
+                actualResultSet,
+                "SELECT email FROM users",
+                proxyConnection);
+
+        assertEquals("legacy-or-unreadable-value", proxyResultSet.getString(1));
+    }
+
+    @Test
     void resultSetNStringUsesSameParsedDecryptPlanAsString() throws Exception {
         ResultSet actualResultSet = mock(ResultSet.class);
         ResultSetMetaData metaData = mock(ResultSetMetaData.class);

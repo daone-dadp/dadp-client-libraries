@@ -1,7 +1,6 @@
 package com.dadp.jdbc;
 
 import com.dadp.common.sync.schema.SchemaMetadata;
-import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -20,15 +19,9 @@ public final class SchemaCollectCommand {
 
     public static void main(String[] args) throws Exception {
         Arguments arguments = Arguments.parse(args);
+        DadpJdbcUrlSupport.validateNoDadpRuntimeParams(arguments.jdbcUrl);
         String actualJdbcUrl = DadpJdbcUrlSupport.extractActualUrl(arguments.jdbcUrl);
-        Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(arguments.jdbcUrl);
-        String alias = trimToNull(proxyParams.get("alias"));
-        if (alias == null) {
-            throw new IllegalArgumentException("JDBC URL must include alias");
-        }
-        if (trimToNull(proxyParams.get("hubUrl")) == null) {
-            throw new IllegalArgumentException("JDBC URL must include hubUrl");
-        }
+        String alias = arguments.alias;
 
         Properties connectionProps = new Properties();
         if (arguments.dbUser != null) {
@@ -41,10 +34,10 @@ public final class SchemaCollectCommand {
         try (Connection connection = connectionProps.isEmpty()
                 ? DriverManager.getConnection(actualJdbcUrl)
                 : DriverManager.getConnection(actualJdbcUrl, connectionProps)) {
-            JdbcSchemaCollector collector = new JdbcSchemaCollector(alias, new ProxyConfig(proxyParams));
+            JdbcSchemaCollector collector = new JdbcSchemaCollector(alias);
             List<SchemaMetadata> schemas = collector.collectSchemas(connection);
-            Map<String, Object> payload = SchemaRegistrationPayloadBuilder.build(
-                    arguments.jdbcUrl,
+            Map<String, Object> schemaCache = SchemaRegistrationPayloadBuilder.buildSchemaCacheWithAlias(
+                    alias,
                     actualJdbcUrl,
                     connection,
                     schemas,
@@ -54,12 +47,16 @@ public final class SchemaCollectCommand {
             );
 
             ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-            File output = new File(arguments.output);
-            File parent = output.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                throw new IllegalStateException("failed to create output directory: " + parent);
+            if (arguments.output != null) {
+                File output = new File(arguments.output);
+                File parent = output.getParentFile();
+                if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                    throw new IllegalStateException("failed to create output directory: " + parent);
+                }
+                mapper.writeValue(output, schemaCache);
+            } else {
+                mapper.writeValue(System.out, schemaCache);
             }
-            mapper.writeValue(output, payload);
         }
     }
 
@@ -73,14 +70,14 @@ public final class SchemaCollectCommand {
 
     private static final class Arguments {
         private String jdbcUrl;
+        private String alias;
         private String dbUser;
+        private String dbUserEnv;
         private String dbPassword;
-        private String output = "schema-register.json";
+        private String output;
         private String appName;
         private String wrapperVersion = detectWrapperVersion();
         private String clientInstanceId;
-        private boolean dbPasswordSet;
-        private boolean dbPasswordEnvSet;
 
         private static Arguments parse(String[] args) {
             Arguments parsed = new Arguments();
@@ -88,15 +85,18 @@ public final class SchemaCollectCommand {
                 String arg = args[i];
                 if ("--jdbc-url".equals(arg)) {
                     parsed.jdbcUrl = requireValue(args, ++i, arg);
-                } else if ("--db-user".equals(arg)) {
-                    parsed.dbUser = requireValue(args, ++i, arg);
-                } else if ("--db-password".equals(arg)) {
-                    parsed.dbPassword = requireValue(args, ++i, arg);
-                    parsed.dbPasswordSet = true;
+                } else if ("--alias".equals(arg)) {
+                    parsed.alias = requireValue(args, ++i, arg);
+                } else if ("--db-user-env".equals(arg)) {
+                    String envName = requireValue(args, ++i, arg);
+                    parsed.dbUser = trimToNull(System.getenv(envName));
+                    parsed.dbUserEnv = envName;
+                    if (parsed.dbUser == null) {
+                        throw new IllegalArgumentException("environment variable is empty: " + envName);
+                    }
                 } else if ("--db-password-env".equals(arg)) {
                     String envName = requireValue(args, ++i, arg);
                     parsed.dbPassword = trimToNull(System.getenv(envName));
-                    parsed.dbPasswordEnvSet = true;
                     if (parsed.dbPassword == null) {
                         throw new IllegalArgumentException("environment variable is empty: " + envName);
                     }
@@ -117,8 +117,8 @@ public final class SchemaCollectCommand {
             if (trimToNull(parsed.jdbcUrl) == null) {
                 throw new IllegalArgumentException(usage());
             }
-            if (parsed.dbPasswordSet && parsed.dbPasswordEnvSet) {
-                throw new IllegalArgumentException("--db-password and --db-password-env cannot be used together");
+            if (trimToNull(parsed.alias) == null) {
+                throw new IllegalArgumentException("missing required --alias\n" + usage());
             }
             return parsed;
         }
@@ -132,8 +132,8 @@ public final class SchemaCollectCommand {
 
         private static String usage() {
             return "usage: java -cp <wrapper.jar:db-driver.jar> com.dadp.jdbc.SchemaCollectCommand "
-                    + "--jdbc-url <jdbc:dadp:...> [--output schema-register.json] "
-                    + "[--db-user <user>] [--db-password-env <ENV> | --db-password <password>] "
+                    + "--alias <alias> --jdbc-url <jdbc:dadp:...> [--output schemas.json] "
+                    + "[--db-user-env <ENV>] [--db-password-env <ENV>] "
                     + "[--app-name <name>] [--client-instance-id <id>]";
         }
 

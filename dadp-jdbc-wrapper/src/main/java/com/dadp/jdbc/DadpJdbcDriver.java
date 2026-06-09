@@ -57,14 +57,8 @@ public class DadpJdbcDriver implements Driver {
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
             log.trace("DADP JDBC Driver connection request: {}", url);
             
-            // JDBC URL에서 Proxy 설정 파라미터 추출 (hubUrl, alias)
-            java.util.Map<String, String> proxyParams = extractProxyParams(url);
-            if (!proxyParams.isEmpty()) {
-                // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
-                log.trace("Proxy config parameters extracted: {}", proxyParams);
-            } else {
-                log.warn("No DADP proxy config parameters found. Wrapper requires JDBC URL hubUrl and alias.");
-            }
+            DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
+            java.util.Map<String, String> proxyParams = java.util.Collections.emptyMap();
             
             // DADP URL을 실제 DB URL로 변환 (Proxy 파라미터 제거)
             String actualUrl = extractActualUrl(url);
@@ -96,20 +90,15 @@ public class DadpJdbcDriver implements Driver {
     }
     
     /**
-     * JDBC URL에서 Proxy 설정 파라미터 추출
-     * 예: jdbc:dadp:mysql://localhost:3306/db?hubUrl=http://127.0.0.1:9004&alias=sample-db
-     * → {hubUrl: "http://127.0.0.1:9004", alias: "sample-db"}
-     *
-     * hubUrl is the Hub base URL without /hub.
-     * Wrapper HTTP clients append /hub/api/... internally.
+     * DADP 6 JDBC URL does not carry wrapper runtime parameters.
      */
     private java.util.Map<String, String> extractProxyParams(String dadpUrl) {
         return DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
     }
     
     /**
-     * DADP URL에서 실제 DB URL 추출 (Proxy 파라미터 제거)
-     * 예: jdbc:dadp:mysql://localhost:3306/db?hubUrl=...&useSSL=false
+     * DADP URL에서 실제 DB URL 추출
+     * 예: jdbc:dadp:mysql://localhost:3306/db?useSSL=false
      * → jdbc:mysql://localhost:3306/db?useSSL=false
      */
     private String extractActualUrl(String dadpUrl) {

@@ -146,7 +146,7 @@ public class DadpProxyConnection implements Connection {
         // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
-            log.warn("DADP Wrapper runtime is not initialized. Run CLI schema-register and trigger manual refresh to enable encryption/decryption. Current connection uses passthrough mode.");
+            log.warn("DADP Wrapper runtime is not initialized. Run CLI wrapper schema register and trigger manual refresh to enable encryption/decryption. Current connection uses passthrough mode.");
             this.policyResolver = null;
             this.mappingSyncService = null;
             this.endpointSyncService = null;
@@ -647,18 +647,9 @@ public class DadpProxyConnection implements Connection {
                     try {
                         com.dadp.common.sync.config.EndpointStorage.EndpointData endpointData = null;
                         
-                        // endpointSyncService가 있으면 사용, 없으면 EndpointStorage 직접 사용
                         if (endpointSyncService != null) {
                             endpointData = endpointSyncService.loadStoredEndpoints();
-                            if (endpointData == null) {
-                                // Hub에서 다시 조회 시도
-                                boolean synced = endpointSyncService.syncEndpointsFromHub();
-                                if (synced) {
-                                    endpointData = endpointSyncService.loadStoredEndpoints();
-                                }
-                            }
                         } else {
-                            // endpointSyncService가 null이면 오케스트레이터에서 가져온 EndpointStorage 사용
                             com.dadp.common.sync.config.EndpointStorage storage = this.orchestrator.getEndpointStorage();
                             if (storage != null) {
                                 endpointData = storage.loadEndpoints();
@@ -683,18 +674,9 @@ public class DadpProxyConnection implements Connection {
             try {
                 com.dadp.common.sync.config.EndpointStorage.EndpointData endpointData = null;
                 
-                // endpointSyncService가 있으면 사용, 없으면 EndpointStorage 직접 사용
                 if (endpointSyncService != null) {
                     endpointData = endpointSyncService.loadStoredEndpoints();
-                    if (endpointData == null) {
-                        // Hub에서 다시 조회 시도
-                        boolean synced = endpointSyncService.syncEndpointsFromHub();
-                        if (synced) {
-                            endpointData = endpointSyncService.loadStoredEndpoints();
-                        }
-                    }
                 } else {
-                    // endpointSyncService가 null이면 오케스트레이터에서 가져온 EndpointStorage 사용
                     com.dadp.common.sync.config.EndpointStorage storage = this.orchestrator != null ? this.orchestrator.getEndpointStorage() : null;
                     if (storage != null) {
                         endpointData = storage.loadEndpoints();

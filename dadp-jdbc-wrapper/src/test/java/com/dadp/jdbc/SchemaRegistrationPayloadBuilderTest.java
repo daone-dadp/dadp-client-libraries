@@ -17,20 +17,20 @@ import org.junit.jupiter.api.Test;
 class SchemaRegistrationPayloadBuilderTest {
 
     @Test
-    void buildsSchemaRegisterPayloadFromDadpJdbcUrlWithoutDuplicateAliasInput() throws Exception {
+    void buildsSchemaRegisterPayloadWithAliasSeparateFromJdbcUrl() throws Exception {
         String dadpUrl = "jdbc:dadp:mysql://192.168.0.33:3306/test_app_mysql_db"
-                + "?useSSL=false&serverTimezone=UTC&hubUrl=http%3A%2F%2F127.0.0.1%3A9004"
-                + "&alias=dadp-test-app-standalone-mysql&failOpen=true";
+                + "?useSSL=false&serverTimezone=UTC";
         String actualUrl = DadpJdbcUrlSupport.extractActualUrl(dadpUrl);
 
-        Map<String, Object> payload = SchemaRegistrationPayloadBuilder.build(
-                dadpUrl,
+        Map<String, Object> payload = SchemaRegistrationPayloadBuilder.buildWithAlias(
+                "dadp-test-app-standalone-mysql",
                 actualUrl,
                 connection("MySQL", "test_app_mysql_db", null),
                 schemas(),
                 "dadp-test-app-mysql",
                 "6.0.0",
-                "mysql-app-1"
+                "mysql-app-1",
+                null
         );
 
         assertEquals("dadp-test-app-standalone-mysql", payload.get("alias"));
@@ -38,7 +38,7 @@ class SchemaRegistrationPayloadBuilderTest {
         assertEquals("dadp-test-app-mysql", payload.get("appName"));
         assertEquals("6.0.0", payload.get("wrapperVersion"));
         assertEquals("mysql-app-1", payload.get("clientInstanceId"));
-        assertFalse(payload.containsKey("hubUrl"), "hubUrl must not be duplicated in Hub schema-register payload");
+        assertFalse(payload.containsKey("hubUrl"), "hubUrl must not be duplicated in Hub schema registration payload");
 
         Map<?, ?> datasource = (Map<?, ?>) payload.get("datasource");
         assertEquals("dadp-test-app-standalone-mysql", datasource.get("datasourceKey"));

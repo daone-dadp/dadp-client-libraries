@@ -36,8 +36,8 @@ class JdbcPolicyMappingSyncServiceTest {
     Path tempDir;
 
     @Test
-    void savesStatsAggregatorValuesFromPolicySnapshotEndpoint() throws Exception {
-        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+    void savesEngineEndpointInProxyConfigFromPolicySnapshotEndpoint() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
@@ -69,36 +69,29 @@ class JdbcPolicyMappingSyncServiceTest {
         WrapperRuntimeConfigManager tenantIdManager = (WrapperRuntimeConfigManager) tenantIdManagerField.get(service);
         tenantIdManager.setTenantId("hub-test", false);
 
-        MappingSyncService.StatsAggregatorInfo statsAggregator = new MappingSyncService.StatsAggregatorInfo();
-        statsAggregator.setEnabled(Boolean.TRUE);
-        statsAggregator.setUrl("http://aggregator:9005");
-        statsAggregator.setMode("DIRECT");
-        statsAggregator.setSlowThresholdMs(654);
-
         MappingSyncService.EndpointInfo endpointInfo = new MappingSyncService.EndpointInfo();
         endpointInfo.setCryptoUrl("http://engine:9003");
-        endpointInfo.setStatsAggregator(statsAggregator);
 
         Method method = JdbcPolicyMappingSyncService.class.getDeclaredMethod(
                 "saveEndpointFromPolicyMapping", MappingSyncService.EndpointInfo.class);
         method.setAccessible(true);
         method.invoke(service, endpointInfo);
 
-        EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+        EndpointStorage.EndpointData endpointData = configStorage.loadEndpointData();
         assertNotNull(endpointData);
         assertEquals("http://engine:9003", endpointData.getCryptoUrl());
         assertEquals("hub-test", endpointData.getTenantId());
         assertEquals(Long.valueOf(77L), endpointData.getVersion());
-        assertEquals(Boolean.TRUE, endpointData.getStatsAggregatorEnabled());
-        assertEquals("http://aggregator:9005", endpointData.getStatsAggregatorUrl());
-        assertEquals("DIRECT", endpointData.getStatsAggregatorMode());
-        assertEquals(Integer.valueOf(654), endpointData.getSlowThresholdMs());
+        assertNull(endpointData.getStatsAggregatorEnabled());
+        assertNull(endpointData.getStatsAggregatorUrl());
+        assertNull(endpointData.getStatsAggregatorMode());
+        assertNull(endpointData.getSlowThresholdMs());
         verify(directCryptoAdapter).setEndpointData(any(EndpointStorage.EndpointData.class));
     }
 
     @Test
     void usesAliasAsInstanceIdentity() throws Exception {
-        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
@@ -138,7 +131,7 @@ class JdbcPolicyMappingSyncServiceTest {
 
     @Test
     void automaticPolicyMappingSyncDoesNotStartUnlessExplicitlyEnabled() throws Exception {
-        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
@@ -176,7 +169,7 @@ class JdbcPolicyMappingSyncServiceTest {
 
     @Test
     void manualRefreshAppliesEndpointAndCryptoModeFromSnapshot() throws Exception {
-        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
@@ -235,8 +228,87 @@ class JdbcPolicyMappingSyncServiceTest {
     }
 
     @Test
+    void manualRefreshDoesNotLoadTenantIdOrCallHubWhenServiceIsNotInitialized() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        configStorage.saveConfig("wtenant_late_enrolled", null, null, null, "6");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("late-enrolled-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+        when(proxyConfig.isCryptoLocalFallbackRemote()).thenReturn(true);
+        when(proxyConfig.getCryptoLocalTimeoutMs()).thenReturn(30000);
+        when(proxyConfig.isWrapperCryptoStatsEnabled()).thenReturn(false);
+        when(proxyConfig.getWrapperCryptoStatsAggregationLevel()).thenReturn("1hour");
+        when(mappingSyncService.syncPolicyMappingsAndUpdateVersion(any())).thenReturn(1);
+
+        MappingSyncService.EndpointInfo endpointInfo = new MappingSyncService.EndpointInfo();
+        endpointInfo.setCryptoUrl("http://engine:9003");
+        MappingSyncService.PolicySnapshot snapshot = new MappingSyncService.PolicySnapshot();
+        snapshot.setVersion(8L);
+        snapshot.setEndpoint(endpointInfo);
+        when(mappingSyncService.getLastSnapshot()).thenReturn(snapshot);
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage);
+
+        service.refreshNow();
+
+        verify(mappingSyncService, never()).syncPolicyMappingsAndUpdateVersion(any());
+        verify(directCryptoAdapter, never()).setEndpointData(any(EndpointStorage.EndpointData.class));
+    }
+
+    @Test
+    void manualRefreshWithoutTenantIdDoesNotCallHub() {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("not-enrolled-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage);
+
+        service.refreshNow();
+
+        verify(mappingSyncService, never()).syncPolicyMappingsAndUpdateVersion(any());
+        verify(directCryptoAdapter, never()).setEndpointData(any(EndpointStorage.EndpointData.class));
+    }
+
+    @Test
     void manualRefreshAppliesEnabledFalseInMemoryWithoutPersistingIt() throws Exception {
-        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);

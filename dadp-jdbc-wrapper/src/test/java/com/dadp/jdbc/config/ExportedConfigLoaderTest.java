@@ -40,7 +40,7 @@ class ExportedConfigLoaderTest {
         WrapperRuntimeConfigManager tenantIdManager =
                 new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
         PolicyResolver policyResolver = new PolicyResolver(storageDir.toString(), "policy-mappings.json");
-        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "crypto-endpoints.json");
+        EndpointStorage endpointStorage = new EndpointStorage(storageDir.toString(), "proxy-config.json");
 
         String loadedTenantId = ExportedConfigLoader.loadIfExists(
                 storageDir.toString(),
@@ -80,7 +80,7 @@ class ExportedConfigLoaderTest {
                 "wrapper-test",
                 tenantIdManager,
                 new PolicyResolver(storageDir.toString(), "policy-mappings.json"),
-                new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
+                new EndpointStorage(storageDir.toString(), "proxy-config.json"));
 
         assertEquals(null, loadedTenantId);
         assertFalse(configStorage.hasStoredConfig());
@@ -112,7 +112,7 @@ class ExportedConfigLoaderTest {
                 "wrapper-test",
                 tenantIdManager,
                 policyResolver,
-                new EndpointStorage(storageDir.toString(), "crypto-endpoints.json"));
+                new EndpointStorage(storageDir.toString(), "proxy-config.json"));
 
         assertEquals("wtenant_test", loadedTenantId);
         assertEquals(Long.valueOf(6L), policyResolver.getCurrentVersion());

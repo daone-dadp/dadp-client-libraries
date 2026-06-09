@@ -2,6 +2,8 @@ package com.dadp.common.sync.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 
@@ -73,7 +75,7 @@ public class InstanceConfigStorage {
     }
 
     /**
-     * Save Hub 6 runtime wrapper enrollment data issued by the CLI schema-register flow.
+     * Save Hub 6 runtime wrapper enrollment data issued by the CLI wrapper schema register flow.
      */
     public boolean saveConfig(String tenantId,
                               String hubUrl,
@@ -86,21 +88,17 @@ public class InstanceConfigStorage {
         }
         
         try {
-            ConfigData data = loadExistingConfig();
-            if (data == null) {
-                data = new ConfigData();
-            }
-            data.setTimestamp(System.currentTimeMillis());
+            ObjectNode data = loadExistingObjectNode();
+            data.put("timestamp", System.currentTimeMillis());
             if (tenantId != null) {
-                data.setTenantId(tenantId);
+                data.put("tenantId", tenantId);
             }
-            data.setHubUrl(null);
-            data.setInstanceId(null);
+            removeNonPersistentBootstrapFields(data);
             if (failOpen != null) {
-                data.setFailOpen(failOpen);
+                data.put("failOpen", failOpen.booleanValue());
             }
             if (runtimeVersion != null) {
-                data.setRuntimeVersion(runtimeVersion);
+                data.put("runtimeVersion", runtimeVersion);
             }
             
             // 파일에 저장
@@ -108,11 +106,48 @@ public class InstanceConfigStorage {
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
             log.debug("Instance config saved: tenantId={}, hubUrl={}, instanceId={} -> {}",
-                    data.getTenantId(), data.getHubUrl(), data.getInstanceId(), storagePath);
+                    text(data.path("tenantId")), text(data.path("hubUrl")), text(data.path("instanceId")), storagePath);
             return true;
 
         } catch (IOException e) {
             log.warn("Instance config save failed: {}", storagePath, e);
+            return false;
+        }
+    }
+
+    public boolean saveEnrollment(String tenantId,
+                                  String alias,
+                                  String runtimeVersion,
+                                  String refreshUrl) {
+        if (storagePath == null) {
+            log.warn("Storage path not set, cannot save wrapper enrollment");
+            return false;
+        }
+
+        try {
+            ObjectNode data = loadExistingObjectNode();
+            data.put("timestamp", System.currentTimeMillis());
+            if (tenantId != null && !tenantId.trim().isEmpty()) {
+                data.put("tenantId", tenantId.trim());
+            }
+            if (alias != null && !alias.trim().isEmpty()) {
+                data.put("alias", alias.trim());
+            }
+            if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
+                data.put("runtimeVersion", runtimeVersion.trim());
+            }
+            if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
+                data.put("refreshUrl", refreshUrl.trim());
+            }
+            removeNonPersistentBootstrapFields(data);
+
+            File storageFile = new File(storagePath);
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            log.debug("Wrapper enrollment saved: tenantId={}, alias={}, runtimeVersion={} -> {}",
+                    text(data.path("tenantId")), text(data.path("alias")), text(data.path("runtimeVersion")), storagePath);
+            return true;
+        } catch (IOException e) {
+            log.warn("Wrapper enrollment save failed: {}", storagePath, e);
             return false;
         }
     }
@@ -122,45 +157,102 @@ public class InstanceConfigStorage {
      *
      * <p>Refresh values are the first priority runtime source. They are stored so a later
      * startup can use them as the local third-priority snapshot, but they must not change
-     * immutable bootstrap values such as JDBC URL hubUrl or alias.</p>
+     * immutable enrollment identity such as tenantId or alias.</p>
      */
     public boolean saveRuntimeOptions(String cryptoMode,
                                       Boolean failOpen,
                                       Boolean policySyncAutoEnabled,
                                       String runtimeVersion) {
+        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled, runtimeVersion, null);
+    }
+
+    public boolean saveRuntimeOptions(String cryptoMode,
+                                      Boolean failOpen,
+                                      Boolean policySyncAutoEnabled,
+                                      String runtimeVersion,
+                                      String wrapperEngineUrl) {
+        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled, runtimeVersion, wrapperEngineUrl, null);
+    }
+
+    public boolean saveRuntimeOptions(String cryptoMode,
+                                      Boolean failOpen,
+                                      Boolean policySyncAutoEnabled,
+                                      String runtimeVersion,
+                                      String wrapperEngineUrl,
+                                      String tenantId) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save runtime options");
             return false;
         }
 
         try {
-            ConfigData data = loadExistingConfig();
-            if (data == null) {
-                data = new ConfigData();
+            ObjectNode data = loadExistingObjectNode();
+            data.put("timestamp", System.currentTimeMillis());
+            removeNonPersistentBootstrapFields(data);
+            if (tenantId != null && !tenantId.trim().isEmpty()) {
+                data.put("tenantId", tenantId.trim());
             }
-            data.setTimestamp(System.currentTimeMillis());
             if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
-                data.setCryptoMode(cryptoMode.trim());
+                data.put("cryptoMode", cryptoMode.trim());
             }
             if (failOpen != null) {
-                data.setFailOpen(failOpen);
+                data.put("failOpen", failOpen.booleanValue());
             }
             if (policySyncAutoEnabled != null) {
-                data.setPolicySyncAutoEnabled(policySyncAutoEnabled);
+                data.put("policySyncAutoEnabled", policySyncAutoEnabled.booleanValue());
             }
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
-                data.setRuntimeVersion(runtimeVersion.trim());
+                String normalizedRuntimeVersion = runtimeVersion.trim();
+                data.put("runtimeVersion", normalizedRuntimeVersion);
+                Long parsedRuntimeVersion = parseLong(normalizedRuntimeVersion);
+                if (parsedRuntimeVersion != null) {
+                    data.put("snapshotVersion", parsedRuntimeVersion.longValue());
+                }
+            }
+            if (wrapperEngineUrl != null && !wrapperEngineUrl.trim().isEmpty()) {
+                JsonNode existingEngine = data.path("engine");
+                ObjectNode engine;
+                if (existingEngine != null && existingEngine.isObject()) {
+                    engine = (ObjectNode) existingEngine;
+                } else {
+                    engine = objectMapper.createObjectNode();
+                    data.set("engine", engine);
+                }
+                engine.put("wrapperEngineUrl", wrapperEngineUrl.trim());
             }
 
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={} -> {}",
-                    data.getCryptoMode(), data.getFailOpen(), data.getPolicySyncAutoEnabled(), data.getRuntimeVersion(), storagePath);
+            log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={}, wrapperEngineUrl={} -> {}",
+                    text(data.path("cryptoMode")),
+                    Boolean.valueOf(data.path("failOpen").asBoolean(false)),
+                    data.path("policySyncAutoEnabled").isMissingNode() ? null : Boolean.valueOf(data.path("policySyncAutoEnabled").asBoolean(false)),
+                    text(data.path("runtimeVersion")),
+                    text(data.path("engine").path("wrapperEngineUrl")),
+                    storagePath);
             return true;
         } catch (IOException e) {
             log.warn("Runtime option save failed: {}", storagePath, e);
             return false;
         }
+    }
+
+    public boolean saveEngineEndpoint(String wrapperEngineUrl, String runtimeVersion) {
+        return saveRuntimeOptions(null, null, null, runtimeVersion, wrapperEngineUrl);
+    }
+
+    public EndpointStorage.EndpointData loadEndpointData() {
+        ConfigData data = loadExistingConfig();
+        if (data == null || data.getEngine() == null
+                || data.getEngine().getWrapperEngineUrl() == null
+                || data.getEngine().getWrapperEngineUrl().trim().isEmpty()) {
+            return null;
+        }
+        EndpointStorage.EndpointData endpointData = new EndpointStorage.EndpointData();
+        endpointData.setCryptoUrl(data.getEngine().getWrapperEngineUrl().trim());
+        endpointData.setTenantId(data.getTenantId());
+        endpointData.setVersion(parseLong(data.getRuntimeVersion()));
+        return endpointData;
     }
     
     /**
@@ -192,9 +284,10 @@ public class InstanceConfigStorage {
             
             // hubUrl is not a persisted runtime source in DADP 6 wrapper.
             // It must come from the JDBC URL on every startup.
-            if (instanceId != null && data.getInstanceId() != null && !instanceId.equals(data.getInstanceId())) {
+            String storedAlias = firstNonBlank(data.getAlias(), data.getInstanceId());
+            if (instanceId != null && storedAlias != null && !instanceId.equals(storedAlias)) {
                 log.debug("Instance ID mismatch, skipping config load: stored={}, requested={}",
-                        data.getInstanceId(), instanceId);
+                        storedAlias, instanceId);
                 return null;
             }
             
@@ -224,6 +317,65 @@ public class InstanceConfigStorage {
             log.debug("Existing instance config load skipped: {}", e.getMessage());
             return null;
         }
+    }
+
+    private ObjectNode loadExistingObjectNode() {
+        if (storagePath == null) {
+            return objectMapper.createObjectNode();
+        }
+        File storageFile = new File(storagePath);
+        if (!storageFile.exists()) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            JsonNode node = objectMapper.readTree(storageFile);
+            if (node != null && node.isObject()) {
+                return (ObjectNode) node;
+            }
+        } catch (IOException e) {
+            log.debug("Existing instance config object load skipped: {}", e.getMessage());
+        }
+        return objectMapper.createObjectNode();
+    }
+
+    private void removeNonPersistentBootstrapFields(ObjectNode data) {
+        if (data == null) {
+            return;
+        }
+        data.remove("hubUrl");
+        data.remove("instanceId");
+    }
+
+    private static String text(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        String value = node.asText();
+        return value != null && !value.trim().isEmpty() ? value : null;
+    }
+
+    private static Long parseLong(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String trimmed = value != null ? value.trim() : null;
+            if (trimmed != null && !trimmed.isEmpty()) {
+                return trimmed;
+            }
+        }
+        return null;
     }
     
     /**
@@ -277,12 +429,15 @@ public class InstanceConfigStorage {
     public static class ConfigData {
         private long timestamp;
         private String tenantId;  // Hub가 발급한 고유 ID
+        private String alias;  // CLI schema register가 확정한 wrapper alias
         private String hubUrl;  // Hub URL
+        private String refreshUrl;  // Optional canonical runtime refresh URL
         private String instanceId;  // 사용자가 설정한 별칭
         private Boolean failOpen;  // Fail-open mode; Hub runtime refresh has priority.
         private String runtimeVersion;  // Hub runtime contract version
         private String cryptoMode;  // Hub refresh runtime option: remote | local
         private Boolean policySyncAutoEnabled;  // Hub refresh runtime option
+        private EngineData engine;  // Hub refresh engine endpoint data
         
         public long getTimestamp() {
             return timestamp;
@@ -299,6 +454,14 @@ public class InstanceConfigStorage {
         public void setTenantId(String tenantId) {
             this.tenantId = tenantId;
         }
+
+        public String getAlias() {
+            return alias;
+        }
+
+        public void setAlias(String alias) {
+            this.alias = alias;
+        }
         
         public String getHubUrl() {
             return hubUrl;
@@ -306,6 +469,14 @@ public class InstanceConfigStorage {
         
         public void setHubUrl(String hubUrl) {
             this.hubUrl = hubUrl;
+        }
+
+        public String getRefreshUrl() {
+            return refreshUrl;
+        }
+
+        public void setRefreshUrl(String refreshUrl) {
+            this.refreshUrl = refreshUrl;
         }
         
         public String getInstanceId() {
@@ -346,6 +517,27 @@ public class InstanceConfigStorage {
 
         public void setPolicySyncAutoEnabled(Boolean policySyncAutoEnabled) {
             this.policySyncAutoEnabled = policySyncAutoEnabled;
+        }
+
+        public EngineData getEngine() {
+            return engine;
+        }
+
+        public void setEngine(EngineData engine) {
+            this.engine = engine;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class EngineData {
+        private String wrapperEngineUrl;
+
+        public String getWrapperEngineUrl() {
+            return wrapperEngineUrl;
+        }
+
+        public void setWrapperEngineUrl(String wrapperEngineUrl) {
+            this.wrapperEngineUrl = wrapperEngineUrl;
         }
     }
 }

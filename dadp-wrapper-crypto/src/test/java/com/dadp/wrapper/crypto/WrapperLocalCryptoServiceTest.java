@@ -36,6 +36,14 @@ class WrapperLocalCryptoServiceTest {
                             + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
                             + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
         });
+        server.createContext("/hub/api/v1/runtime/policies/ABCD1234", exchange -> {
+            assertEquals("GET", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"policyCode\":\"ABCD1234\",\"name\":\"customer-policy\",\"version\":1,"
+                            + "\"status\":\"ACTIVE\",\"algorithm\":\"A256GCM\","
+                            + "\"metadata\":{\"partialEncryption\":false,\"plainStart\":0,\"plainLength\":0}}");
+        });
         server.setExecutor(Executors.newSingleThreadExecutor());
         server.start();
 
@@ -67,9 +75,16 @@ class WrapperLocalCryptoServiceTest {
                             + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
                             + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
                             + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":300,"
-                            + "\"partialEncryption\":true,\"plainStart\":0,\"plainLength\":3,"
                             + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
                             + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
+        });
+        server.createContext("/hub/api/v1/runtime/policies/ABCD1234", exchange -> {
+            assertEquals("GET", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"policyCode\":\"ABCD1234\",\"name\":\"partial-prefix3\",\"version\":1,"
+                            + "\"status\":\"ACTIVE\",\"algorithm\":\"A256GCM\","
+                            + "\"metadata\":{\"partialEncryption\":true,\"plainStart\":0,\"plainLength\":3}}");
         });
         server.setExecutor(Executors.newSingleThreadExecutor());
         server.start();
@@ -83,6 +98,49 @@ class WrapperLocalCryptoServiceTest {
 
             assertTrue(encrypted.startsWith("010::ENC::hub:ABCD1234:"));
             assertEquals("01012345678", service.decrypt(encrypted, null));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void localPolicySnapshotAlgorithmOverridesExecutionKeyAlgorithm() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        byte[] key = new byte[32];
+        String keyData = Base64.getEncoder().encodeToString(key);
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"data\":{\"policyCode\":\"ECB12345\",\"policyVersion\":1,"
+                            + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
+                            + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
+                            + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
+                            + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":300,"
+                            + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
+                            + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
+        });
+        server.createContext("/hub/api/v1/runtime/policies/ECB12345", exchange -> {
+            assertEquals("GET", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"policyCode\":\"ECB12345\",\"name\":\"search-ecb\",\"version\":1,"
+                            + "\"status\":\"ACTIVE\",\"algorithm\":\"A256ECB\","
+                            + "\"metadata\":{\"partialEncryption\":false,\"plainStart\":0,\"plainLength\":0}}");
+        });
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wtenant_local");
+
+            String first = service.encryptByPolicyCode("01012345678", "ECB12345");
+            String second = service.encryptByPolicyCode("01012345678", "ECB12345");
+
+            assertEquals(first, second);
+            assertEquals("01012345678", service.decrypt(first, null));
         } finally {
             server.stop(0);
         }

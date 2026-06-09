@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Includes retry logic while DB tables are being created.
  * 
  * 모든 공통 로직은 여기에 있고, 통신 부분은 SchemaSyncExecutor 인터페이스를 통해 분리됩니다.
- * DADP 6 tenant IDs are issued by CLI schema-register, not by schema-sync responses.
+ * DADP 6 tenant IDs are issued by CLI wrapper schema register, not by schema-sync responses.
  * 
  * @author DADP Development Team
  * @version 5.1.0
@@ -265,7 +265,7 @@ public class RetryableSchemaSyncService {
                     boolean is404 = is404Exception(e);
                     
                     if (is404) {
-                        log.warn("Hub could not find tenantId (404). Run CLI schema-register and manual wrapper refresh.");
+                        log.warn("Hub could not find tenantId (404). Run CLI wrapper schema register and manual wrapper refresh.");
                         return false;
                     }
                     

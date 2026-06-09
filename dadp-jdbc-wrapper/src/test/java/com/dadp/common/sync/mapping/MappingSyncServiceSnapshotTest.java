@@ -20,19 +20,13 @@ class MappingSyncServiceSnapshotTest {
     Path tempDir;
 
     @Test
-    void deserializesStatsAggregatorFromPolicySnapshotEndpoint() throws Exception {
+    void deserializesEngineEndpointFromPolicySnapshotEndpoint() throws Exception {
         String json = "{"
                 + "\"version\":17,"
                 + "\"mappings\":[],"
                 + "\"endpoint\":{"
                 + "\"cryptoUrl\":\"http://engine:9003\","
-                + "\"apiBasePath\":\"/api\","
-                + "\"statsAggregator\":{"
-                + "\"enabled\":true,"
-                + "\"url\":\"http://aggregator:9005\","
-                + "\"mode\":\"DIRECT\","
-                + "\"slowThresholdMs\":321"
-                + "}"
+                + "\"apiBasePath\":\"/api\""
                 + "}"
                 + "}";
 
@@ -42,11 +36,6 @@ class MappingSyncServiceSnapshotTest {
         assertNotNull(snapshot);
         assertNotNull(snapshot.getEndpoint());
         assertEquals("http://engine:9003", snapshot.getEndpoint().getCryptoUrl());
-        assertNotNull(snapshot.getEndpoint().getStatsAggregator());
-        assertEquals(Boolean.TRUE, snapshot.getEndpoint().getStatsAggregator().getEnabled());
-        assertEquals("http://aggregator:9005", snapshot.getEndpoint().getStatsAggregator().getUrl());
-        assertEquals("DIRECT", snapshot.getEndpoint().getStatsAggregator().getMode());
-        assertEquals(Integer.valueOf(321), snapshot.getEndpoint().getStatsAggregator().getSlowThresholdMs());
     }
 
     @Test
@@ -54,6 +43,7 @@ class MappingSyncServiceSnapshotTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", exchange -> {
             assertEquals("wtenant_test", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            assertEquals("version=6", exchange.getRequestURI().getQuery());
             byte[] body = ("{"
                     + "\"wrapper\":{\"enabled\":true,\"debugEnabled\":true,\"debugLevel\":\"TRACE\","
                     + "\"cryptoMode\":\"local\",\"policySyncAutoEnabled\":true,\"failOpen\":true},"
@@ -93,7 +83,7 @@ class MappingSyncServiceSnapshotTest {
                     "/hub/api/v1/runtime/wrappers",
                     resolver);
 
-            int count = service.syncPolicyMappingsAndUpdateVersion(null);
+            int count = service.syncPolicyMappingsAndUpdateVersion(6L);
 
 	            assertEquals(2, count);
 	            assertNotNull(service.getLastSnapshot());
@@ -114,5 +104,65 @@ class MappingSyncServiceSnapshotTest {
 	        } finally {
 	            server.stop(0);
 	        }
+    }
+
+    @Test
+    void runtimeRefreshTreatsNotModifiedAsNoop() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", exchange -> {
+            assertEquals("wtenant_test", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            assertEquals("version=7", exchange.getRequestURI().getQuery());
+            exchange.sendResponseHeaders(304, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            PolicyResolver resolver = new PolicyResolver(tempDir.toString(), "policy-mappings.json");
+            MappingSyncService service = new MappingSyncService(
+                    hubUrl,
+                    "wtenant_test",
+                    "alias-test",
+                    "/hub/api/v1/runtime/wrappers",
+                    resolver);
+
+            int count = service.syncPolicyMappingsAndUpdateVersion(7L);
+
+            assertEquals(0, count);
+            assertEquals(null, service.getLastSnapshot());
+            assertEquals(Long.valueOf(0L), resolver.getCurrentVersion());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void runtimeRefreshTreatsUnauthorizedAsNoop() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hub/api/v1/runtime/wrappers/wtenant_test/refresh", exchange -> {
+            assertEquals("wtenant_test", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            assertEquals(null, exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            PolicyResolver resolver = new PolicyResolver(tempDir.toString(), "policy-mappings.json");
+            MappingSyncService service = new MappingSyncService(
+                    hubUrl,
+                    "wtenant_test",
+                    "alias-test",
+                    "/hub/api/v1/runtime/wrappers",
+                    resolver);
+
+            int count = service.syncPolicyMappingsAndUpdateVersion(7L);
+
+            assertEquals(0, count);
+            assertEquals(null, service.getLastSnapshot());
+            assertEquals(Long.valueOf(0L), resolver.getCurrentVersion());
+        } finally {
+            server.stop(0);
+        }
     }
 }

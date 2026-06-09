@@ -14,26 +14,72 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-final class SchemaRegistrationPayloadBuilder {
+public final class SchemaRegistrationPayloadBuilder {
 
     private SchemaRegistrationPayloadBuilder() {
     }
 
-    static Map<String, Object> build(String dadpJdbcUrl,
-                                     String actualJdbcUrl,
-                                     Connection connection,
-                                     List<SchemaMetadata> schemas,
-                                     String appName,
-                                     String wrapperVersion,
-                                     String clientInstanceId) throws SQLException {
-        Map<String, String> proxyParams = DadpJdbcUrlSupport.extractProxyParams(dadpJdbcUrl);
-        String alias = trimToNull(proxyParams.get("alias"));
-        String hubUrl = trimToNull(proxyParams.get("hubUrl"));
+    public static Map<String, Object> build(String dadpJdbcUrl,
+                                            String actualJdbcUrl,
+                                            Connection connection,
+                                            List<SchemaMetadata> schemas,
+                                            String appName,
+                                            String wrapperVersion,
+                                            String clientInstanceId) throws SQLException {
+        throw new IllegalArgumentException("alias must be supplied separately in DADP 6 schema register");
+    }
+
+    public static Map<String, Object> build(String dadpJdbcUrl,
+                                            String actualJdbcUrl,
+                                            Connection connection,
+                                            List<SchemaMetadata> schemas,
+                                            String appName,
+                                            String wrapperVersion,
+                                            String clientInstanceId,
+                                            String existingTenantId) throws SQLException {
+        throw new IllegalArgumentException("alias must be supplied separately in DADP 6 schema register");
+    }
+
+    public static Map<String, Object> buildWithAlias(String alias,
+                                                     String actualJdbcUrl,
+                                                     Connection connection,
+                                                     List<SchemaMetadata> schemas,
+                                                     String appName,
+                                                     String wrapperVersion,
+                                                     String clientInstanceId,
+                                                     String existingTenantId) throws SQLException {
+        Map<String, Object> payload = buildSchemaCacheWithAlias(
+                alias,
+                actualJdbcUrl,
+                connection,
+                schemas,
+                appName,
+                wrapperVersion,
+                clientInstanceId);
+        putIfNotBlank(payload, "tenantId", existingTenantId);
+        return payload;
+    }
+
+    public static Map<String, Object> buildSchemaCache(String dadpJdbcUrl,
+                                                       String actualJdbcUrl,
+                                                       Connection connection,
+                                                       List<SchemaMetadata> schemas,
+                                                       String appName,
+                                                       String wrapperVersion,
+                                                       String clientInstanceId) throws SQLException {
+        throw new IllegalArgumentException("alias must be supplied separately in DADP 6 schema collect");
+    }
+
+    public static Map<String, Object> buildSchemaCacheWithAlias(String alias,
+                                                                String actualJdbcUrl,
+                                                                Connection connection,
+                                                                List<SchemaMetadata> schemas,
+                                                                String appName,
+                                                                String wrapperVersion,
+                                                                String clientInstanceId) throws SQLException {
+        alias = trimToNull(alias);
         if (alias == null) {
-            throw new IllegalArgumentException("JDBC URL must include alias");
-        }
-        if (hubUrl == null) {
-            throw new IllegalArgumentException("JDBC URL must include hubUrl");
+            throw new IllegalArgumentException("alias is required");
         }
 
         DatabaseMetaData metaData = connection.getMetaData();
@@ -54,6 +100,37 @@ final class SchemaRegistrationPayloadBuilder {
         capabilities.put("remoteCrypto", true);
         payload.put("capabilities", capabilities);
 
+        return payload;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> buildRegistrationPayload(Map<String, Object> schemaCache,
+                                                              String existingTenantId,
+                                                              String appName,
+                                                              String wrapperVersion,
+                                                              String clientInstanceId) {
+        if (schemaCache == null || schemaCache.isEmpty()) {
+            throw new IllegalArgumentException("schema cache is empty");
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        putIfPresent(payload, "tenantId", existingTenantId);
+        putIfPresent(payload, "alias", schemaCache.get("alias"));
+        putIfPresent(payload, "wrapperType", firstNonNull(schemaCache.get("wrapperType"), "JDBC"));
+        putIfPresent(payload, "appName", firstNonNull(appName, schemaCache.get("appName")));
+        putIfPresent(payload, "wrapperVersion", firstNonNull(wrapperVersion, schemaCache.get("wrapperVersion")));
+        putIfPresent(payload, "clientInstanceId", firstNonNull(clientInstanceId, schemaCache.get("clientInstanceId")));
+        putIfPresent(payload, "datasource", schemaCache.get("datasource"));
+        putIfPresent(payload, "schema", schemaCache.get("schema"));
+        Object capabilities = schemaCache.get("capabilities");
+        if (capabilities instanceof Map) {
+            putIfPresent(payload, "capabilities", capabilities);
+        } else {
+            Map<String, Object> defaultCapabilities = new LinkedHashMap<>();
+            defaultCapabilities.put("manualSchemaCollection", true);
+            defaultCapabilities.put("localCrypto", true);
+            defaultCapabilities.put("remoteCrypto", true);
+            payload.put("capabilities", defaultCapabilities);
+        }
         return payload;
     }
 
@@ -227,6 +304,18 @@ final class SchemaRegistrationPayloadBuilder {
         if (trimmed != null) {
             payload.put(key, trimmed);
         }
+    }
+
+    private static void putIfPresent(Map<String, Object> payload, String key, Object value) {
+        if (value instanceof String) {
+            putIfNotBlank(payload, key, (String) value);
+        } else if (value != null) {
+            payload.put(key, value);
+        }
+    }
+
+    private static Object firstNonNull(Object first, Object second) {
+        return first != null ? first : second;
     }
 
     private static Integer parsePort(String value) {

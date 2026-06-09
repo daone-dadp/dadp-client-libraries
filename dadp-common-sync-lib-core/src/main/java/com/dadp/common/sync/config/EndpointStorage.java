@@ -1,20 +1,18 @@
 package com.dadp.common.sync.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * 암복호화 엔드포인트 영구 저장소
- * 
- * Hub에서 받은 Engine/Gateway URL 정보를 파일에 저장하고,
- * Hub가 다운되어도 저장된 정보를 사용하여 직접 암복호화 요청을 수행합니다.
+ * Runtime engine endpoint adapter.
+ *
+ * <p>DADP 6 stores the wrapper engine endpoint in proxy-config.json under
+ * engine.wrapperEngineUrl. There is no separate endpoint JSON file.</p>
  * 
  * @author DADP Development Team
  * @version 5.0.9
@@ -24,18 +22,18 @@ public class EndpointStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(EndpointStorage.class);
     
-    private static final String DEFAULT_STORAGE_FILE = "crypto-endpoints.json";
+    private static final String DEFAULT_STORAGE_FILE = "proxy-config.json";
     
     // 싱글톤 인스턴스 (기본 경로 사용)
     private static volatile EndpointStorage defaultInstance = null;
     private static final Object singletonLock = new Object();
     
+    private final String storageDir;
     private final String storagePath;
-    private final ObjectMapper objectMapper;
     
     /**
      * 기본 저장 디렉토리 조회
-     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * CLI에 저장된 wrapper storage 경로에서 읽고, 없으면 기본값 사용
      * 
      * @return 저장 디렉토리 경로
      */
@@ -45,7 +43,7 @@ public class EndpointStorage {
     
     /**
      * 기본 저장 디렉토리 조회 (instanceId 사용)
-     * DADP_STORAGE_DIR 환경 변수에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
+     * CLI에 저장된 wrapper storage 경로에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
      * 
      * @param instanceId 인스턴스 ID (별칭, 앱 구동 시점에 알 수 있음)
      * @return 저장 디렉토리 경로
@@ -56,7 +54,7 @@ public class EndpointStorage {
     
     /**
      * 싱글톤 인스턴스 조회 (기본 경로 사용)
-     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
+     * 기본 경로는 CLI wrapper storage 설정으로 확정
      * 
      * @return 싱글톤 EndpointStorage 인스턴스
      */
@@ -73,7 +71,7 @@ public class EndpointStorage {
     
     /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
-     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
+     * 기본 경로는 CLI wrapper storage 설정으로 확정
      */
     public EndpointStorage() {
         this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);
@@ -89,80 +87,69 @@ public class EndpointStorage {
     }
     
     /**
-     * 커스텀 저장 경로 지정
-     * 
-     * @param storageDir 저장 디렉토리
-     * @param fileName 파일명
+     * Custom storage path.
+     *
+     * @param storageDir wrapper storage directory
+     * @param fileName ignored in DADP 6; endpoint data is always stored in proxy-config.json
      */
     public EndpointStorage(String storageDir, String fileName) {
-        // 디렉토리 생성
         Path dirPath = Paths.get(storageDir);
         String finalStoragePath = null;
+        String finalStorageDir = storageDir;
         try {
             Files.createDirectories(dirPath);
-            finalStoragePath = Paths.get(storageDir, fileName).toString();
+            finalStoragePath = Paths.get(storageDir, DEFAULT_STORAGE_FILE).toString();
         } catch (IOException e) {
             log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
-            // 기본 경로로 폴백
             try {
                 String fallbackDir = getDefaultStorageDir();
                 Files.createDirectories(Paths.get(fallbackDir));
-                finalStoragePath = Paths.get(fallbackDir, fileName).toString();
+                finalStorageDir = fallbackDir;
+                finalStoragePath = Paths.get(fallbackDir, DEFAULT_STORAGE_FILE).toString();
             } catch (IOException e2) {
                 log.warn("Failed to create default storage directory: {}", getDefaultStorageDir(), e2);
-                finalStoragePath = null; // 저장 불가
+                finalStorageDir = null;
+                finalStoragePath = null;
             }
         }
 
+        this.storageDir = finalStorageDir;
         this.storagePath = finalStoragePath;
-
-        this.objectMapper = new ObjectMapper();
-        log.debug("Crypto endpoint storage initialized: {}", this.storagePath);
+        log.debug("Runtime engine endpoint adapter initialized: {}", this.storagePath);
     }
     
     /**
-     * 엔드포인트 정보 저장
+     * Save the wrapper engine endpoint into proxy-config.json.
      * 
      * @param cryptoUrl 암복호화에 사용할 단일 URL
      * @param tenantId Hub가 발급한 인스턴스 고유 ID
      * @param version Hub의 최신 버전 (hubVersion)
-     * @param statsAggregatorEnabled 통계 앱 사용 여부
-     * @param statsAggregatorUrl 통계 앱 URL
-     * @param statsAggregatorMode 전송 모드 (DIRECT/GATEWAY)
-     * @param slowThresholdMs Slow SQL threshold (ms)
-     * @param includeSqlNormalized Whether normalized SQL text should be sent with telemetry
+     * @param statsAggregatorEnabled ignored in DADP 6
+     * @param statsAggregatorUrl ignored in DADP 6
+     * @param statsAggregatorMode ignored in DADP 6
+     * @param slowThresholdMs ignored in DADP 6
+     * @param includeSqlNormalized ignored in DADP 6
      * @return 저장 성공 여부
      */
     public boolean saveEndpoints(String cryptoUrl, String tenantId, Long version,
                                   Boolean statsAggregatorEnabled, String statsAggregatorUrl, String statsAggregatorMode,
                                   Integer slowThresholdMs, Boolean includeSqlNormalized) {
-        if (storagePath == null) {
+        if (storageDir == null || storagePath == null) {
             log.warn("Storage path not set, cannot save endpoint info");
             return false;
         }
 
         try {
-            // 저장 데이터 구조
-            EndpointData data = new EndpointData();
-            data.setStorageSchemaVersion(EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
-            data.setCryptoUrl(cryptoUrl);
-            data.setTenantId(tenantId);
-            data.setVersion(version);
-            data.setStatsAggregatorEnabled(statsAggregatorEnabled);
-            data.setStatsAggregatorUrl(statsAggregatorUrl);
-            data.setStatsAggregatorMode(statsAggregatorMode);
-            data.setSlowThresholdMs(slowThresholdMs);
-            data.setIncludeSqlNormalized(includeSqlNormalized);
-            
-            // 파일에 저장
-            File storageFile = new File(storagePath);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            
-            log.debug("Endpoint and stats config saved: cryptoUrl={}, tenantId={}, version={}, storageSchemaVersion={} -> {}",
-                    cryptoUrl, tenantId, version, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION, storagePath);
-            return true;
-
-        } catch (IOException e) {
+            InstanceConfigStorage configStorage = new InstanceConfigStorage(storageDir, DEFAULT_STORAGE_FILE);
+            String runtimeVersion = version != null ? String.valueOf(version) : null;
+            if (tenantId != null && !tenantId.trim().isEmpty()) {
+                configStorage.saveConfig(tenantId.trim(), null, null, null, runtimeVersion);
+            }
+            boolean saved = configStorage.saveEngineEndpoint(cryptoUrl, runtimeVersion);
+            log.debug("Runtime engine endpoint saved in proxy-config.json: cryptoUrl={}, tenantId={}, version={} -> {}",
+                    cryptoUrl, tenantId, version, storagePath);
+            return saved;
+        } catch (Exception e) {
             log.warn("Endpoint info save failed: {}", storagePath, e);
             return false;
         }
@@ -174,48 +161,20 @@ public class EndpointStorage {
      * @return 엔드포인트 데이터, 로드 실패 시 null
      */
     public EndpointData loadEndpoints() {
-        if (storagePath == null) {
+        if (storageDir == null || storagePath == null) {
             log.warn("Storage path not set, cannot load endpoint info");
             return null;
         }
 
-        File storageFile = new File(storagePath);
-        if (!storageFile.exists()) {
-            log.debug("Crypto endpoint file not found: {} (will query Hub)", storagePath);
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(storageDir, DEFAULT_STORAGE_FILE);
+        EndpointData data = configStorage.loadEndpointData();
+        if (data == null) {
+            log.debug("Runtime engine endpoint not found in proxy-config.json: {}", storagePath);
             return null;
         }
-        
-        try {
-            EndpointData data = objectMapper.readValue(storageFile, EndpointData.class);
-            
-            if (data == null) {
-                log.warn("Crypto endpoint data is empty: {}", storagePath);
-                return null;
-            }
-            
-            // 저장소 포맷 버전 확인 및 하위 호환성 처리
-            int storageVersion = data.getStorageSchemaVersion();
-            if (storageVersion == 0) {
-                // 구버전 포맷 (버전 필드 없음) -> 버전 1로 간주
-                log.debug("Legacy endpoint format detected (no version field) -> treating as version 1");
-                storageVersion = 1;
-            }
-            
-            // 향후 버전 호환성 체크
-            if (storageVersion > EndpointData.CURRENT_STORAGE_SCHEMA_VERSION) {
-                log.warn("Unknown endpoint format version: {} (current supported version: {}), " +
-                        "proceeding for backward compatibility",
-                    storageVersion, EndpointData.CURRENT_STORAGE_SCHEMA_VERSION);
-            }
-            
-            log.debug("Crypto endpoint info loaded: cryptoUrl={}, tenantId={}, version={}, storageSchemaVersion={}",
-                    data.getCryptoUrl(), data.getTenantId(), data.getVersion(), storageVersion);
-            return data;
-            
-        } catch (IOException e) {
-            log.warn("Crypto endpoint info load failed: {} (returning null)", storagePath, e);
-            return null;
-        }
+        log.debug("Runtime engine endpoint loaded from proxy-config.json: cryptoUrl={}, tenantId={}, version={}",
+                data.getCryptoUrl(), data.getTenantId(), data.getVersion());
+        return data;
     }
     
     /**
@@ -227,7 +186,7 @@ public class EndpointStorage {
         if (storagePath == null) {
             return false;
         }
-        return new File(storagePath).exists();
+        return loadEndpoints() != null;
     }
     
     /**
@@ -240,17 +199,8 @@ public class EndpointStorage {
             return false;
         }
         
-        File storageFile = new File(storagePath);
-        if (storageFile.exists()) {
-            boolean deleted = storageFile.delete();
-            if (deleted) {
-                log.debug("Crypto endpoint storage file deleted: {}", storagePath);
-            } else {
-                log.warn("Crypto endpoint storage file deletion failed: {}", storagePath);
-            }
-            return deleted;
-        }
-        return true; // 파일이 없으면 성공으로 간주
+        log.warn("Endpoint-only storage clear is not supported in DADP 6 because endpoint data is part of proxy-config.json");
+        return false;
     }
     
     /**
@@ -265,14 +215,8 @@ public class EndpointStorage {
     /**
      * 엔드포인트 데이터 구조
      * 
-     * 저장 필수 데이터:
-     * - storageSchemaVersion: 저장소 포맷 버전
-     * - cryptoUrl: 암복호화에 사용할 단일 URL
-     * - tenantId: Hub가 발급한 인스턴스 고유 ID
-     * - version: Hub의 최신 버전 (hubVersion)
-     * - statsAggregatorEnabled: 통계 앱 사용 여부
-     * - statsAggregatorUrl: 통계 앱 URL
-     * - statsAggregatorMode: 전송 모드 (DIRECT/GATEWAY)
+     * Runtime endpoint view. SQL stats fields remain as in-memory DTO fields for
+     * older callers/tests, but DADP 6 does not persist stats endpoint values here.
      */
     public static class EndpointData {
         private static final int CURRENT_STORAGE_SCHEMA_VERSION = 1;  // 현재 저장소 포맷 버전

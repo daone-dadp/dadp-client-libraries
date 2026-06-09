@@ -3,8 +3,14 @@ package com.dadp.jdbc.config;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dadp.common.sync.config.StoragePathResolver;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -14,11 +20,12 @@ import org.junit.jupiter.api.Test;
 class ProxyConfigCryptoProfileTest {
 
     @AfterEach
-    void clearSystemProperties() {
+    void clearSystemProperties() throws Exception {
         System.clearProperty("dadp.proxy.alias");
         System.clearProperty("dadp.proxy.hub-url");
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
+        deleteRuntimeRoot();
     }
 
     @Test
@@ -80,21 +87,26 @@ class ProxyConfigCryptoProfileTest {
             ProxyConfig config = new ProxyConfig(Collections.emptyMap());
             String output = stderr.toString();
             assertFalse(config.isStartupReady());
-            assertTrue(output.contains("missing required alias"));
+            assertTrue(output.contains("proxy-config.json"));
         } finally {
             System.setErr(originalErr);
         }
     }
 
     @Test
-    void aliasCanBeLoadedFromJdbcUrlParamOnly() {
-        Map<String, String> urlParams = baseParams();
-        urlParams.put("alias", "jdbc-url-alias");
+    void runtimeIdentityLoadsFromProxyConfig() throws Exception {
+        writeProxyConfig("stored-alias",
+                "wtenant_test",
+                "http://127.0.0.1:9004/hub/api/v1/runtime/wrappers/wtenant_test/refresh");
 
-        ProxyConfig config = new ProxyConfig(urlParams);
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
-        assertTrue("jdbc-url-alias".equals(config.getAlias()));
-        assertTrue("jdbc-url-alias".equals(config.getInstanceId()));
+        assertTrue(config.isStartupReady());
+        assertTrue(config.isRuntimeActive());
+        assertTrue("stored-alias".equals(config.getAlias()));
+        assertTrue("stored-alias".equals(config.getInstanceId()));
+        assertTrue("http://127.0.0.1:9004".equals(config.getHubUrl()));
+        assertTrue(config.isHubUrlConfigured());
     }
 
     @Test
@@ -107,19 +119,6 @@ class ProxyConfigCryptoProfileTest {
 
         assertFalse(config.isStartupReady());
         assertFalse(config.isRuntimeActive());
-    }
-
-    @Test
-    void hubUrlCanBeLoadedFromJdbcUrlParamOnly() {
-        Map<String, String> urlParams = baseParams();
-        urlParams.put("hubUrl", "http://hub.example:9004");
-
-        ProxyConfig config = new ProxyConfig(urlParams);
-
-        assertTrue(config.isStartupReady());
-        assertTrue(config.isRuntimeActive());
-        assertTrue("http://hub.example:9004".equals(config.getHubUrl()));
-        assertTrue(config.isHubUrlConfigured());
     }
 
     @Test
@@ -204,5 +203,34 @@ class ProxyConfigCryptoProfileTest {
         params.put("hubUrl", "http://127.0.0.1:9004");
         params.put("alias", "wrapper-profile-test");
         return params;
+    }
+
+    private static void writeProxyConfig(String alias, String tenantId, String refreshUrl) throws IOException {
+        deleteRuntimeRoot();
+        Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
+        Files.createDirectories(storageDir);
+        String json = "{\n"
+                + "  \"tenantId\": \"" + tenantId + "\",\n"
+                + "  \"alias\": \"" + alias + "\",\n"
+                + "  \"runtimeVersion\": \"1\",\n"
+                + "  \"refreshUrl\": \"" + refreshUrl + "\"\n"
+                + "}\n";
+        Files.write(storageDir.resolve("proxy-config.json"), json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void deleteRuntimeRoot() throws IOException {
+        Path root = Paths.get(StoragePathResolver.resolveWrapperStorageRoot());
+        if (!Files.exists(root)) {
+            return;
+        }
+        Files.walk(root)
+                .sorted(java.util.Comparator.reverseOrder())
+                .forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
 }

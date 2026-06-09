@@ -3,7 +3,7 @@ package com.dadp.jdbc.logging;
 /**
  * System.out 기반 폴백 로거
  *
- * SLF4J가 없는 환경(standalone Tomcat 등)에서 enableLogging=true 시 사용.
+ * SLF4J가 없는 환경(standalone Tomcat 등)에서 Hub runtime logConfig 활성화 시 사용.
  * catalina.out 등 표준 출력으로 로그를 출력합니다.
  */
 final class ConsoleLogger implements DadpLogger {

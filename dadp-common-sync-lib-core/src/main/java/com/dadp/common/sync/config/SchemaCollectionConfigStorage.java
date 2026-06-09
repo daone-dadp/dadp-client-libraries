@@ -31,7 +31,7 @@ public class SchemaCollectionConfigStorage {
     
     /**
      * 기본 저장 디렉토리 조회
-     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 기본값 사용
+     * CLI에 저장된 wrapper storage 경로에서 읽고, 없으면 기본값 사용
      * 
      * @return 저장 디렉토리 경로
      */
@@ -41,7 +41,7 @@ public class SchemaCollectionConfigStorage {
     
     /**
      * 기본 저장 디렉토리 조회 (instanceId 사용)
-     * 시스템 프로퍼티 또는 환경 변수에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
+     * CLI에 저장된 wrapper storage 경로에서 읽고, 없으면 ./dadp/wrapper/instanceId 형태로 생성
      * 
      * @param instanceId 인스턴스 ID (별칭, 앱 구동 시점에 알 수 있음)
      * @return 저장 디렉토리 경로
@@ -52,7 +52,7 @@ public class SchemaCollectionConfigStorage {
     
     /**
      * 기본 생성자 (사용자 홈 디렉토리 사용)
-     * 기본 경로는 DADP_STORAGE_DIR 환경 변수로 설정 가능
+     * 기본 경로는 CLI wrapper storage 설정으로 확정
      */
     public SchemaCollectionConfigStorage() {
         this(getDefaultStorageDir(), DEFAULT_STORAGE_FILE);

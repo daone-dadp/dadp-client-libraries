@@ -1,10 +1,8 @@
 package com.dadp.jdbc;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -12,12 +10,9 @@ final class DadpJdbcUrlSupport {
 
     static final String DADP_URL_PREFIX = "jdbc:dadp:";
 
-    private static final List<String> PROXY_PARAM_KEYS = Arrays.asList(
-        "hubUrl",
-        "alias"
-    );
-
     private static final List<String> REMOVED_DADP_PARAM_KEYS = Arrays.asList(
+        "hubUrl",
+        "alias",
         "instanceId",
         "failOpen",
         "enableLogging",
@@ -39,15 +34,21 @@ final class DadpJdbcUrlSupport {
     }
 
     static Map<String, String> extractProxyParams(String dadpUrl) {
+        validateNoDadpRuntimeParams(dadpUrl);
+        return Collections.emptyMap();
+    }
+
+    static void validateNoDadpRuntimeParams(String dadpUrl) {
         if (dadpUrl == null || !dadpUrl.startsWith(DADP_URL_PREFIX)) {
-            return new HashMap<>();
+            return;
         }
 
         String urlWithoutPrefix = dadpUrl.substring(DADP_URL_PREFIX.length());
         if (isSqreamUrl(urlWithoutPrefix)) {
-            return extractSqreamProxyParams(urlWithoutPrefix);
+            validateNoSqreamDadpRuntimeParams(urlWithoutPrefix);
+            return;
         }
-        return extractQueryProxyParams(dadpUrl);
+        validateNoQueryDadpRuntimeParams(dadpUrl);
     }
 
     static String extractActualUrl(String dadpUrl) {
@@ -66,11 +67,10 @@ final class DadpJdbcUrlSupport {
         return urlWithoutPrefix.regionMatches(true, 0, "sqream://", 0, "sqream://".length());
     }
 
-    private static Map<String, String> extractSqreamProxyParams(String urlWithoutPrefix) {
-        Map<String, String> params = new HashMap<>();
+    private static void validateNoSqreamDadpRuntimeParams(String urlWithoutPrefix) {
         int firstSemicolon = urlWithoutPrefix.indexOf(';');
         if (firstSemicolon < 0 || firstSemicolon == urlWithoutPrefix.length() - 1) {
-            return params;
+            return;
         }
 
         String parameterSection = urlWithoutPrefix.substring(firstSemicolon + 1);
@@ -83,12 +83,10 @@ final class DadpJdbcUrlSupport {
                 continue;
             }
             String key = pair.substring(0, eqIndex).trim();
-            String value = pair.substring(eqIndex + 1).trim();
-            if (PROXY_PARAM_KEYS.contains(key)) {
-                params.put(key, decode(value));
+            if (isDadpOnlyParam(key)) {
+                throw forbiddenRuntimeParam(key);
             }
         }
-        return params;
     }
 
     private static String stripSqreamProxyParams(String urlWithoutPrefix) {
@@ -119,9 +117,7 @@ final class DadpJdbcUrlSupport {
         return preservedParams.isEmpty() ? baseUrl : baseUrl + ";" + String.join(";", preservedParams);
     }
 
-    private static Map<String, String> extractQueryProxyParams(String dadpUrl) {
-        Map<String, String> params = new HashMap<>();
-
+    private static void validateNoQueryDadpRuntimeParams(String dadpUrl) {
         int queryIndex = dadpUrl.indexOf('?');
         int ampIndex = dadpUrl.indexOf('&');
         int paramStartIndex = -1;
@@ -134,7 +130,7 @@ final class DadpJdbcUrlSupport {
         }
 
         if (paramStartIndex == -1) {
-            return params;
+            return;
         }
 
         String queryString = dadpUrl.substring(paramStartIndex + 1);
@@ -144,13 +140,10 @@ final class DadpJdbcUrlSupport {
                 continue;
             }
             String key = pair.substring(0, eqIndex).trim();
-            String value = pair.substring(eqIndex + 1).trim();
-            if (PROXY_PARAM_KEYS.contains(key)) {
-                params.put(key, decode(value));
+            if (isDadpOnlyParam(key)) {
+                throw forbiddenRuntimeParam(key);
             }
         }
-
-        return params;
     }
 
     private static String stripQueryProxyParams(String urlWithoutPrefix) {
@@ -188,15 +181,11 @@ final class DadpJdbcUrlSupport {
         return validParams.isEmpty() ? baseUrl : baseUrl + "?" + String.join("&", validParams);
     }
 
-    private static String decode(String value) {
-        try {
-            return URLDecoder.decode(value, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            return value;
-        }
+    private static boolean isDadpOnlyParam(String key) {
+        return REMOVED_DADP_PARAM_KEYS.contains(key);
     }
 
-    private static boolean isDadpOnlyParam(String key) {
-        return PROXY_PARAM_KEYS.contains(key) || REMOVED_DADP_PARAM_KEYS.contains(key);
+    private static IllegalArgumentException forbiddenRuntimeParam(String key) {
+        return new IllegalArgumentException("DADP 6 JDBC URL must contain DB connection parameters only; remove DADP runtime parameter: " + key);
     }
 }

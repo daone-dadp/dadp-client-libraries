@@ -1,39 +1,17 @@
 package com.dadp.common.sync.config;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
  * Resolves the persistent storage directory for wrapper runtime files.
  *
- * <p>Resolution order:
- * <ol>
- *   <li>CLI-persisted wrapper storage dir in {@code ~/.dadp/config.json}</li>
- *   <li>Environment variable {@code DADP_STORAGE_DIR}</li>
- *   <li>{@code {user.dir}/dadp/wrapper/{instanceId}}</li>
- *   <li>{@code {user.dir}/dadp/wrapper/shared}</li>
- * </ol>
- *
- * <p>{@code DADP_STORAGE_DIR} is an initial storage candidate only. After the
- * CLI has persisted a storage directory, changing the environment variable
- * must not move the runtime to a different storage path. Use the CLI force
- * command to change the persisted storage directory.
- *
- * <p>When an explicit storage root is provided and an instanceId exists, the
- * instanceId is appended unless the explicit path already ends with it.
+ * <p>DADP 6 storage is fixed to the wrapper library directory:
+ * {@code <wrapper-lib-dir>/dadp/wrapper/<alias>}. The wrapper runtime does not
+ * read CLI config, environment variables, system properties, or arbitrary
+ * storage-dir overrides.
  */
 public final class StoragePathResolver {
-
-    private static final String STORAGE_DIR_ENV = "DADP_STORAGE_DIR";
-    private static final String CLI_CONFIG_DIR = ".dadp";
-    private static final String CLI_CONFIG_FILE = "config.json";
-    private static final String CLI_WRAPPER_STORAGE_FIELD = "wrapperStorageDir";
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private StoragePathResolver() {
     }
@@ -42,70 +20,69 @@ public final class StoragePathResolver {
         return resolveStorageDir(null);
     }
 
-    public static String resolveStorageDir(String instanceId) {
-        String normalizedInstanceId = normalize(instanceId);
-        String configuredRoot = readPersistedWrapperStorageDir();
-        String envRoot = normalize(System.getenv(STORAGE_DIR_ENV));
-        String userDir = System.getProperty("user.dir");
-
-        return resolveStorageDir(normalizedInstanceId, configuredRoot, envRoot, userDir);
+    public static String resolveStorageDir(String alias) {
+        return resolveStorageDir(alias, resolveWrapperLibDir());
     }
 
-    static String resolveStorageDir(String instanceId, String persistedRoot, String envRoot, String userDir) {
-        String normalizedInstanceId = normalize(instanceId);
-        String configuredRoot = normalize(persistedRoot);
-        if (configuredRoot != null) {
-            return appendInstanceIdIfNeeded(configuredRoot, normalizedInstanceId);
+    public static String resolveStorageDir(String alias, String wrapperLibDir) {
+        String normalizedAlias = normalize(alias);
+        String normalizedLibDir = normalize(wrapperLibDir);
+        if (normalizedLibDir == null) {
+            throw new IllegalStateException("Wrapper library directory cannot be resolved");
         }
-
-        configuredRoot = normalize(envRoot);
-        if (configuredRoot != null) {
-            return appendInstanceIdIfNeeded(configuredRoot, normalizedInstanceId);
-        }
-
-        String normalizedUserDir = normalize(userDir);
-        Path basePath = Paths.get(normalizedUserDir == null ? "." : normalizedUserDir, "dadp", "wrapper");
-        if (normalizedInstanceId != null) {
-            return basePath.resolve(normalizedInstanceId).toString();
-        }
-        return basePath.resolve("shared").toString();
+        String storageName = normalizedAlias != null ? normalizedAlias : "shared";
+        return Paths.get(resolveWrapperStorageRoot(normalizedLibDir), storageName).toString();
     }
 
-    private static String readPersistedWrapperStorageDir() {
-        String userHome = normalize(System.getProperty("user.home"));
-        if (userHome == null) {
-            return null;
-        }
-        return readPersistedWrapperStorageDir(Paths.get(userHome, CLI_CONFIG_DIR, CLI_CONFIG_FILE));
+    public static String resolveWrapperStorageRoot() {
+        return resolveWrapperStorageRoot(resolveWrapperLibDir());
     }
 
-    static String readPersistedWrapperStorageDir(Path configPath) {
-        if (configPath == null || !Files.isRegularFile(configPath)) {
-            return null;
+    public static String resolveWrapperStorageRoot(String wrapperLibDir) {
+        String normalizedLibDir = normalize(wrapperLibDir);
+        if (normalizedLibDir == null) {
+            throw new IllegalStateException("Wrapper library directory cannot be resolved");
         }
+        return Paths.get(normalizedLibDir, "dadp", "wrapper").toString();
+    }
+
+    static String resolveWrapperLibDir() {
         try {
-            JsonNode root = OBJECT_MAPPER.readTree(configPath.toFile());
-            JsonNode value = root == null ? null : root.get(CLI_WRAPPER_STORAGE_FIELD);
-            if (value == null || !value.isTextual()) {
-                return null;
+            java.security.CodeSource codeSource = StoragePathResolver.class
+                    .getProtectionDomain()
+                    .getCodeSource();
+            if (codeSource != null && codeSource.getLocation() != null) {
+                Path location = Paths.get(codeSource.getLocation().toURI()).toAbsolutePath().normalize();
+                if (java.nio.file.Files.isRegularFile(location)) {
+                    Path parent = location.getParent();
+                    return parent != null ? parent.toString() : null;
+                }
+                return location.toString();
             }
-            return normalize(value.asText());
-        } catch (IOException e) {
-            return null;
+        } catch (Exception ignored) {
+            // Caller receives an explicit failure below.
         }
+        String classPath = normalize(System.getProperty("java.class.path"));
+        if (classPath != null) {
+            String firstEntry = classPath.split(java.io.File.pathSeparator, 2)[0];
+            if (normalize(firstEntry) != null) {
+                Path location = Paths.get(firstEntry).toAbsolutePath().normalize();
+                if (java.nio.file.Files.isRegularFile(location)) {
+                    Path parent = location.getParent();
+                    return parent != null ? parent.toString() : null;
+                }
+                return location.toString();
+            }
+        }
+        return null;
     }
 
-    private static String appendInstanceIdIfNeeded(String rootPath, String instanceId) {
-        if (instanceId == null) {
-            return rootPath;
-        }
+    public static String resolveWrapperLibDirForDiagnostics() {
+        return resolveWrapperLibDir();
+    }
 
-        Path root = Paths.get(rootPath);
-        Path fileName = root.getFileName();
-        if (fileName != null && instanceId.equals(fileName.toString())) {
-            return rootPath;
-        }
-        return root.resolve(instanceId).toString();
+    public static String resolveStorageDirFromLibDir(String alias, String wrapperLibDir) {
+        return resolveStorageDir(alias, wrapperLibDir);
     }
 
     private static String normalize(String value) {
@@ -113,6 +90,9 @@ public final class StoragePathResolver {
             return null;
         }
         String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed;
     }
 }

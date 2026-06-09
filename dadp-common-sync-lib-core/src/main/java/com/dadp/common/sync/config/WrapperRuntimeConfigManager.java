@@ -6,9 +6,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
 /**
  * Single manager for DADP 6 wrapper runtime configuration.
  *
- * Immutable startup inputs:
- * - hubUrl: JDBC URL only
- * - alias: JDBC URL only
+ * Runtime identity is loaded from CLI-owned proxy-config.json.
  *
  * Persistent runtime values:
  * - tenantId
@@ -34,6 +32,7 @@ public class WrapperRuntimeConfigManager {
     private volatile boolean failOpen = false;
     private volatile boolean policySyncAutoEnabled = false;
     private volatile boolean enabled = true;
+    private volatile String refreshUrl;
 
     public interface TenantIdChangeCallback {
         void onTenantIdChanged(String oldTenantId, String newTenantId);
@@ -47,6 +46,7 @@ public class WrapperRuntimeConfigManager {
         this.hubUrl = hubUrl;
         this.aliasProvider = aliasProvider;
         this.changeCallback = changeCallback;
+        this.refreshUrl = trimToNull(hubUrl);
     }
 
     public String loadFromStorage() {
@@ -58,6 +58,7 @@ public class WrapperRuntimeConfigManager {
         }
 
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
+        this.refreshUrl = firstNonBlank(stored.getRefreshUrl(), this.refreshUrl);
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
         this.policySyncAutoEnabled = Boolean.TRUE.equals(stored.getPolicySyncAutoEnabled());
@@ -150,6 +151,10 @@ public class WrapperRuntimeConfigManager {
     }
 
     public String canonicalRefreshUrl() {
+        String canonical = trimToNull(refreshUrl);
+        if (canonical != null) {
+            return canonical;
+        }
         if (hubUrl == null || hubUrl.trim().isEmpty() || cachedTenantId == null) {
             return null;
         }
@@ -197,6 +202,7 @@ public class WrapperRuntimeConfigManager {
         this.failOpen = false;
         this.policySyncAutoEnabled = false;
         this.enabled = true;
+        this.refreshUrl = trimToNull(hubUrl);
         if (changeCallback != null && oldTenantId != null) {
             try {
                 changeCallback.onTenantIdChanged(oldTenantId, null);
@@ -233,5 +239,18 @@ public class WrapperRuntimeConfigManager {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
     }
 }

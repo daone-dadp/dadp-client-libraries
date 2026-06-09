@@ -98,7 +98,7 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.configStorage = new InstanceConfigStorage(
-            StoragePathResolver.resolveStorageDir(instanceId),
+            config.getStorageDir() != null ? config.getStorageDir() : StoragePathResolver.resolveStorageDir(instanceId),
             "proxy-config.json"
         );
         
@@ -106,7 +106,7 @@ public class JdbcBootstrapOrchestrator {
         this.schemaStorage = new SchemaStorage(instanceId);
         this.tenantIdManager = new WrapperRuntimeConfigManager(
             configStorage,
-            config.getHubUrl(),
+            config.getRefreshUrl(),
             instanceIdProvider,
             (oldTenantId, newTenantId) -> {
                 
@@ -242,7 +242,7 @@ public class JdbcBootstrapOrchestrator {
                 return true;
             }
             
-            log.warn("DADP 6.0 wrapper enrollment is still missing. Runtime remains in passthrough mode until schema-register/manual refresh is completed.");
+            log.warn("DADP 6.0 wrapper enrollment is still missing. Runtime remains in passthrough mode until wrapper schema register and manual refresh is completed.");
             return false;
         }
         
@@ -253,12 +253,6 @@ public class JdbcBootstrapOrchestrator {
         }
         
         try {
-            
-            String hubUrl = config.getHubUrl();
-            if (hubUrl == null || hubUrl.trim().isEmpty()) {
-                log.debug("Hub URL not configured, skipping bootstrap flow.");
-                return false;
-            }
             
             log.info("JDBC Wrapper bootstrap flow orchestrator starting");
             
@@ -301,7 +295,7 @@ public class JdbcBootstrapOrchestrator {
                 runtimeEnrollmentAvailable = true;
                 log.info("Runtime enrollment loaded: tenantId={}, alias={}", tenantId, instanceId);
             } else {
-                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI schema-register and manual refresh before wrapper runtime sync.");
+                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI wrapper schema register and manual refresh before wrapper runtime sync.");
             }
             
             
@@ -407,7 +401,7 @@ public class JdbcBootstrapOrchestrator {
         
         String instanceId = instanceIdProvider.getInstanceId();
         this.mappingSyncService = new MappingSyncService(
-            config.getHubUrl(),
+            firstNonBlank(tenantIdManager.canonicalRefreshUrl(), config.getHubUrl()),
             tenantId,
             instanceId,
             "/hub/api/v1/runtime/wrappers",
@@ -415,14 +409,10 @@ public class JdbcBootstrapOrchestrator {
         );
         
         
-        String endpointStorageDir = StoragePathResolver.resolveStorageDir(instanceId);
-        String endpointFileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
             config.getHubUrl(),
             tenantId,
-            instanceId,
-            endpointStorageDir,
-            endpointFileName
+            instanceId
         );
         
         
@@ -675,6 +665,22 @@ public class JdbcBootstrapOrchestrator {
         }
         return lower; 
     }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String trimmed = value.trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed;
+            }
+        }
+        return null;
+    }
     
     
     private String extractSchemaName(Connection connection, String dbProductName) throws SQLException {
@@ -759,6 +765,6 @@ public class JdbcBootstrapOrchestrator {
 
     
     public void forceReloadSchemas() {
-        log.warn("Schema force reload is disabled in wrapper 6.0 runtime. Use the collector/CLI schema-register flow.");
+        log.warn("Schema force reload is disabled in wrapper 6.0 runtime. Use the collector/CLI wrapper schema register flow.");
     }
 }

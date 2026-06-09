@@ -13,7 +13,7 @@ import java.util.Map;
  * Manages DADP 6 wrapper runtime refresh.
  * - unchanged: no work
  * - changed: refresh policy bindings, endpoint, and runtime options
- * - missing enrollment: log and wait for the manual CLI schema-register/refresh flow
+ * - missing enrollment: log and wait for the manual CLI wrapper schema register and refresh flow
  * 
  * @author DADP Development Team
  * @version 5.2.0
@@ -91,7 +91,7 @@ public class PolicyMappingSyncOrchestrator {
      */
     public void checkMappingChange() {
         if (!tenantIdManager.hasTenantId()) {
-            log.warn("No tenantId found. Run the DADP 6 CLI schema-register flow, then perform manual wrapper refresh.");
+            log.warn("No tenantId found. Run the DADP 6 CLI wrapper schema register flow, then perform manual wrapper refresh.");
             return;
         }
         
@@ -156,7 +156,7 @@ public class PolicyMappingSyncOrchestrator {
         } catch (IllegalStateException e) {
             String errorMessage = e.getMessage();
             if (errorMessage != null && errorMessage.contains("404")) {
-                log.warn("Hub runtime refresh returned 404 for tenantId. Run CLI schema-register and manual wrapper refresh.");
+                log.warn("Hub runtime refresh returned 404 for tenantId. Run CLI wrapper schema register and manual wrapper refresh.");
                 return;
             }
             log.warn("Version check failed: {}", e.getMessage());

@@ -98,7 +98,7 @@ public class JdbcPolicyMappingSyncService {
         this.instanceId = instanceIdProvider.getInstanceId();
         
         
-        String hubUrl = config.getHubUrl();
+        String hubUrl = config.getRefreshUrl();
         final JdbcPolicyMappingSyncService self = this;
         if (sharedRuntimeConfigManager != null) {
             this.tenantIdManager = sharedRuntimeConfigManager;
@@ -220,16 +220,14 @@ public class JdbcPolicyMappingSyncService {
     
     public void updateEndpointSyncService(String tenantId, String instanceId) {
         
-        String storageDir = StoragePathResolver.resolveStorageDir(instanceId);
-        String fileName = "crypto-endpoints.json";
         this.endpointSyncService = new EndpointSyncService(
-            config.getHubUrl(), tenantId, instanceId, storageDir, fileName);
+            config.getHubUrl(), tenantId, instanceId);
         log.info("EndpointSyncService recreated: tenantId={}", tenantId);
     }
     
     
     private void updateMappingSyncService(String tenantId, String instanceId) {
-        String hubUrl = config.getHubUrl();
+        String hubUrl = tenantIdManager.canonicalRefreshUrl();
         String apiBasePath = "/hub/api/v1/runtime/wrappers";
         this.mappingSyncService = new MappingSyncService(
             hubUrl,
@@ -251,12 +249,14 @@ public class JdbcPolicyMappingSyncService {
 
     private void refreshFromHub(String trigger) {
         if (!initialized) {
-            log.warn("Policy mapping refresh skipped: service not initialized, trigger={}", trigger);
+            log.warn("Policy mapping refresh skipped: service not initialized, trigger={}. Run CLI wrapper schema collect and wrapper schema register first, then restart or initialize wrapper runtime.",
+                    trigger);
             return;
         }
         String tenantId = tenantIdManager.getCachedTenantId();
         if (tenantId == null || tenantId.trim().isEmpty()) {
-            log.warn("Policy mapping refresh skipped: tenantId not available, trigger={}", trigger);
+            log.warn("Policy mapping refresh skipped: tenantId not available, trigger={}. Run CLI wrapper schema collect and wrapper schema register first.",
+                    trigger);
             return;
         }
         log.info("Policy mapping refresh starting: trigger={}, tenantId={}, alias={}", trigger, tenantId, instanceId);
@@ -315,35 +315,23 @@ public class JdbcPolicyMappingSyncService {
             
             String currentTenantId = tenantIdManager.getCachedTenantId();
             Long currentVersion = policyResolver.getCurrentVersion();
-            MappingSyncService.StatsAggregatorInfo statsAggregator = endpointInfo.getStatsAggregator();
-            Boolean statsEnabled = statsAggregator != null ? statsAggregator.getEnabled() : null;
-            String statsUrl = statsAggregator != null ? statsAggregator.getUrl() : null;
-            String statsMode = statsAggregator != null ? statsAggregator.getMode() : null;
-            Integer slowThresholdMs = statsAggregator != null ? statsAggregator.getSlowThresholdMs() : null;
-            Boolean includeSqlNormalized = statsAggregator != null ? statsAggregator.getIncludeSqlNormalized() : null;
+            String currentVersionValue = currentVersion != null ? String.valueOf(currentVersion) : null;
             
-            
-            boolean saved = endpointStorage.saveEndpoints(
-                cryptoUrl.trim(),
-                currentTenantId,
-                currentVersion,  
-                statsEnabled,
-                statsUrl,
-                statsMode,
-                slowThresholdMs,
-                includeSqlNormalized
-            );
+            if (currentTenantId != null && !currentTenantId.trim().isEmpty()) {
+                configStorage.saveConfig(currentTenantId.trim(), null, null, null, currentVersionValue);
+            }
+            boolean saved = configStorage.saveEngineEndpoint(cryptoUrl.trim(), currentVersionValue);
             
             if (saved) {
                 
-                EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+                EndpointStorage.EndpointData endpointData = configStorage.loadEndpointData();
                 if (endpointData != null) {
                     
                     if (directCryptoAdapter != null) {
                         directCryptoAdapter.setEndpointData(endpointData);
                     }
-                    log.info("Endpoint info from policy mapping response saved and applied: cryptoUrl={}, tenantId={}, version={}, statsEnabled={}, statsMode={}",
-                            cryptoUrl, currentTenantId, currentVersion, statsEnabled, statsMode);
+                    log.info("Engine endpoint from refresh saved in proxy-config.json and applied: cryptoUrl={}, tenantId={}, version={}",
+                            cryptoUrl, currentTenantId, currentVersion);
                 } else {
                     log.warn("Failed to load endpoint info after saving");
                 }
@@ -358,38 +346,6 @@ public class JdbcPolicyMappingSyncService {
     
     private void syncEndpointsAfterPolicyMapping() {
         log.debug("Skipping standalone endpoint sync in DADP 6.0; refresh response owns engine URL.");
-        return;
-        /*
-        
-        String currentTenantId = tenantIdManager.getCachedTenantId();
-        if (currentTenantId != null && endpointSyncService != null) {
-            updateEndpointSyncService(currentTenantId, instanceId);
-        }
-        
-        if (endpointSyncService != null) {
-            try {
-                boolean endpointSynced = endpointSyncService.syncEndpointsFromHub();
-                
-                if (endpointSynced) {
-                    EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-                    if (endpointData != null) {
-                        
-                        if (directCryptoAdapter != null) {
-                            directCryptoAdapter.setEndpointData(endpointData);
-                        }
-                        log.info("Endpoint sync completed: cryptoUrl={}, tenantId={}, version={}",
-                                endpointData.getCryptoUrl(),
-                                endpointData.getTenantId(),
-                                endpointData.getVersion());
-                    }
-                } else {
-                    log.warn("Endpoint sync failed (will retry next cycle)");
-                }
-            } catch (Exception e) {
-                log.warn("Endpoint sync failed: {}", e.getMessage());
-            }
-        }
-        */
     }
     
     
@@ -439,7 +395,9 @@ public class JdbcPolicyMappingSyncService {
                         wrapperConfig.getCryptoMode(),
                         wrapperConfig.getFailOpen(),
                         wrapperConfig.getPolicySyncAutoEnabled(),
-                        runtimeVersion);
+                        runtimeVersion,
+                        null,
+                        tenantIdManager.getCachedTenantId());
                 tenantIdManager.applyRefreshOptions(
                         wrapperConfig.getEnabled(),
                         wrapperConfig.getCryptoMode(),

@@ -3,6 +3,7 @@ package com.dadp.common.sync.policy;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
 import com.dadp.common.sync.config.StoragePathResolver;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
@@ -52,6 +53,7 @@ public class PolicyMappingStorage {
 
         this.storagePath = finalStoragePath;
         this.objectMapper = new ObjectMapper();
+        this.objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         log.info("Policy mapping storage initialized: {}", this.storagePath);
     }
 

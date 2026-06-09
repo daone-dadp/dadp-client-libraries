@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -23,6 +24,7 @@ public class RuntimeExecutionKeyClient {
 
     private static final DadpLogger log = DadpLoggerFactory.getLogger(RuntimeExecutionKeyClient.class);
     private static final String RESOLVE_PATH = "/hub/api/v1/runtime/execution-keys/resolve";
+    private static final String POLICY_PATH = "/hub/api/v1/runtime/policies/";
 
     private final String hubBaseUrl;
     private final int timeoutMillis;
@@ -97,13 +99,74 @@ public class RuntimeExecutionKeyClient {
             Object data = response.get("data");
             Map<String, Object> material = data instanceof Map ? (Map<String, Object>) data : response;
             RuntimeExecutionKeyMaterial parsed = parseMaterial(material);
+            parsed = enrichWithRuntimePolicySnapshot(parsed);
             validateMaterial(parsed);
-            log.trace("Runtime execution-key material parsed: policyCode={}, policyVersion={}, keyAlias={}, keyVersion={}, providerType={}, algorithm={}, ttlSeconds={}",
+            log.trace("Runtime execution-key material parsed: policyCode={}, policyVersion={}, keyAlias={}, keyVersion={}, providerType={}, algorithm={}, ttlSeconds={}, usePlain={}, plainStart={}, plainLength={}",
                     parsed.getPolicyCode(), parsed.getPolicyVersion(), parsed.getKeyAlias(), parsed.getKeyVersion(),
-                    parsed.getProviderType(), parsed.getAlgorithm(), parsed.getCacheTtlSeconds());
+                    parsed.getProviderType(), parsed.getAlgorithm(), parsed.getCacheTtlSeconds(),
+                    parsed.getUsePlain(), parsed.getPlainStart(), parsed.getPlainLength());
             return parsed;
         } catch (IOException e) {
             throw new WrapperCryptoException("Runtime execution-key resolve request failed: url=" + url
+                    + ", error=" + e.getMessage(), e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private RuntimeExecutionKeyMaterial enrichWithRuntimePolicySnapshot(RuntimeExecutionKeyMaterial material) {
+        HttpURLConnection connection = null;
+        String url = hubBaseUrl + POLICY_PATH + urlEncode(material.getPolicyCode());
+        try {
+            URL target = new URL(url);
+            connection = (HttpURLConnection) target.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(timeoutMillis);
+            connection.setReadTimeout(timeoutMillis);
+            connection.setRequestProperty("Accept", "application/json");
+            authHeaderProvider.applyAuthHeaders(connection, "GET", target.getPath(), target.getQuery(), new byte[0]);
+
+            int status = connection.getResponseCode();
+            byte[] responseBody = readAll(status >= 200 && status < 300
+                    ? connection.getInputStream()
+                    : connection.getErrorStream());
+            log.trace("Runtime policy snapshot response: policyCode={}, status={}, bodyLength={}",
+                    material.getPolicyCode(), status, responseBody.length);
+            if (status < 200 || status >= 300) {
+                throw new WrapperCryptoException("Runtime policy snapshot resolve failed: status=" + status
+                        + ", url=" + url + ", body=" + new String(responseBody, StandardCharsets.UTF_8));
+            }
+
+            Map<String, Object> response = objectMapper.readValue(responseBody, Map.class);
+            Object data = response.get("data");
+            Map<String, Object> policy = data instanceof Map ? (Map<String, Object>) data : response;
+            Boolean usePlain = partialEnabled(policy);
+            Integer plainStart = integerValue(firstPresent(policy, "plainStart", "partialPlainStart"));
+            Integer plainLength = integerValue(firstPresent(policy, "plainLength", "partialPlainLength"));
+            String policyAlgorithm = trimToNull(stringValue(policy.get("algorithm")));
+            int policyVersion = intValue(policy.get("version"), material.getPolicyVersion());
+
+            return new RuntimeExecutionKeyMaterial(
+                    material.getPolicyCode(),
+                    policyVersion,
+                    material.getKeyAlias(),
+                    material.getKeyVersion(),
+                    material.getProviderType(),
+                    material.getProviderVendor(),
+                    policyAlgorithm != null ? policyAlgorithm : material.getAlgorithm(),
+                    material.getMaterialType(),
+                    material.getMaterialEncoding(),
+                    material.getExecutionKeyBase64(),
+                    material.getCacheTtlSeconds(),
+                    material.getExpiresAtMillis(),
+                    usePlain != null ? usePlain : material.getUsePlain(),
+                    plainStart != null ? plainStart : material.getPlainStart(),
+                    plainLength != null ? plainLength : material.getPlainLength());
+        } catch (IOException e) {
+            throw new WrapperCryptoException("Runtime policy snapshot request failed: url=" + url
                     + ", error=" + e.getMessage(), e);
         } finally {
             if (connection != null) {
@@ -145,7 +208,7 @@ public class RuntimeExecutionKeyClient {
 
     private static String normalizeBaseUrl(String value) {
         if (value == null || value.trim().isEmpty()) {
-            return "http://localhost:9004";
+            throw new IllegalArgumentException("Hub base URL is required for wrapper local crypto execution-key resolution");
         }
         String baseUrl = value.trim();
         try {
@@ -214,6 +277,22 @@ public class RuntimeExecutionKeyClient {
             }
         }
         return null;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String urlEncode(String value) {
+        try {
+            return URLEncoder.encode(value, "UTF-8");
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Cannot encode policy code", e);
+        }
     }
 
     private static Boolean partialEnabled(Map<String, Object> data) {

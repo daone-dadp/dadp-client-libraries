@@ -17,8 +17,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
@@ -49,18 +47,9 @@ class TelemetryStatsSenderTest {
         });
         server.start();
 
-        Path tempDir = Files.createTempDirectory("telemetry-stats-test");
-        EndpointStorage storage = new EndpointStorage(tempDir.toString(), "crypto-endpoints.json");
         String aggregatorUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-        storage.saveEndpoints(
-                "http://127.0.0.1:9103",
-                "pi_test_wrapper",
-                1L,
-                true,
-                aggregatorUrl,
-                "DIRECT",
-                500,
-                false);
+        EndpointStorage storage = mock(EndpointStorage.class);
+        when(storage.loadEndpoints()).thenReturn(createEndpointData(aggregatorUrl, false));
 
         TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "alias_test_wrapper");
         try {

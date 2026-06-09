@@ -4,7 +4,7 @@ package com.dadp.common.sync.config;
  * TenantId 저장 콜백 인터페이스 (공통)
  * 
  * Callback retained only for older constructor compatibility.
- * DADP 6 tenant IDs are issued by CLI schema-register, not by schema-sync responses.
+ * DADP 6 tenant IDs are issued by CLI wrapper schema register, not by schema-sync responses.
  * 
  * @author DADP Development Team
  * @version 5.1.0

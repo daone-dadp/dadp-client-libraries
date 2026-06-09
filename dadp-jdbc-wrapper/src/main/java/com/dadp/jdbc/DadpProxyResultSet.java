@@ -202,7 +202,7 @@ public class DadpProxyResultSet implements ResultSet {
         }
 
         long t0 = System.currentTimeMillis();
-        String decrypted = adapter.decrypt(value, plan.policyName);
+        String decrypted = decryptOrOriginal(adapter, value, plan.policyName, plan.tableName, plan.columnName);
         long t1 = System.currentTimeMillis();
         long engineTime = t1 - t0;
 
@@ -658,7 +658,7 @@ public class DadpProxyResultSet implements ResultSet {
             return value;
         }
         long t0 = System.currentTimeMillis();
-        String decrypted = adapter.decrypt(value, policyName);
+        String decrypted = decryptOrOriginal(adapter, value, policyName, tableName, columnName);
         long t1 = System.currentTimeMillis();
         log.trace("[Wrapper Decrypt] engine={} ms, table={}, column={} (cached)", t1 - t0, tableName, columnName);
         return decrypted != null ? decrypted : value;
@@ -753,7 +753,7 @@ public class DadpProxyResultSet implements ResultSet {
             if (adapter != null) {
                 long t0 = System.currentTimeMillis();
                 // DirectCryptoAdapter에서 에러 처리 및 로그 출력 담당
-                String decrypted = adapter.decrypt(value, policyName);
+                String decrypted = decryptOrOriginal(adapter, value, policyName, tableName, columnName);
                 long t1 = System.currentTimeMillis();
                 long engineTime = t1 - t0;
 
@@ -776,6 +776,17 @@ public class DadpProxyResultSet implements ResultSet {
         }
         
         return value;
+    }
+
+    private String decryptOrOriginal(DirectCryptoAdapter adapter, String value, String policyName, String tableName, String columnName) {
+        try {
+            return adapter.decrypt(value, policyName);
+        } catch (RuntimeException e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("Decryption failed; leaving original value unchanged: {}.{}, policy={}, error={}",
+                    tableName, columnName, policyName, errorMsg);
+            return value;
+        }
     }
     
     @Override
