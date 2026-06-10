@@ -78,15 +78,16 @@ public class ProxyConfig {
         this.aliasConfigured = aliasProp != null;
         this.storageDir = runtimeStorage != null ? runtimeStorage.storageDir : null;
         InstanceConfigStorage.RuntimeData runtime = storedConfig != null ? storedConfig.getRuntime() : null;
-        this.refreshUrl = firstNonBlank(
-                runtime != null ? absoluteHttpUrl(runtime.getRefreshUrl()) : null,
-                storedConfig != null ? absoluteHttpUrl(storedConfig.getRefreshUrl()) : null);
-        this.hubUrl = firstNonBlank(
-                runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
-                deriveHubBaseUrl(this.refreshUrl));
+        String runtimeHubUrl = runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null;
+        String storedTenantId = storedConfig != null ? trimToNull(storedConfig.getTenantId()) : null;
+        this.hubUrl = runtimeHubUrl;
+        this.refreshUrl = buildRuntimeUrl(this.hubUrl, storedTenantId, "refresh");
         this.hubUrlConfigured = this.hubUrl != null;
         if (!this.aliasConfigured) {
             emitMissingRuntimeEnrollment();
+        }
+        if (this.aliasConfigured && !this.hubUrlConfigured) {
+            emitMissingRequiredHubUrl();
         }
 
         this.failOpen = false;
@@ -124,7 +125,7 @@ public class ProxyConfig {
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("Proxy config loaded:");
-        log.trace("   - Hub URL derived from refresh URL: {}", this.hubUrl);
+        log.trace("   - Runtime Hub URL: {}", this.hubUrl);
         log.trace("   - Runtime refresh URL: {}", this.refreshUrl);
         log.trace("   - Alias: {}", this.alias);
         log.trace("   - Runtime storage dir: {}", this.storageDir);
@@ -211,7 +212,7 @@ public class ProxyConfig {
     }
 
     private static void emitMissingRequiredHubUrl() {
-        String message = "DADP wrapper refresh URL is missing in proxy-config.json. Automatic refresh and local key pull are unavailable until CLI writes refreshUrl.";
+        String message = "DADP wrapper runtime hubUrl is missing in proxy-config.json. Run CLI wrapper refresh so runtime.hubUrl is written.";
         System.err.println(message);
         try {
             log.warn(message);
@@ -403,16 +404,17 @@ public class ProxyConfig {
         return candidates.get(0);
     }
 
-    private static String deriveHubBaseUrl(String refreshUrl) {
-        String normalized = trimToNull(refreshUrl);
-        if (normalized == null) {
+    private static String buildRuntimeUrl(String runtimeHubUrl, String tenantId, String action) {
+        String hubUrl = trimToNull(runtimeHubUrl);
+        String normalizedTenantId = trimToNull(tenantId);
+        String normalizedAction = trimToNull(action);
+        if (hubUrl == null || normalizedTenantId == null || normalizedAction == null) {
             return null;
         }
-        int apiIndex = normalized.indexOf("/hub/api/");
-        if (apiIndex > 0) {
-            return normalized.substring(0, apiIndex);
+        while (hubUrl.endsWith("/")) {
+            hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
         }
-        return null;
+        return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
     }
 
     private static String firstNonBlank(String... values) {

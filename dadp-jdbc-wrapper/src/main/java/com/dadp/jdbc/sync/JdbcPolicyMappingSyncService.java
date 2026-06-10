@@ -98,7 +98,7 @@ public class JdbcPolicyMappingSyncService {
         this.instanceId = instanceIdProvider.getInstanceId();
         
         
-        String hubUrl = config.getRefreshUrl();
+        String hubUrl = config.getHubUrl();
         final JdbcPolicyMappingSyncService self = this;
         if (sharedRuntimeConfigManager != null) {
             this.tenantIdManager = sharedRuntimeConfigManager;
@@ -227,7 +227,7 @@ public class JdbcPolicyMappingSyncService {
     
     
     private void updateMappingSyncService(String tenantId, String instanceId) {
-        String hubUrl = tenantIdManager.canonicalRefreshUrl();
+        String hubUrl = config.getHubUrl();
         String apiBasePath = "/hub/api/v1/runtime/wrappers";
         this.mappingSyncService = new MappingSyncService(
             hubUrl,

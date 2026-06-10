@@ -111,17 +111,16 @@ public final class WrapperCliStorageSupport {
         String cryptoMode = text(wrapper.path("cryptoMode"));
         Boolean failOpen = booleanValue(wrapper.path("failOpen"));
         Boolean policySyncAutoEnabled = booleanValue(wrapper.path("policySyncAutoEnabled"));
-        String runtimeHubUrl = text(wrapper.path("hubUrl"));
-        String refreshUrl = firstNonBlank(
-                text(root.path("runtime").path("refreshUrl")),
-                text(root.path("refreshUrl")),
-                buildRuntimeUrl(runtimeHubUrl, tenantId, "refresh"));
-        String schemaSyncUrl = firstNonBlank(
-                text(root.path("runtime").path("schemaSyncUrl")),
-                text(root.path("schemaSyncUrl")),
-                buildRuntimeUrl(runtimeHubUrl, tenantId, "schema-sync"));
+        String runtimeHubUrl = firstAbsoluteHttpUrl(
+                text(wrapper.path("hubUrl")),
+                text(wrapper.path("options").path("hubUrl")));
+        if (runtimeHubUrl == null) {
+            throw new IllegalStateException("wrapper.hubUrl is missing in Hub refresh response");
+        }
+        String refreshUrl = buildRuntimeUrl(runtimeHubUrl, tenantId, "refresh");
+        String schemaSyncUrl = buildRuntimeUrl(runtimeHubUrl, tenantId, "schema-sync");
+        String engineEndpointUrl = buildRuntimeEngineEndpointUrl(runtimeHubUrl);
         String wrapperEngineUrl = firstAbsoluteHttpUrl(
-                text(root.path("runtime").path("engineEndpointUrl")),
                 text(root.path("engine").path("wrapperEngineUrl")));
 
         configStorage.saveRuntimeOptions(
@@ -134,7 +133,7 @@ public final class WrapperCliStorageSupport {
                 runtimeHubUrl,
                 refreshUrl,
                 schemaSyncUrl,
-                wrapperEngineUrl);
+                engineEndpointUrl);
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
@@ -228,6 +227,17 @@ public final class WrapperCliStorageSupport {
             hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
         }
         return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
+    }
+
+    private static String buildRuntimeEngineEndpointUrl(String runtimeHubUrl) {
+        String hubUrl = trimToNull(runtimeHubUrl);
+        if (hubUrl == null) {
+            return null;
+        }
+        while (hubUrl.endsWith("/")) {
+            hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
+        }
+        return hubUrl + "/hub/api/v1/runtime/engine-endpoint";
     }
 
     private static String firstNonBlank(String... values) {

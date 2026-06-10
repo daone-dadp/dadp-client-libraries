@@ -32,7 +32,7 @@ public class WrapperRuntimeConfigManager {
     private volatile boolean failOpen = false;
     private volatile boolean policySyncAutoEnabled = false;
     private volatile boolean enabled = true;
-    private volatile String refreshUrl;
+    private volatile String runtimeHubUrl;
 
     public interface TenantIdChangeCallback {
         void onTenantIdChanged(String oldTenantId, String newTenantId);
@@ -46,7 +46,7 @@ public class WrapperRuntimeConfigManager {
         this.hubUrl = hubUrl;
         this.aliasProvider = aliasProvider;
         this.changeCallback = changeCallback;
-        this.refreshUrl = trimToNull(hubUrl);
+        this.runtimeHubUrl = trimToNull(hubUrl);
     }
 
     public String loadFromStorage() {
@@ -59,10 +59,9 @@ public class WrapperRuntimeConfigManager {
 
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
         InstanceConfigStorage.RuntimeData runtime = stored.getRuntime();
-        this.refreshUrl = firstNonBlank(
-                runtime != null ? absoluteHttpUrl(runtime.getRefreshUrl()) : null,
-                absoluteHttpUrl(stored.getRefreshUrl()),
-                this.refreshUrl);
+        this.runtimeHubUrl = firstNonBlank(
+                runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
+                this.runtimeHubUrl);
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
         this.policySyncAutoEnabled = Boolean.TRUE.equals(stored.getPolicySyncAutoEnabled());
@@ -155,14 +154,11 @@ public class WrapperRuntimeConfigManager {
     }
 
     public String canonicalRefreshUrl() {
-        String canonical = trimToNull(refreshUrl);
-        if (canonical != null) {
-            return canonical;
-        }
-        if (hubUrl == null || hubUrl.trim().isEmpty() || cachedTenantId == null) {
+        String baseUrl = trimToNull(runtimeHubUrl);
+        if (baseUrl == null || cachedTenantId == null) {
             return null;
         }
-        String base = hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
+        String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         return base + "/hub/api/v1/runtime/wrappers/" + cachedTenantId + "/refresh";
     }
 
@@ -206,7 +202,7 @@ public class WrapperRuntimeConfigManager {
         this.failOpen = false;
         this.policySyncAutoEnabled = false;
         this.enabled = true;
-        this.refreshUrl = trimToNull(hubUrl);
+        this.runtimeHubUrl = trimToNull(hubUrl);
         if (changeCallback != null && oldTenantId != null) {
             try {
                 changeCallback.onTenantIdChanged(oldTenantId, null);

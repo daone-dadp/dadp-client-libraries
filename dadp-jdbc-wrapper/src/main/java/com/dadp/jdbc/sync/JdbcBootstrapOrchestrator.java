@@ -106,7 +106,7 @@ public class JdbcBootstrapOrchestrator {
         this.schemaStorage = new SchemaStorage(instanceId);
         this.tenantIdManager = new WrapperRuntimeConfigManager(
             configStorage,
-            config.getRefreshUrl(),
+            config.getHubUrl(),
             instanceIdProvider,
             (oldTenantId, newTenantId) -> {
                 
@@ -401,7 +401,7 @@ public class JdbcBootstrapOrchestrator {
         
         String instanceId = instanceIdProvider.getInstanceId();
         this.mappingSyncService = new MappingSyncService(
-            firstNonBlank(tenantIdManager.canonicalRefreshUrl(), config.getHubUrl()),
+            config.getHubUrl(),
             tenantId,
             instanceId,
             "/hub/api/v1/runtime/wrappers",

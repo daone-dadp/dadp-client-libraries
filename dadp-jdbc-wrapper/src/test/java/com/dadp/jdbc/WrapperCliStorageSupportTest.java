@@ -68,7 +68,8 @@ class WrapperCliStorageSupportTest {
         String response = "{"
                 + "\"runtimeVersion\":8,"
                 + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
-                + "\"runtime\":{\"engineEndpointUrl\":\"http://dadp-engine:9003\"},"
+                + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
+                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"policyBindings\":[{"
                 + "\"schemaName\":\"public\","
                 + "\"tableName\":\"users\","
@@ -100,7 +101,8 @@ class WrapperCliStorageSupportTest {
                 config.getRuntime().getRefreshUrl());
         assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/schema-sync",
                 config.getRuntime().getSchemaSyncUrl());
-        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineEndpointUrl());
+        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/engine-endpoint",
+                config.getRuntime().getEngineEndpointUrl());
         assertEquals("http://dadp-engine:9003", configStorage.loadEndpointData().getCryptoUrl());
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(tempDir.toString(), "policy-mappings.json");
@@ -155,7 +157,7 @@ class WrapperCliStorageSupportTest {
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
                 + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
                 + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"policyBindings\":[]"
@@ -170,6 +172,27 @@ class WrapperCliStorageSupportTest {
         EndpointStorage.EndpointData endpointData = configStorage.loadEndpointData();
         assertNotNull(endpointData);
         assertEquals("http://dadp-engine:9003", endpointData.getCryptoUrl());
+    }
+
+    @Test
+    void refreshResponseRequiresWrapperHubUrl() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+
+        String response = "{"
+                + "\"runtimeVersion\":8,"
+                + "\"wrapper\":{\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"runtime\":{\"refreshUrl\":\"http://wrong-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/refresh\"},"
+                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
+                + "\"policyBindings\":[]"
+                + "}";
+
+        try {
+            WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("wrapper.hubUrl"));
+            return;
+        }
+        throw new AssertionError("expected missing wrapper.hubUrl to fail");
     }
 
     @Test

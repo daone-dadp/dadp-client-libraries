@@ -146,9 +146,6 @@ public class InstanceConfigStorage {
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 data.put("runtimeVersion", runtimeVersion.trim());
             }
-            if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
-                data.put("refreshUrl", refreshUrl.trim());
-            }
             saveRuntimeUrls(data, runtimeHubUrl, refreshUrl, schemaSyncUrl, engineEndpointUrl);
             removeNonPersistentBootstrapFields(data);
 
@@ -271,9 +268,6 @@ public class InstanceConfigStorage {
     public EndpointStorage.EndpointData loadEndpointData() {
         ConfigData data = loadExistingConfig();
         String endpointUrl = null;
-        if (data != null && data.getRuntime() != null) {
-            endpointUrl = absoluteHttpUrl(data.getRuntime().getEngineEndpointUrl());
-        }
         if (endpointUrl == null && data != null && data.getEngine() != null) {
             endpointUrl = absoluteHttpUrl(data.getEngine().getWrapperEngineUrl());
         }
@@ -384,9 +378,16 @@ public class InstanceConfigStorage {
                                  String schemaSyncUrl,
                                  String engineEndpointUrl) {
         String normalizedHubUrl = trimToNull(runtimeHubUrl);
-        String normalizedRefreshUrl = trimToNull(refreshUrl);
-        String normalizedSchemaSyncUrl = trimToNull(schemaSyncUrl);
-        String normalizedEngineEndpointUrl = trimToNull(engineEndpointUrl);
+        String tenantId = text(data.path("tenantId"));
+        String normalizedRefreshUrl = normalizedHubUrl != null
+                ? buildRuntimeWrapperUrl(normalizedHubUrl, tenantId, "refresh")
+                : null;
+        String normalizedSchemaSyncUrl = normalizedHubUrl != null
+                ? buildRuntimeWrapperUrl(normalizedHubUrl, tenantId, "schema-sync")
+                : null;
+        String normalizedEngineEndpointUrl = normalizedHubUrl != null
+                ? buildRuntimeEngineEndpointUrl(normalizedHubUrl)
+                : trimToNull(engineEndpointUrl);
         if (normalizedHubUrl == null && normalizedRefreshUrl == null
                 && normalizedSchemaSyncUrl == null && normalizedEngineEndpointUrl == null) {
             return;
@@ -429,6 +430,35 @@ public class InstanceConfigStorage {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String buildRuntimeWrapperUrl(String runtimeHubUrl, String tenantId, String action) {
+        String hubUrl = trimTrailingSlash(runtimeHubUrl);
+        String normalizedTenantId = trimToNull(tenantId);
+        String normalizedAction = trimToNull(action);
+        if (hubUrl == null || normalizedTenantId == null || normalizedAction == null) {
+            return null;
+        }
+        return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
+    }
+
+    private static String buildRuntimeEngineEndpointUrl(String runtimeHubUrl) {
+        String hubUrl = trimTrailingSlash(runtimeHubUrl);
+        if (hubUrl == null) {
+            return null;
+        }
+        return hubUrl + "/hub/api/v1/runtime/engine-endpoint";
+    }
+
+    private static String trimTrailingSlash(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private static String absoluteHttpUrl(String value) {
