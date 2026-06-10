@@ -130,7 +130,7 @@ class JdbcPolicyMappingSyncServiceTest {
     }
 
     @Test
-    void automaticPolicyMappingSyncDoesNotStartUnlessExplicitlyEnabled() throws Exception {
+    void runtimeRefreshPollStartsEvenWhenPolicySyncAutoIsDisabled() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
@@ -161,10 +161,10 @@ class JdbcPolicyMappingSyncServiceTest {
 
         Field schedulerField = JdbcPolicyMappingSyncService.class.getDeclaredField("scheduler");
         schedulerField.setAccessible(true);
-        assertNull(schedulerField.get(service));
-        assertFalse(service.isEnabled());
+        assertNotNull(schedulerField.get(service));
+        assertTrue(service.isEnabled());
         verify(mappingSyncService, never()).checkMappingChange(any(), any());
-        verify(mappingSyncService, never()).syncPolicyMappingsAndUpdateVersion(any());
+        service.shutdown();
     }
 
     @Test
@@ -213,6 +213,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 schemaStorage);
 
         service.setInitialized(true, "wtenant_manual");
+        service.shutdown();
         service.refreshNow();
 
         verify(mappingSyncService).syncPolicyMappingsAndUpdateVersion(any());
@@ -348,6 +349,7 @@ class JdbcPolicyMappingSyncServiceTest {
                 schemaStorage);
 
         service.setInitialized(true, "wtenant_disabled");
+        service.shutdown();
         service.refreshNow();
 
         verify(proxyConfig).setEnabled(false);

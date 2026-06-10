@@ -108,8 +108,9 @@ Flow:
    - `304`: do not update files.
    - `200`: update `proxy-config.json` and `policy-mappings.json`.
 
-Wrapper automatic refresh must use the same API and response contract as CLI refresh.
-Only the caller differs.
+Wrapper runtime refresh must use the same API and response contract as CLI refresh.
+Only the caller differs. The wrapper, not the customer application, pulls runtime
+changes from Hub while the JVM is running.
 
 ## Verification Rules
 
@@ -160,11 +161,11 @@ cd /home/au212/projects/dadp/dadp-client-libraries
 - Fallback must produce WARN log.
 - Engine crypto logs are expected in this case.
 
-5. Auto refresh:
+5. Runtime refresh:
 
-- Enable `policySyncAutoEnabled=true`.
 - Change Hub runtime option.
-- Verify wrapper automatic refresh applies the same response contract as CLI refresh.
+- Verify wrapper runtime refresh applies the same response contract as CLI refresh
+  without restarting the customer application.
 
 ## Current Risk
 

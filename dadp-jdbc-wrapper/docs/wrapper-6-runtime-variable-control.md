@@ -12,8 +12,9 @@ See also `wrapper-6-cli-storage-contract.md`.
 2. Wrapper runtime discovers `proxy-config.json` under
    `<wrapper-lib-dir>/dadp/wrapper`.
 3. Wrapper runtime reads `proxy-config.json` and `policy-mappings.json`.
-4. Hub `/refresh` values are applied by CLI refresh or wrapper automatic refresh
-   when `policySyncAutoEnabled=true`.
+4. Hub `/refresh` values are applied by CLI refresh or wrapper runtime refresh.
+   The wrapper runtime refresh poll is owned by the wrapper, not by the customer
+   application.
 5. JDBC URL contains DB connection values only.
 
 If no valid `proxy-config.json` exists, wrapper stays in passthrough mode and
@@ -75,12 +76,13 @@ Startup:
 4. Load tenantId, alias, runtimeVersion, cryptoMode, failOpen,
    policySyncAutoEnabled, runtime.hubUrl, and runtime.engineUrl.
 5. Load policy bindings from `policy-mappings.json`.
-6. Start automatic refresh only when `policySyncAutoEnabled=true` and
-   `runtime.hubUrl` is available.
+6. Start wrapper runtime refresh when `runtime.hubUrl` and tenant enrollment are
+   available. Hub runtime options such as `cryptoMode` hot-apply through this
+   poll.
 
 Refresh:
 
-1. Manual CLI refresh and wrapper automatic refresh use the same Hub refresh
+1. Manual CLI refresh and wrapper runtime refresh use the same Hub refresh
    response contract.
 2. `304` does not modify local files.
 3. `200` updates `proxy-config.json` and `policy-mappings.json`.

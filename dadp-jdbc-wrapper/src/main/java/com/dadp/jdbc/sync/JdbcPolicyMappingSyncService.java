@@ -174,15 +174,14 @@ public class JdbcPolicyMappingSyncService {
         }
         
         
-        if (!tenantIdManager.isPolicySyncAutoEnabled()) {
-            setEnabled(false);
-            log.info("Automatic policy mapping sync disabled by default in DADP 6.0: tenantId={}, alias={}", tenantId, instanceId);
-            return;
-        }
-
         setEnabled(true);
         startPeriodicSync();
-        log.info("Periodic version check started: tenantId={} (first check immediately)", tenantId);
+        if (!tenantIdManager.isPolicySyncAutoEnabled()) {
+            log.info("Wrapper runtime refresh poll started with automatic policy sync disabled: tenantId={}, alias={}. Runtime options still hot-apply from Hub refresh.",
+                    tenantId, instanceId);
+        } else {
+            log.info("Periodic runtime/policy refresh started: tenantId={} (first check immediately)", tenantId);
+        }
     }
     
     
@@ -437,7 +436,7 @@ public class JdbcPolicyMappingSyncService {
                 setEnabled(true);
                 startPeriodicSync();
             } else {
-                setEnabled(false);
+                log.info("Automatic policy sync disabled by Hub; keeping wrapper runtime refresh poll active for runtime option hot-apply");
             }
         }
         if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
