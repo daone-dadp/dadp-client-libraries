@@ -61,6 +61,7 @@ public class WrapperRuntimeConfigManager {
         InstanceConfigStorage.RuntimeData runtime = stored.getRuntime();
         this.runtimeHubUrl = firstNonBlank(
                 runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
+                absoluteHttpUrl(stored.getHubUrl()),
                 this.runtimeHubUrl);
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
