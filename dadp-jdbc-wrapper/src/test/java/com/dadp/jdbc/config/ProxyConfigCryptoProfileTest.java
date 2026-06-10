@@ -97,7 +97,8 @@ class ProxyConfigCryptoProfileTest {
     void runtimeIdentityLoadsFromProxyConfig() throws Exception {
         writeProxyConfig("stored-alias",
                 "wtenant_test",
-                "http://127.0.0.1:9004/hub/api/v1/runtime/wrappers/wtenant_test/refresh");
+                "http://dadp-hub:9004",
+                "http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_test/refresh");
 
         ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
@@ -105,7 +106,7 @@ class ProxyConfigCryptoProfileTest {
         assertTrue(config.isRuntimeActive());
         assertTrue("stored-alias".equals(config.getAlias()));
         assertTrue("stored-alias".equals(config.getInstanceId()));
-        assertTrue("http://127.0.0.1:9004".equals(config.getHubUrl()));
+        assertTrue("http://dadp-hub:9004".equals(config.getHubUrl()));
         assertTrue(config.isHubUrlConfigured());
     }
 
@@ -205,7 +206,7 @@ class ProxyConfigCryptoProfileTest {
         return params;
     }
 
-    private static void writeProxyConfig(String alias, String tenantId, String refreshUrl) throws IOException {
+    private static void writeProxyConfig(String alias, String tenantId, String runtimeHubUrl, String refreshUrl) throws IOException {
         deleteRuntimeRoot();
         Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
         Files.createDirectories(storageDir);
@@ -213,7 +214,11 @@ class ProxyConfigCryptoProfileTest {
                 + "  \"tenantId\": \"" + tenantId + "\",\n"
                 + "  \"alias\": \"" + alias + "\",\n"
                 + "  \"runtimeVersion\": \"1\",\n"
-                + "  \"refreshUrl\": \"" + refreshUrl + "\"\n"
+                + "  \"refreshUrl\": \"" + refreshUrl + "\",\n"
+                + "  \"runtime\": {\n"
+                + "    \"hubUrl\": \"" + runtimeHubUrl + "\",\n"
+                + "    \"refreshUrl\": \"" + refreshUrl + "\"\n"
+                + "  }\n"
                 + "}\n";
         Files.write(storageDir.resolve("proxy-config.json"), json.getBytes(StandardCharsets.UTF_8));
     }

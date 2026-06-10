@@ -77,8 +77,13 @@ public class ProxyConfig {
         this.alias = aliasProp;
         this.aliasConfigured = aliasProp != null;
         this.storageDir = runtimeStorage != null ? runtimeStorage.storageDir : null;
-        this.refreshUrl = storedConfig != null ? trimToNull(storedConfig.getRefreshUrl()) : null;
-        this.hubUrl = deriveHubBaseUrl(this.refreshUrl);
+        InstanceConfigStorage.RuntimeData runtime = storedConfig != null ? storedConfig.getRuntime() : null;
+        this.refreshUrl = firstNonBlank(
+                runtime != null ? runtime.getRefreshUrl() : null,
+                storedConfig != null ? storedConfig.getRefreshUrl() : null);
+        this.hubUrl = firstNonBlank(
+                runtime != null ? runtime.getHubUrl() : null,
+                deriveHubBaseUrl(this.refreshUrl));
         this.hubUrlConfigured = this.hubUrl != null;
         if (!this.aliasConfigured) {
             emitMissingRuntimeEnrollment();

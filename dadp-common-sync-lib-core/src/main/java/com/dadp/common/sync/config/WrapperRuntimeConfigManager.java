@@ -58,7 +58,11 @@ public class WrapperRuntimeConfigManager {
         }
 
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
-        this.refreshUrl = firstNonBlank(stored.getRefreshUrl(), this.refreshUrl);
+        InstanceConfigStorage.RuntimeData runtime = stored.getRuntime();
+        this.refreshUrl = firstNonBlank(
+                runtime != null ? runtime.getRefreshUrl() : null,
+                stored.getRefreshUrl(),
+                this.refreshUrl);
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
         this.policySyncAutoEnabled = Boolean.TRUE.equals(stored.getPolicySyncAutoEnabled());

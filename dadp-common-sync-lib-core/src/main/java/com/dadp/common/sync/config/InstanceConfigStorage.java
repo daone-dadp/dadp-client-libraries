@@ -119,6 +119,16 @@ public class InstanceConfigStorage {
                                   String alias,
                                   String runtimeVersion,
                                   String refreshUrl) {
+        return saveEnrollment(tenantId, alias, runtimeVersion, null, refreshUrl, null, null);
+    }
+
+    public boolean saveEnrollment(String tenantId,
+                                  String alias,
+                                  String runtimeVersion,
+                                  String runtimeHubUrl,
+                                  String refreshUrl,
+                                  String schemaSyncUrl,
+                                  String engineEndpointUrl) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save wrapper enrollment");
             return false;
@@ -139,6 +149,7 @@ public class InstanceConfigStorage {
             if (refreshUrl != null && !refreshUrl.trim().isEmpty()) {
                 data.put("refreshUrl", refreshUrl.trim());
             }
+            saveRuntimeUrls(data, runtimeHubUrl, refreshUrl, schemaSyncUrl, engineEndpointUrl);
             removeNonPersistentBootstrapFields(data);
 
             File storageFile = new File(storagePath);
@@ -180,6 +191,20 @@ public class InstanceConfigStorage {
                                       String runtimeVersion,
                                       String wrapperEngineUrl,
                                       String tenantId) {
+        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled,
+                runtimeVersion, wrapperEngineUrl, tenantId, null, null, null, null);
+    }
+
+    public boolean saveRuntimeOptions(String cryptoMode,
+                                      Boolean failOpen,
+                                      Boolean policySyncAutoEnabled,
+                                      String runtimeVersion,
+                                      String wrapperEngineUrl,
+                                      String tenantId,
+                                      String runtimeHubUrl,
+                                      String refreshUrl,
+                                      String schemaSyncUrl,
+                                      String engineEndpointUrl) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save runtime options");
             return false;
@@ -220,6 +245,8 @@ public class InstanceConfigStorage {
                 }
                 engine.put("wrapperEngineUrl", wrapperEngineUrl.trim());
             }
+            saveRuntimeUrls(data, runtimeHubUrl, refreshUrl, schemaSyncUrl,
+                    firstNonBlank(engineEndpointUrl, wrapperEngineUrl));
 
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
@@ -243,13 +270,18 @@ public class InstanceConfigStorage {
 
     public EndpointStorage.EndpointData loadEndpointData() {
         ConfigData data = loadExistingConfig();
-        if (data == null || data.getEngine() == null
-                || data.getEngine().getWrapperEngineUrl() == null
-                || data.getEngine().getWrapperEngineUrl().trim().isEmpty()) {
+        String endpointUrl = null;
+        if (data != null && data.getRuntime() != null) {
+            endpointUrl = trimToNull(data.getRuntime().getEngineEndpointUrl());
+        }
+        if (endpointUrl == null && data != null && data.getEngine() != null) {
+            endpointUrl = trimToNull(data.getEngine().getWrapperEngineUrl());
+        }
+        if (data == null || endpointUrl == null) {
             return null;
         }
         EndpointStorage.EndpointData endpointData = new EndpointStorage.EndpointData();
-        endpointData.setCryptoUrl(data.getEngine().getWrapperEngineUrl().trim());
+        endpointData.setCryptoUrl(endpointUrl);
         endpointData.setTenantId(data.getTenantId());
         endpointData.setVersion(parseLong(data.getRuntimeVersion()));
         return endpointData;
@@ -346,12 +378,57 @@ public class InstanceConfigStorage {
         data.remove("instanceId");
     }
 
+    private void saveRuntimeUrls(ObjectNode data,
+                                 String runtimeHubUrl,
+                                 String refreshUrl,
+                                 String schemaSyncUrl,
+                                 String engineEndpointUrl) {
+        String normalizedHubUrl = trimToNull(runtimeHubUrl);
+        String normalizedRefreshUrl = trimToNull(refreshUrl);
+        String normalizedSchemaSyncUrl = trimToNull(schemaSyncUrl);
+        String normalizedEngineEndpointUrl = trimToNull(engineEndpointUrl);
+        if (normalizedHubUrl == null && normalizedRefreshUrl == null
+                && normalizedSchemaSyncUrl == null && normalizedEngineEndpointUrl == null) {
+            return;
+        }
+
+        JsonNode existingRuntime = data.path("runtime");
+        ObjectNode runtime;
+        if (existingRuntime != null && existingRuntime.isObject()) {
+            runtime = (ObjectNode) existingRuntime;
+        } else {
+            runtime = objectMapper.createObjectNode();
+            data.set("runtime", runtime);
+        }
+        if (normalizedHubUrl != null) {
+            runtime.put("hubUrl", normalizedHubUrl);
+        }
+        if (normalizedRefreshUrl != null) {
+            runtime.put("refreshUrl", normalizedRefreshUrl);
+            data.put("refreshUrl", normalizedRefreshUrl);
+        }
+        if (normalizedSchemaSyncUrl != null) {
+            runtime.put("schemaSyncUrl", normalizedSchemaSyncUrl);
+        }
+        if (normalizedEngineEndpointUrl != null) {
+            runtime.put("engineEndpointUrl", normalizedEngineEndpointUrl);
+        }
+    }
+
     private static String text(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
         }
         String value = node.asText();
         return value != null && !value.trim().isEmpty() ? value : null;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static Long parseLong(String value) {
@@ -438,6 +515,7 @@ public class InstanceConfigStorage {
         private String cryptoMode;  // Hub refresh runtime option: remote | local
         private Boolean policySyncAutoEnabled;  // Hub refresh runtime option
         private EngineData engine;  // Hub refresh engine endpoint data
+        private RuntimeData runtime;  // CLI/runtime URL contract data
         
         public long getTimestamp() {
             return timestamp;
@@ -526,6 +604,14 @@ public class InstanceConfigStorage {
         public void setEngine(EngineData engine) {
             this.engine = engine;
         }
+
+        public RuntimeData getRuntime() {
+            return runtime;
+        }
+
+        public void setRuntime(RuntimeData runtime) {
+            this.runtime = runtime;
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -538,6 +624,46 @@ public class InstanceConfigStorage {
 
         public void setWrapperEngineUrl(String wrapperEngineUrl) {
             this.wrapperEngineUrl = wrapperEngineUrl;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class RuntimeData {
+        private String hubUrl;
+        private String refreshUrl;
+        private String schemaSyncUrl;
+        private String engineEndpointUrl;
+
+        public String getHubUrl() {
+            return hubUrl;
+        }
+
+        public void setHubUrl(String hubUrl) {
+            this.hubUrl = hubUrl;
+        }
+
+        public String getRefreshUrl() {
+            return refreshUrl;
+        }
+
+        public void setRefreshUrl(String refreshUrl) {
+            this.refreshUrl = refreshUrl;
+        }
+
+        public String getSchemaSyncUrl() {
+            return schemaSyncUrl;
+        }
+
+        public void setSchemaSyncUrl(String schemaSyncUrl) {
+            this.schemaSyncUrl = schemaSyncUrl;
+        }
+
+        public String getEngineEndpointUrl() {
+            return engineEndpointUrl;
+        }
+
+        public void setEngineEndpointUrl(String engineEndpointUrl) {
+            this.engineEndpointUrl = engineEndpointUrl;
         }
     }
 }

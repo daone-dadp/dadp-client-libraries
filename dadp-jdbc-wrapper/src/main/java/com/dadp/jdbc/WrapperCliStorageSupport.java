@@ -77,12 +77,24 @@ public final class WrapperCliStorageSupport {
                                          String alias,
                                          String runtimeVersion,
                                          String refreshUrl) {
+        return saveEnrollment(storageDir, tenantId, alias, runtimeVersion, null, refreshUrl, null, null);
+    }
+
+    public static boolean saveEnrollment(String storageDir,
+                                         String tenantId,
+                                         String alias,
+                                         String runtimeVersion,
+                                         String runtimeHubUrl,
+                                         String refreshUrl,
+                                         String schemaSyncUrl,
+                                         String engineEndpointUrl) {
         String normalizedTenantId = trimToNull(tenantId);
         if (normalizedTenantId == null) {
             throw new IllegalArgumentException("tenantId is required");
         }
         InstanceConfigStorage storage = new InstanceConfigStorage(storageDir, PROXY_CONFIG_FILE);
-        return storage.saveEnrollment(normalizedTenantId, alias, runtimeVersion, refreshUrl);
+        return storage.saveEnrollment(normalizedTenantId, alias, runtimeVersion,
+                runtimeHubUrl, refreshUrl, schemaSyncUrl, engineEndpointUrl);
     }
 
     public static RefreshApplyResult applyRefreshResponse(String storageDir, String responseBody) throws IOException {
@@ -99,7 +111,18 @@ public final class WrapperCliStorageSupport {
         String cryptoMode = text(wrapper.path("cryptoMode"));
         Boolean failOpen = booleanValue(wrapper.path("failOpen"));
         Boolean policySyncAutoEnabled = booleanValue(wrapper.path("policySyncAutoEnabled"));
-        String wrapperEngineUrl = text(root.path("engine").path("wrapperEngineUrl"));
+        String runtimeHubUrl = text(wrapper.path("hubUrl"));
+        String refreshUrl = firstNonBlank(
+                text(root.path("runtime").path("refreshUrl")),
+                text(root.path("refreshUrl")),
+                buildRuntimeUrl(runtimeHubUrl, tenantId, "refresh"));
+        String schemaSyncUrl = firstNonBlank(
+                text(root.path("runtime").path("schemaSyncUrl")),
+                text(root.path("schemaSyncUrl")),
+                buildRuntimeUrl(runtimeHubUrl, tenantId, "schema-sync"));
+        String wrapperEngineUrl = firstNonBlank(
+                text(root.path("runtime").path("engineEndpointUrl")),
+                text(root.path("engine").path("wrapperEngineUrl")));
 
         configStorage.saveRuntimeOptions(
                 cryptoMode,
@@ -107,7 +130,11 @@ public final class WrapperCliStorageSupport {
                 policySyncAutoEnabled,
                 runtimeVersion,
                 wrapperEngineUrl,
-                tenantId);
+                tenantId,
+                runtimeHubUrl,
+                refreshUrl,
+                schemaSyncUrl,
+                wrapperEngineUrl);
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
@@ -188,6 +215,32 @@ public final class WrapperCliStorageSupport {
             return null;
         }
         return trimToNull(node.asText());
+    }
+
+    private static String buildRuntimeUrl(String runtimeHubUrl, String tenantId, String action) {
+        String hubUrl = trimToNull(runtimeHubUrl);
+        String normalizedTenantId = trimToNull(tenantId);
+        String normalizedAction = trimToNull(action);
+        if (hubUrl == null || normalizedTenantId == null || normalizedAction == null) {
+            return null;
+        }
+        while (hubUrl.endsWith("/")) {
+            hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
+        }
+        return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
     }
 
     private static String trimToNull(String value) {

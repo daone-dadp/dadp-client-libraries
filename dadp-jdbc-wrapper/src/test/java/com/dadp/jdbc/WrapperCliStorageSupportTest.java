@@ -66,8 +66,8 @@ class WrapperCliStorageSupportTest {
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
-                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
+                + "\"runtime\":{\"engineEndpointUrl\":\"http://dadp-engine:9003\"},"
                 + "\"policyBindings\":[{"
                 + "\"schemaName\":\"public\","
                 + "\"tableName\":\"users\","
@@ -94,7 +94,13 @@ class WrapperCliStorageSupportTest {
         assertEquals("local", config.getCryptoMode());
         assertEquals(Boolean.FALSE, config.getFailOpen());
         assertEquals(Boolean.TRUE, config.getPolicySyncAutoEnabled());
-        assertEquals("http://dadp-engine:9003", config.getEngine().getWrapperEngineUrl());
+        assertEquals("http://dadp-hub:9004", config.getRuntime().getHubUrl());
+        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/refresh",
+                config.getRuntime().getRefreshUrl());
+        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/schema-sync",
+                config.getRuntime().getSchemaSyncUrl());
+        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineEndpointUrl());
+        assertEquals("http://dadp-engine:9003", configStorage.loadEndpointData().getCryptoUrl());
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(tempDir.toString(), "policy-mappings.json");
         assertEquals(Long.valueOf(8L), mappingStorage.loadVersion());
@@ -134,6 +140,7 @@ class WrapperCliStorageSupportTest {
         assertEquals("/hub/api/v1/runtime/wrappers/wtenant_existing/refresh",
                 json.path("runtime").path("refreshUrl").asText());
         assertEquals("http://dadp-engine:9003", json.path("engine").path("wrapperEngineUrl").asText());
+        assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineEndpointUrl").asText());
         assertTrue(json.path("policySyncAutoEnabled").asBoolean(false));
         assertFalse(json.has("hubUrl"));
         assertFalse(json.has("instanceId"));
