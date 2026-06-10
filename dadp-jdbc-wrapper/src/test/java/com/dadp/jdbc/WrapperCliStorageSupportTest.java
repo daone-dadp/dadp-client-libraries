@@ -67,9 +67,7 @@ class WrapperCliStorageSupportTest {
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
-                + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
-                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
                 + "\"policyBindings\":[{"
                 + "\"schemaName\":\"public\","
                 + "\"tableName\":\"users\","
@@ -86,7 +84,7 @@ class WrapperCliStorageSupportTest {
 
         assertEquals(Long.valueOf(8L), result.getRuntimeVersion());
         assertEquals(1, result.getMappingCount());
-        assertEquals("http://dadp-engine:9003", result.getWrapperEngineUrl());
+        assertEquals("http://dadp-engine:9003", result.getEngineUrl());
 
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
@@ -97,12 +95,10 @@ class WrapperCliStorageSupportTest {
         assertEquals(Boolean.FALSE, config.getFailOpen());
         assertEquals(Boolean.TRUE, config.getPolicySyncAutoEnabled());
         assertEquals("http://dadp-hub:9004", config.getRuntime().getHubUrl());
-        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/refresh",
-                config.getRuntime().getRefreshUrl());
-        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/schema-sync",
-                config.getRuntime().getSchemaSyncUrl());
-        assertEquals("http://dadp-hub:9004/hub/api/v1/runtime/engine-endpoint",
-                config.getRuntime().getEngineEndpointUrl());
+        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineUrl());
+        assertEquals(null, config.getRuntime().getRefreshUrl());
+        assertEquals(null, config.getRuntime().getSchemaSyncUrl());
+        assertEquals(null, config.getRuntime().getEngineEndpointUrl());
         assertEquals("http://dadp-engine:9003", configStorage.loadEndpointData().getCryptoUrl());
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(tempDir.toString(), "policy-mappings.json");
@@ -120,10 +116,7 @@ class WrapperCliStorageSupportTest {
                 + "\"runtimeVersion\":\"4\","
                 + "\"schemaVersion\":4,"
                 + "\"snapshotVersion\":4,"
-                + "\"runtime\":{"
-                + "\"refreshUrl\":\"/hub/api/v1/runtime/wrappers/wtenant_existing/refresh\","
-                + "\"schemaSyncUrl\":\"/hub/api/v1/runtime/wrappers/wtenant_existing/schema-sync\""
-                + "},"
+                + "\"runtime\":{\"hubUrl\":\"http://dadp-hub:9004\"},"
                 + "\"hubUrl\":null,"
                 + "\"instanceId\":null"
                 + "}";
@@ -140,14 +133,16 @@ class WrapperCliStorageSupportTest {
         assertEquals("8", json.path("runtimeVersion").asText());
         assertEquals(4, json.path("schemaVersion").asInt());
         assertEquals(8, json.path("snapshotVersion").asInt());
-        assertEquals("/hub/api/v1/runtime/wrappers/wtenant_existing/refresh",
-                json.path("runtime").path("refreshUrl").asText());
-        assertEquals("http://dadp-engine:9003", json.path("engine").path("wrapperEngineUrl").asText());
-        assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineEndpointUrl").asText());
-        assertTrue(json.path("policySyncAutoEnabled").asBoolean(false));
+        assertEquals("http://dadp-hub:9004", json.path("runtime").path("hubUrl").asText());
+        assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineUrl").asText());
+        assertEquals("remote", json.path("runtime").path("cryptoMode").asText());
+        assertTrue(json.path("runtime").path("policySyncAutoEnabled").asBoolean(false));
+        assertFalse(json.path("runtime").has("refreshUrl"));
+        assertFalse(json.path("runtime").has("schemaSyncUrl"));
+        assertFalse(json.path("runtime").has("engineEndpointUrl"));
+        assertFalse(json.has("engine"));
         assertFalse(json.has("hubUrl"));
         assertFalse(json.has("instanceId"));
-        assertFalse(stored.contains("\"hubUrl\""));
         assertFalse(stored.contains("\"instanceId\""));
     }
 
@@ -158,15 +153,15 @@ class WrapperCliStorageSupportTest {
         String response = "{"
                 + "\"runtimeVersion\":8,"
                 + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
-                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"policyBindings\":[]"
                 + "}";
 
         WrapperCliStorageSupport.RefreshApplyResult result =
                 WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
 
-        assertEquals("http://dadp-engine:9003", result.getWrapperEngineUrl());
+        assertEquals("http://dadp-engine:9003", result.getEngineUrl());
 
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
         EndpointStorage.EndpointData endpointData = configStorage.loadEndpointData();
@@ -181,8 +176,8 @@ class WrapperCliStorageSupportTest {
         String response = "{"
                 + "\"runtimeVersion\":8,"
                 + "\"wrapper\":{\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"wrapper\":{\"engineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"runtime\":{\"refreshUrl\":\"http://wrong-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/refresh\"},"
-                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
                 + "\"policyBindings\":[]"
                 + "}";
 
@@ -210,7 +205,11 @@ class WrapperCliStorageSupportTest {
         JsonNode json = new ObjectMapper().readTree(tempDir.resolve("proxy-config.json").toFile());
         assertEquals("wtenant_runtime", json.path("tenantId").asText());
         assertEquals("9", json.path("runtimeVersion").asText());
+        assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineUrl").asText());
+        assertEquals("remote", json.path("runtime").path("cryptoMode").asText());
+        assertTrue(json.path("runtime").path("policySyncAutoEnabled").asBoolean(false));
         assertFalse(json.has("hubUrl"));
         assertFalse(json.has("instanceId"));
+        assertFalse(json.has("engine"));
     }
 }

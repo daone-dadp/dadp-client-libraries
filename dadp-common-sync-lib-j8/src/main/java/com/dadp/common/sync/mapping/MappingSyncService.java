@@ -245,11 +245,12 @@ public class MappingSyncService {
             }
         }
         snapshot.setMappings(mappings);
-        JsonNode engine = root.path("engine");
-        String wrapperEngineUrl = text(engine.path("wrapperEngineUrl"));
-        if (wrapperEngineUrl != null && !wrapperEngineUrl.trim().isEmpty()) {
+        String engineUrl = firstNonBlank(
+                text(root.path("runtime").path("engineUrl")),
+                text(root.path("wrapper").path("engineUrl")));
+        if (engineUrl != null && !engineUrl.trim().isEmpty()) {
             EndpointInfo endpointInfo = new EndpointInfo();
-            endpointInfo.setCryptoUrl(wrapperEngineUrl);
+            endpointInfo.setCryptoUrl(engineUrl);
             endpointInfo.setApiBasePath("/api");
             snapshot.setEndpoint(endpointInfo);
         }
@@ -309,6 +310,18 @@ public class MappingSyncService {
 
     private static String text(JsonNode node) {
         return node != null && !node.isMissingNode() && !node.isNull() ? node.asText() : null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private static Boolean booleanOrNull(JsonNode root, String primary, String fallback, boolean invertFallback) {

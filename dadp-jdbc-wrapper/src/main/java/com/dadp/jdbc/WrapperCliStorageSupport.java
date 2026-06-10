@@ -117,23 +117,21 @@ public final class WrapperCliStorageSupport {
         if (runtimeHubUrl == null) {
             throw new IllegalStateException("wrapper.hubUrl is missing in Hub refresh response");
         }
-        String refreshUrl = buildRuntimeUrl(runtimeHubUrl, tenantId, "refresh");
-        String schemaSyncUrl = buildRuntimeUrl(runtimeHubUrl, tenantId, "schema-sync");
-        String engineEndpointUrl = buildRuntimeEngineEndpointUrl(runtimeHubUrl);
-        String wrapperEngineUrl = firstAbsoluteHttpUrl(
-                text(root.path("engine").path("wrapperEngineUrl")));
+        String engineUrl = firstAbsoluteHttpUrl(
+                text(root.path("runtime").path("engineUrl")),
+                text(wrapper.path("engineUrl")));
 
         configStorage.saveRuntimeOptions(
                 cryptoMode,
                 failOpen,
                 policySyncAutoEnabled,
                 runtimeVersion,
-                wrapperEngineUrl,
+                engineUrl,
                 tenantId,
                 runtimeHubUrl,
-                refreshUrl,
-                schemaSyncUrl,
-                engineEndpointUrl);
+                null,
+                null,
+                null);
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
@@ -164,7 +162,7 @@ public final class WrapperCliStorageSupport {
         Long version = parseLong(runtimeVersion);
         mappingStorage.saveMappings(mappings, attributes, version);
 
-        return new RefreshApplyResult(version, mappings.size(), wrapperEngineUrl);
+        return new RefreshApplyResult(version, mappings.size(), engineUrl);
     }
 
     private static InstanceConfigStorage.ConfigData loadProxyConfig(String storageDir) {
@@ -216,43 +214,6 @@ public final class WrapperCliStorageSupport {
         return trimToNull(node.asText());
     }
 
-    private static String buildRuntimeUrl(String runtimeHubUrl, String tenantId, String action) {
-        String hubUrl = trimToNull(runtimeHubUrl);
-        String normalizedTenantId = trimToNull(tenantId);
-        String normalizedAction = trimToNull(action);
-        if (hubUrl == null || normalizedTenantId == null || normalizedAction == null) {
-            return null;
-        }
-        while (hubUrl.endsWith("/")) {
-            hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
-        }
-        return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
-    }
-
-    private static String buildRuntimeEngineEndpointUrl(String runtimeHubUrl) {
-        String hubUrl = trimToNull(runtimeHubUrl);
-        if (hubUrl == null) {
-            return null;
-        }
-        while (hubUrl.endsWith("/")) {
-            hubUrl = hubUrl.substring(0, hubUrl.length() - 1);
-        }
-        return hubUrl + "/hub/api/v1/runtime/engine-endpoint";
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            String normalized = trimToNull(value);
-            if (normalized != null) {
-                return normalized;
-            }
-        }
-        return null;
-    }
-
     private static String firstAbsoluteHttpUrl(String... values) {
         if (values == null) {
             return null;
@@ -281,12 +242,12 @@ public final class WrapperCliStorageSupport {
     public static final class RefreshApplyResult {
         private final Long runtimeVersion;
         private final int mappingCount;
-        private final String wrapperEngineUrl;
+        private final String engineUrl;
 
-        private RefreshApplyResult(Long runtimeVersion, int mappingCount, String wrapperEngineUrl) {
+        private RefreshApplyResult(Long runtimeVersion, int mappingCount, String engineUrl) {
             this.runtimeVersion = runtimeVersion;
             this.mappingCount = mappingCount;
-            this.wrapperEngineUrl = wrapperEngineUrl;
+            this.engineUrl = engineUrl;
         }
 
         public Long getRuntimeVersion() {
@@ -297,8 +258,9 @@ public final class WrapperCliStorageSupport {
             return mappingCount;
         }
 
-        public String getWrapperEngineUrl() {
-            return wrapperEngineUrl;
+        public String getEngineUrl() {
+            return engineUrl;
         }
+
     }
 }

@@ -46,8 +46,8 @@ class MappingSyncServiceSnapshotTest {
             assertEquals("version=6", exchange.getRequestURI().getQuery());
             byte[] body = ("{"
                     + "\"wrapper\":{\"enabled\":true,\"debugEnabled\":true,\"debugLevel\":\"TRACE\","
-                    + "\"cryptoMode\":\"local\",\"policySyncAutoEnabled\":true,\"failOpen\":true},"
-                    + "\"engine\":{\"wrapperEngineUrl\":\"http://engine:9003\"},"
+                    + "\"cryptoMode\":\"local\",\"policySyncAutoEnabled\":true,\"failOpen\":true,"
+                    + "\"engineUrl\":\"http://engine:9003\"},"
                     + "\"runtimeVersion\":7,"
 	                    + "\"policyBindings\":[{"
 	                    + "\"schemaName\":\"public\","

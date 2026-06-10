@@ -28,14 +28,14 @@ wrapper stays in passthrough mode and logs the ambiguous aliases.
 | --- | --- | --- | --- |
 | `tenantId` | CLI schema register response | Yes | Immutable once stored. Required for refresh and tenant-auth Hub calls. |
 | `alias` | CLI schema register input, stored in `proxy-config.json` | Yes | Storage scope and display identity. Not read from JDBC URL. |
-| `refreshUrl` | CLI schema register response when Hub provides it | Yes | Used by wrapper automatic refresh. If missing, automatic refresh is unavailable. |
-| `engine.wrapperEngineUrl` | Hub refresh response | Yes | Remote engine endpoint for wrapper crypto. |
+| `runtime.hubUrl` | Hub schema register/refresh response | Yes | Base Hub URL for refresh and local execution-key resolution. |
+| `runtime.engineUrl` | Hub refresh response `runtime.engineUrl` or `wrapper.engineUrl` | Yes | Remote engine endpoint for remote mode and local fallback. |
 | `enabled` | Hub refresh response | No | Memory-only. Defaults to `true` on JVM startup. |
 | `debugEnabled` | Hub refresh response | No | Applied to logging at refresh time. |
 | `debugLevel` | Hub refresh response | No | Applied to logging at refresh time. |
-| `cryptoMode` | Hub refresh response | Yes | Defaults to `remote`; persisted after refresh. |
-| `policySyncAutoEnabled` | Hub refresh response | Yes | Defaults to `false`; persisted after refresh. |
-| `failOpen` | Hub refresh response | Yes | Defaults to `false`; persisted after refresh. |
+| `runtime.cryptoMode` | Hub refresh response | Yes | Defaults to `remote`; persisted after refresh. |
+| `runtime.policySyncAutoEnabled` | Hub refresh response | Yes | Defaults to `false`; persisted after refresh. |
+| `runtime.failOpen` | Hub refresh response | Yes | Defaults to `false`; persisted after refresh. |
 | `storageDir` | Derived from wrapper JAR lib dir and alias | No external override | `<wrapper-lib-dir>/dadp/wrapper/<alias>`. |
 
 ## Forbidden Inputs
@@ -73,10 +73,10 @@ Startup:
    `<wrapper-lib-dir>/dadp/wrapper`.
 3. Find exactly one valid `proxy-config.json`.
 4. Load tenantId, alias, runtimeVersion, cryptoMode, failOpen,
-   policySyncAutoEnabled, refreshUrl, and engine.wrapperEngineUrl.
+   policySyncAutoEnabled, runtime.hubUrl, and runtime.engineUrl.
 5. Load policy bindings from `policy-mappings.json`.
 6. Start automatic refresh only when `policySyncAutoEnabled=true` and
-   `refreshUrl` is available.
+   `runtime.hubUrl` is available.
 
 Refresh:
 
@@ -85,15 +85,17 @@ Refresh:
 2. `304` does not modify local files.
 3. `200` updates `proxy-config.json` and `policy-mappings.json`.
 4. `enabled` is applied in memory only.
-5. `cryptoMode`, `failOpen`, `policySyncAutoEnabled`,
-   `runtimeVersion`, and `engine.wrapperEngineUrl` are persisted.
+5. `runtime.cryptoMode`, `runtime.failOpen`,
+   `runtime.policySyncAutoEnabled`, `runtimeVersion`, `runtime.hubUrl`, and
+   `runtime.engineUrl` are persisted.
 
 ## Files
 
-- `proxy-config.json`: tenantId, alias, runtimeVersion, refreshUrl, runtime
-  options, engine wrapper URL.
+- `proxy-config.json`: tenantId, alias, runtimeVersion, runtime Hub URL,
+  runtime engine URL, and runtime options.
 - `policy-mappings.json`: active policy bindings and local crypto policy
   attributes.
 - `schemas.json`: optional CLI schema cache, not required by runtime.
 
-There is no `datasourceId` runtime state and no `crypto-endpoints.json`.
+There is no `datasourceId` runtime state, no persisted `refreshUrl`, and no
+`crypto-endpoints.json`.

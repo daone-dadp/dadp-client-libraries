@@ -94,12 +94,10 @@ public class InstanceConfigStorage {
                 data.put("tenantId", tenantId);
             }
             removeNonPersistentBootstrapFields(data);
-            if (failOpen != null) {
-                data.put("failOpen", failOpen.booleanValue());
-            }
             if (runtimeVersion != null) {
                 data.put("runtimeVersion", runtimeVersion);
             }
+            saveRuntimeConfig(data, null, null, null, failOpen, null);
             
             // 파일에 저장
             File storageFile = new File(storagePath);
@@ -146,7 +144,8 @@ public class InstanceConfigStorage {
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 data.put("runtimeVersion", runtimeVersion.trim());
             }
-            saveRuntimeUrls(data, runtimeHubUrl, refreshUrl, schemaSyncUrl, engineEndpointUrl);
+            String resolvedRuntimeHubUrl = firstNonBlank(runtimeHubUrl, extractRuntimeHubUrl(refreshUrl));
+            saveRuntimeConfig(data, resolvedRuntimeHubUrl, null, null, null, null);
             removeNonPersistentBootstrapFields(data);
 
             File storageFile = new File(storagePath);
@@ -178,25 +177,25 @@ public class InstanceConfigStorage {
                                       Boolean failOpen,
                                       Boolean policySyncAutoEnabled,
                                       String runtimeVersion,
-                                      String wrapperEngineUrl) {
-        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled, runtimeVersion, wrapperEngineUrl, null);
+                                      String engineUrl) {
+        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled, runtimeVersion, engineUrl, null);
     }
 
     public boolean saveRuntimeOptions(String cryptoMode,
                                       Boolean failOpen,
                                       Boolean policySyncAutoEnabled,
                                       String runtimeVersion,
-                                      String wrapperEngineUrl,
+                                      String engineUrl,
                                       String tenantId) {
         return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled,
-                runtimeVersion, wrapperEngineUrl, tenantId, null, null, null, null);
+                runtimeVersion, engineUrl, tenantId, null, null, null, null);
     }
 
     public boolean saveRuntimeOptions(String cryptoMode,
                                       Boolean failOpen,
                                       Boolean policySyncAutoEnabled,
                                       String runtimeVersion,
-                                      String wrapperEngineUrl,
+                                      String engineUrl,
                                       String tenantId,
                                       String runtimeHubUrl,
                                       String refreshUrl,
@@ -214,15 +213,6 @@ public class InstanceConfigStorage {
             if (tenantId != null && !tenantId.trim().isEmpty()) {
                 data.put("tenantId", tenantId.trim());
             }
-            if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
-                data.put("cryptoMode", cryptoMode.trim());
-            }
-            if (failOpen != null) {
-                data.put("failOpen", failOpen.booleanValue());
-            }
-            if (policySyncAutoEnabled != null) {
-                data.put("policySyncAutoEnabled", policySyncAutoEnabled.booleanValue());
-            }
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 String normalizedRuntimeVersion = runtimeVersion.trim();
                 data.put("runtimeVersion", normalizedRuntimeVersion);
@@ -231,28 +221,17 @@ public class InstanceConfigStorage {
                     data.put("snapshotVersion", parsedRuntimeVersion.longValue());
                 }
             }
-            if (wrapperEngineUrl != null && !wrapperEngineUrl.trim().isEmpty()) {
-                JsonNode existingEngine = data.path("engine");
-                ObjectNode engine;
-                if (existingEngine != null && existingEngine.isObject()) {
-                    engine = (ObjectNode) existingEngine;
-                } else {
-                    engine = objectMapper.createObjectNode();
-                    data.set("engine", engine);
-                }
-                engine.put("wrapperEngineUrl", wrapperEngineUrl.trim());
-            }
-            saveRuntimeUrls(data, runtimeHubUrl, refreshUrl, schemaSyncUrl,
-                    firstNonBlank(engineEndpointUrl, wrapperEngineUrl));
+            String resolvedRuntimeHubUrl = firstNonBlank(runtimeHubUrl, extractRuntimeHubUrl(refreshUrl));
+            saveRuntimeConfig(data, resolvedRuntimeHubUrl, engineUrl, cryptoMode, failOpen, policySyncAutoEnabled);
 
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
-            log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={}, wrapperEngineUrl={} -> {}",
-                    text(data.path("cryptoMode")),
-                    Boolean.valueOf(data.path("failOpen").asBoolean(false)),
-                    data.path("policySyncAutoEnabled").isMissingNode() ? null : Boolean.valueOf(data.path("policySyncAutoEnabled").asBoolean(false)),
+            log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={}, engineUrl={} -> {}",
+                    text(data.path("runtime").path("cryptoMode")),
+                    data.path("runtime").path("failOpen").isMissingNode() ? null : Boolean.valueOf(data.path("runtime").path("failOpen").asBoolean(false)),
+                    data.path("runtime").path("policySyncAutoEnabled").isMissingNode() ? null : Boolean.valueOf(data.path("runtime").path("policySyncAutoEnabled").asBoolean(false)),
                     text(data.path("runtimeVersion")),
-                    text(data.path("engine").path("wrapperEngineUrl")),
+                    text(data.path("runtime").path("engineUrl")),
                     storagePath);
             return true;
         } catch (IOException e) {
@@ -261,15 +240,15 @@ public class InstanceConfigStorage {
         }
     }
 
-    public boolean saveEngineEndpoint(String wrapperEngineUrl, String runtimeVersion) {
-        return saveRuntimeOptions(null, null, null, runtimeVersion, wrapperEngineUrl);
+    public boolean saveEngineEndpoint(String engineUrl, String runtimeVersion) {
+        return saveRuntimeOptions(null, null, null, runtimeVersion, engineUrl);
     }
 
     public EndpointStorage.EndpointData loadEndpointData() {
         ConfigData data = loadExistingConfig();
         String endpointUrl = null;
-        if (endpointUrl == null && data != null && data.getEngine() != null) {
-            endpointUrl = absoluteHttpUrl(data.getEngine().getWrapperEngineUrl());
+        if (data != null && data.getRuntime() != null) {
+            endpointUrl = absoluteHttpUrl(data.getRuntime().getEngineUrl());
         }
         if (data == null || endpointUrl == null) {
             return null;
@@ -370,26 +349,25 @@ public class InstanceConfigStorage {
         }
         data.remove("hubUrl");
         data.remove("instanceId");
+        data.remove("refreshUrl");
+        data.remove("cryptoMode");
+        data.remove("failOpen");
+        data.remove("policySyncAutoEnabled");
+        data.remove("engine");
     }
 
-    private void saveRuntimeUrls(ObjectNode data,
-                                 String runtimeHubUrl,
-                                 String refreshUrl,
-                                 String schemaSyncUrl,
-                                 String engineEndpointUrl) {
+    private void saveRuntimeConfig(ObjectNode data,
+                                   String runtimeHubUrl,
+                                   String engineUrl,
+                                   String cryptoMode,
+                                   Boolean failOpen,
+                                   Boolean policySyncAutoEnabled) {
         String normalizedHubUrl = trimToNull(runtimeHubUrl);
-        String tenantId = text(data.path("tenantId"));
-        String normalizedRefreshUrl = normalizedHubUrl != null
-                ? buildRuntimeWrapperUrl(normalizedHubUrl, tenantId, "refresh")
-                : null;
-        String normalizedSchemaSyncUrl = normalizedHubUrl != null
-                ? buildRuntimeWrapperUrl(normalizedHubUrl, tenantId, "schema-sync")
-                : null;
-        String normalizedEngineEndpointUrl = normalizedHubUrl != null
-                ? buildRuntimeEngineEndpointUrl(normalizedHubUrl)
-                : trimToNull(engineEndpointUrl);
-        if (normalizedHubUrl == null && normalizedRefreshUrl == null
-                && normalizedSchemaSyncUrl == null && normalizedEngineEndpointUrl == null) {
+        String normalizedEngineUrl = absoluteHttpUrl(engineUrl);
+        String normalizedCryptoMode = trimToNull(cryptoMode);
+        if (normalizedHubUrl == null && normalizedEngineUrl == null
+                && normalizedCryptoMode == null && failOpen == null && policySyncAutoEnabled == null) {
+            cleanupDerivedRuntimeFields(data);
             return;
         }
 
@@ -404,15 +382,29 @@ public class InstanceConfigStorage {
         if (normalizedHubUrl != null) {
             runtime.put("hubUrl", normalizedHubUrl);
         }
-        if (normalizedRefreshUrl != null) {
-            runtime.put("refreshUrl", normalizedRefreshUrl);
-            data.put("refreshUrl", normalizedRefreshUrl);
+        if (normalizedEngineUrl != null) {
+            runtime.put("engineUrl", normalizedEngineUrl);
         }
-        if (normalizedSchemaSyncUrl != null) {
-            runtime.put("schemaSyncUrl", normalizedSchemaSyncUrl);
+        if (normalizedCryptoMode != null) {
+            runtime.put("cryptoMode", normalizedCryptoMode);
         }
-        if (normalizedEngineEndpointUrl != null) {
-            runtime.put("engineEndpointUrl", normalizedEngineEndpointUrl);
+        if (failOpen != null) {
+            runtime.put("failOpen", failOpen.booleanValue());
+        }
+        if (policySyncAutoEnabled != null) {
+            runtime.put("policySyncAutoEnabled", policySyncAutoEnabled.booleanValue());
+        }
+        cleanupDerivedRuntimeFields(data);
+    }
+
+    private void cleanupDerivedRuntimeFields(ObjectNode data) {
+        data.remove("refreshUrl");
+        JsonNode existingRuntime = data.path("runtime");
+        if (existingRuntime != null && existingRuntime.isObject()) {
+            ObjectNode runtime = (ObjectNode) existingRuntime;
+            runtime.remove("refreshUrl");
+            runtime.remove("schemaSyncUrl");
+            runtime.remove("engineEndpointUrl");
         }
     }
 
@@ -432,22 +424,17 @@ public class InstanceConfigStorage {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private static String buildRuntimeWrapperUrl(String runtimeHubUrl, String tenantId, String action) {
-        String hubUrl = trimTrailingSlash(runtimeHubUrl);
-        String normalizedTenantId = trimToNull(tenantId);
-        String normalizedAction = trimToNull(action);
-        if (hubUrl == null || normalizedTenantId == null || normalizedAction == null) {
+    private static String extractRuntimeHubUrl(String runtimeUrl) {
+        String normalized = trimToNull(runtimeUrl);
+        if (normalized == null) {
             return null;
         }
-        return hubUrl + "/hub/api/v1/runtime/wrappers/" + normalizedTenantId + "/" + normalizedAction;
-    }
-
-    private static String buildRuntimeEngineEndpointUrl(String runtimeHubUrl) {
-        String hubUrl = trimTrailingSlash(runtimeHubUrl);
-        if (hubUrl == null) {
-            return null;
+        String marker = "/hub/api/v1/runtime/";
+        int markerIndex = normalized.indexOf(marker);
+        if (markerIndex > 0) {
+            return trimTrailingSlash(normalized.substring(0, markerIndex));
         }
-        return hubUrl + "/hub/api/v1/runtime/engine-endpoint";
+        return absoluteHttpUrl(normalized);
     }
 
     private static String trimTrailingSlash(String value) {
@@ -553,7 +540,6 @@ public class InstanceConfigStorage {
         private String runtimeVersion;  // Hub runtime contract version
         private String cryptoMode;  // Hub refresh runtime option: remote | local
         private Boolean policySyncAutoEnabled;  // Hub refresh runtime option
-        private EngineData engine;  // Hub refresh engine endpoint data
         private RuntimeData runtime;  // CLI/runtime URL contract data
         
         public long getTimestamp() {
@@ -605,6 +591,9 @@ public class InstanceConfigStorage {
         }
         
         public Boolean getFailOpen() {
+            if (runtime != null && runtime.getFailOpen() != null) {
+                return runtime.getFailOpen();
+            }
             return failOpen;
         }
         
@@ -621,6 +610,9 @@ public class InstanceConfigStorage {
         }
 
         public String getCryptoMode() {
+            if (runtime != null && runtime.getCryptoMode() != null) {
+                return runtime.getCryptoMode();
+            }
             return cryptoMode;
         }
 
@@ -629,19 +621,14 @@ public class InstanceConfigStorage {
         }
 
         public Boolean getPolicySyncAutoEnabled() {
+            if (runtime != null && runtime.getPolicySyncAutoEnabled() != null) {
+                return runtime.getPolicySyncAutoEnabled();
+            }
             return policySyncAutoEnabled;
         }
 
         public void setPolicySyncAutoEnabled(Boolean policySyncAutoEnabled) {
             this.policySyncAutoEnabled = policySyncAutoEnabled;
-        }
-
-        public EngineData getEngine() {
-            return engine;
-        }
-
-        public void setEngine(EngineData engine) {
-            this.engine = engine;
         }
 
         public RuntimeData getRuntime() {
@@ -654,24 +641,15 @@ public class InstanceConfigStorage {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class EngineData {
-        private String wrapperEngineUrl;
-
-        public String getWrapperEngineUrl() {
-            return wrapperEngineUrl;
-        }
-
-        public void setWrapperEngineUrl(String wrapperEngineUrl) {
-            this.wrapperEngineUrl = wrapperEngineUrl;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class RuntimeData {
         private String hubUrl;
         private String refreshUrl;
         private String schemaSyncUrl;
         private String engineEndpointUrl;
+        private String engineUrl;
+        private String cryptoMode;
+        private Boolean failOpen;
+        private Boolean policySyncAutoEnabled;
 
         public String getHubUrl() {
             return hubUrl;
@@ -703,6 +681,38 @@ public class InstanceConfigStorage {
 
         public void setEngineEndpointUrl(String engineEndpointUrl) {
             this.engineEndpointUrl = engineEndpointUrl;
+        }
+
+        public String getEngineUrl() {
+            return engineUrl;
+        }
+
+        public void setEngineUrl(String engineUrl) {
+            this.engineUrl = engineUrl;
+        }
+
+        public String getCryptoMode() {
+            return cryptoMode;
+        }
+
+        public void setCryptoMode(String cryptoMode) {
+            this.cryptoMode = cryptoMode;
+        }
+
+        public Boolean getFailOpen() {
+            return failOpen;
+        }
+
+        public void setFailOpen(Boolean failOpen) {
+            this.failOpen = failOpen;
+        }
+
+        public Boolean getPolicySyncAutoEnabled() {
+            return policySyncAutoEnabled;
+        }
+
+        public void setPolicySyncAutoEnabled(Boolean policySyncAutoEnabled) {
+            this.policySyncAutoEnabled = policySyncAutoEnabled;
         }
     }
 }

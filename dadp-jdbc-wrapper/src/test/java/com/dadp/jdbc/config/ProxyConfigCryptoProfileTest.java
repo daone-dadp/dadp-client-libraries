@@ -97,8 +97,7 @@ class ProxyConfigCryptoProfileTest {
     void runtimeIdentityLoadsFromProxyConfig() throws Exception {
         writeProxyConfig("stored-alias",
                 "wtenant_test",
-                "http://dadp-hub:9004",
-                "http://dadp-hub:9004/hub/api/v1/runtime/wrappers/wtenant_test/refresh");
+                "http://dadp-hub:9004");
 
         ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
@@ -206,7 +205,7 @@ class ProxyConfigCryptoProfileTest {
         return params;
     }
 
-    private static void writeProxyConfig(String alias, String tenantId, String runtimeHubUrl, String refreshUrl) throws IOException {
+    private static void writeProxyConfig(String alias, String tenantId, String runtimeHubUrl) throws IOException {
         deleteRuntimeRoot();
         Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
         Files.createDirectories(storageDir);
@@ -214,10 +213,8 @@ class ProxyConfigCryptoProfileTest {
                 + "  \"tenantId\": \"" + tenantId + "\",\n"
                 + "  \"alias\": \"" + alias + "\",\n"
                 + "  \"runtimeVersion\": \"1\",\n"
-                + "  \"refreshUrl\": \"" + refreshUrl + "\",\n"
                 + "  \"runtime\": {\n"
-                + "    \"hubUrl\": \"" + runtimeHubUrl + "\",\n"
-                + "    \"refreshUrl\": \"" + refreshUrl + "\"\n"
+                + "    \"hubUrl\": \"" + runtimeHubUrl + "\"\n"
                 + "  }\n"
                 + "}\n";
         Files.write(storageDir.resolve("proxy-config.json"), json.getBytes(StandardCharsets.UTF_8));

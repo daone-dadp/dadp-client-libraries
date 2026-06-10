@@ -73,7 +73,7 @@ public class EndpointSyncService {
      * @return 동기화 성공 여부
      */
     public boolean syncEndpointsFromHub() {
-        log.debug("Standalone runtime engine endpoint sync is disabled in DADP 6.0; use refresh response engine.wrapperEngineUrl.");
+        log.debug("Standalone runtime engine endpoint sync is disabled in DADP 6.0; use refresh response runtime.engineUrl.");
         return false;
     }
 

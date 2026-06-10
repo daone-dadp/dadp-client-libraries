@@ -12,7 +12,7 @@ import java.nio.file.Paths;
  * Runtime engine endpoint adapter.
  *
  * <p>DADP 6 stores the wrapper engine endpoint in proxy-config.json under
- * engine.wrapperEngineUrl. There is no separate endpoint JSON file.</p>
+ * runtime.engineUrl. There is no separate endpoint JSON file.</p>
  * 
  * @author DADP Development Team
  * @version 5.0.9

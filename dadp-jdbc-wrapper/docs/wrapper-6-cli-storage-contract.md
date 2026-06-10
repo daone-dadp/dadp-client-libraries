@@ -126,22 +126,31 @@ WrapperCliStorageSupport.saveEnrollment(
     tenantIdFromHub,
     alias,
     runtimeVersionFromHub,
-    refreshUrlFromHub);
+    runtimeHubUrlFromHub,
+    null,
+    null,
+    null);
 ```
 
-Minimum `proxy-config.json`:
+Source-of-truth `proxy-config.json`:
 
 ```json
 {
   "tenantId": "wtenant_xxx",
   "alias": "dadp-test-app-standalone-mysql",
   "runtimeVersion": "7",
-  "refreshUrl": "http://127.0.0.1:9004/hub/api/v1/runtime/wrappers/wtenant_xxx/refresh"
+  "runtime": {
+    "hubUrl": "http://dadp-hub:9004",
+    "engineUrl": "http://dadp-engine:9003",
+    "cryptoMode": "local",
+    "failOpen": false,
+    "policySyncAutoEnabled": false
+  }
 }
 ```
 
-`refreshUrl` is required if wrapper automatic refresh or local crypto key pull
-must work inside runtime.
+`refreshUrl`, `schemaSyncUrl`, and `engineEndpointUrl` are derived from
+`runtime.hubUrl` and `tenantId`; they are not persisted source-of-truth values.
 
 ## Refresh
 
@@ -182,17 +191,21 @@ Status handling:
 
 Refresh response values persisted in `proxy-config.json`:
 
-- `cryptoMode`
-- `failOpen`
-- `policySyncAutoEnabled`
+- `runtime.hubUrl`
+- `runtime.engineUrl` from Hub response `runtime.engineUrl` or `wrapper.engineUrl`
+- `runtime.cryptoMode`
+- `runtime.failOpen`
+- `runtime.policySyncAutoEnabled`
 - `runtimeVersion`
-- `engine.wrapperEngineUrl`
 
 Refresh response values not persisted:
 
 - `enabled`
 - `debugEnabled`
 - `debugLevel`
+- `refreshUrl`
+- `schemaSyncUrl`
+- `engineEndpointUrl`
 
 Active policy bindings are stored in `policy-mappings.json` using
 `schema.table.column -> policyCode`. Local crypto policy attributes are stored
@@ -208,7 +221,7 @@ At startup, wrapper runtime:
 4. loads `proxy-config.json`
 5. loads `policy-mappings.json`
 6. starts automatic refresh only if `policySyncAutoEnabled=true` and
-   `refreshUrl` is present
+   `runtime.hubUrl` is present
 
 Wrapper runtime does not:
 
