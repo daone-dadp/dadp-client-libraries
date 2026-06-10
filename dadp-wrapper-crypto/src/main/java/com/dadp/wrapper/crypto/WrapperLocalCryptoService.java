@@ -16,6 +16,7 @@ public class WrapperLocalCryptoService {
     private final RuntimeExecutionKeyClient executionKeyClient;
     private final LocalAesGcmCrypto localCrypto;
     private final WrapperCryptoStatsSender statsSender;
+    private final PolicyMaterialCacheListener cacheListener;
     private final Map<String, PolicyMaterial> policiesByName = new ConcurrentHashMap<String, PolicyMaterial>();
     private final Map<String, PolicyMaterial> policiesByCode = new ConcurrentHashMap<String, PolicyMaterial>();
 
@@ -30,18 +31,28 @@ public class WrapperLocalCryptoService {
     public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
                                      String tenantId,
                                      boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
+        this(hubBaseUrl, timeoutMillis, tenantId, cryptoStatsEnabled, cryptoStatsAggregationLevel, null);
+    }
+
+    public WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
+                                     String tenantId,
+                                     boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel,
+                                     PolicyMaterialCacheListener cacheListener) {
         this(hubBaseUrl, timeoutMillis,
                 createAuthHeaderProvider(tenantId),
                 createStatsSender(hubBaseUrl, timeoutMillis, tenantId,
-                        cryptoStatsEnabled, cryptoStatsAggregationLevel));
+                        cryptoStatsEnabled, cryptoStatsAggregationLevel),
+                cacheListener);
     }
 
     private WrapperLocalCryptoService(String hubBaseUrl, int timeoutMillis,
                                       HubRuntimeHeaderProvider authHeaderProvider,
-                                      WrapperCryptoStatsSender statsSender) {
+                                      WrapperCryptoStatsSender statsSender,
+                                      PolicyMaterialCacheListener cacheListener) {
         this(new RuntimeExecutionKeyClient(hubBaseUrl, timeoutMillis, authHeaderProvider),
                 new LocalAesGcmCrypto(),
-                statsSender);
+                statsSender,
+                cacheListener);
     }
 
     WrapperLocalCryptoService(RuntimeExecutionKeyClient executionKeyClient,
@@ -52,6 +63,13 @@ public class WrapperLocalCryptoService {
     WrapperLocalCryptoService(RuntimeExecutionKeyClient executionKeyClient,
                               LocalAesGcmCrypto localCrypto,
                               WrapperCryptoStatsSender statsSender) {
+        this(executionKeyClient, localCrypto, statsSender, null);
+    }
+
+    WrapperLocalCryptoService(RuntimeExecutionKeyClient executionKeyClient,
+                              LocalAesGcmCrypto localCrypto,
+                              WrapperCryptoStatsSender statsSender,
+                              PolicyMaterialCacheListener cacheListener) {
         if (executionKeyClient == null) {
             throw new IllegalArgumentException("executionKeyClient is required");
         }
@@ -61,6 +79,7 @@ public class WrapperLocalCryptoService {
         this.executionKeyClient = executionKeyClient;
         this.localCrypto = localCrypto;
         this.statsSender = statsSender;
+        this.cacheListener = cacheListener;
     }
 
     public String encrypt(String data, String policyName) {
@@ -234,6 +253,14 @@ public class WrapperLocalCryptoService {
             policiesByName.put(policy.getPolicyName(), policy);
         }
         policiesByCode.put(policy.getPolicyCode(), policy);
+        if (cacheListener != null) {
+            try {
+                cacheListener.onPolicyMaterialCached(policy);
+            } catch (RuntimeException e) {
+                log.warn("Local policy material persistence callback failed: policyCode={}, error={}",
+                        policy.getPolicyCode(), e.getMessage());
+            }
+        }
     }
 
     private static String safeExtractPolicyCode(String encryptedData) {

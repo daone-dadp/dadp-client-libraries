@@ -90,6 +90,8 @@ public class PolicyMappingStorage {
                     PolicyAttributesData attrData = new PolicyAttributesData();
                     attrData.setUseIv(entry.getValue().getUseIv());
                     attrData.setUsePlain(entry.getValue().getUsePlain());
+                    attrData.setPlainStart(entry.getValue().getPlainStart());
+                    attrData.setPlainLength(entry.getValue().getPlainLength());
                     attrDataMap.put(entry.getKey(), attrData);
                 }
                 data.setPolicyAttributes(attrDataMap);
@@ -194,7 +196,10 @@ public class PolicyMappingStorage {
             for (Map.Entry<String, PolicyAttributesData> entry : data.getPolicyAttributes().entrySet()) {
                 PolicyAttributesData attrData = entry.getValue();
                 PolicyResolver.PolicyAttributes attrs = new PolicyResolver.PolicyAttributes(
-                        attrData.getUseIv(), attrData.getUsePlain());
+                        attrData.getUseIv(),
+                        attrData.getUsePlain(),
+                        attrData.getPlainStart(),
+                        attrData.getPlainLength());
                 result.put(entry.getKey(), attrs);
             }
 
@@ -331,6 +336,8 @@ public class PolicyMappingStorage {
     public static class PolicyAttributesData {
         private Boolean useIv;
         private Boolean usePlain;
+        private Integer plainStart;
+        private Integer plainLength;
 
         public Boolean getUseIv() {
             return useIv;
@@ -346,6 +353,22 @@ public class PolicyMappingStorage {
 
         public void setUsePlain(Boolean usePlain) {
             this.usePlain = usePlain;
+        }
+
+        public Integer getPlainStart() {
+            return plainStart;
+        }
+
+        public void setPlainStart(Integer plainStart) {
+            this.plainStart = plainStart;
+        }
+
+        public Integer getPlainLength() {
+            return plainLength;
+        }
+
+        public void setPlainLength(Integer plainLength) {
+            this.plainLength = plainLength;
         }
     }
 

@@ -1,5 +1,7 @@
 package com.dadp.common.sync.crypto;
 
+import com.dadp.common.sync.policy.PolicyMappingStorage;
+import com.dadp.common.sync.policy.PolicyResolver;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -7,11 +9,14 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Base64;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DirectCryptoAdapterLocalModeTest {
@@ -50,7 +55,12 @@ class DirectCryptoAdapterLocalModeTest {
 
         try {
             String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            Path storageDir = Files.createTempDirectory("dadp-local-policy-cache-");
+            PolicyMappingStorage storage = new PolicyMappingStorage(storageDir.toString(), "policy-mappings.json");
+            storage.saveMappings(java.util.Collections.singletonMap("users.phone", "PART1234"), 1L);
+
             DirectCryptoAdapter adapter = new DirectCryptoAdapter(false);
+            adapter.setLocalPolicyStorageDir(storageDir.toString());
             adapter.setCryptoMode("local", hubUrl, false, 1000, "wtenant_local", false, "1hour");
 
             String encrypted = adapter.encrypt("01012345678", "PART1234");
@@ -58,6 +68,12 @@ class DirectCryptoAdapterLocalModeTest {
             assertTrue(encrypted.startsWith("010::ENC::hub:PART1234:"));
             assertEquals(1, keyCalls.get());
             assertEquals(1, policyCalls.get());
+
+            PolicyResolver.PolicyAttributes attributes = storage.loadPolicyAttributes().get("PART1234");
+            assertNotNull(attributes);
+            assertEquals(Boolean.TRUE, attributes.getUsePlain());
+            assertEquals(Integer.valueOf(0), attributes.getPlainStart());
+            assertEquals(Integer.valueOf(3), attributes.getPlainLength());
         } finally {
             server.stop(0);
         }

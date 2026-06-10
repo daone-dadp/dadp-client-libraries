@@ -454,6 +454,7 @@ public class JdbcBootstrapOrchestrator {
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
         if (adapter != null) {
             adapter.setFailOpen(tenantIdManager.isFailOpen());
+            adapter.setLocalPolicyStorageDir(config.getStorageDir());
             adapter.setCryptoMode(
                     tenantIdManager.getCryptoMode(),
                     runtimeHubUrl(),

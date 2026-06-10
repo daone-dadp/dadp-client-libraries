@@ -75,7 +75,9 @@ class WrapperCliStorageSupportTest {
                 + "\"policyCode\":\"PVTNFPQQ\","
                 + "\"status\":\"ACTIVE\","
                 + "\"deterministic\":true,"
-                + "\"partialEncryption\":false"
+                + "\"partialEncryption\":true,"
+                + "\"plainStart\":0,"
+                + "\"plainLength\":3"
                 + "}]"
                 + "}";
 
@@ -105,7 +107,9 @@ class WrapperCliStorageSupportTest {
         assertEquals(Long.valueOf(8L), mappingStorage.loadVersion());
         assertEquals("PVTNFPQQ", mappingStorage.loadMappings().get("public.users.email"));
         assertEquals(Boolean.FALSE, mappingStorage.loadPolicyAttributes().get("PVTNFPQQ").getUseIv());
-        assertEquals(Boolean.FALSE, mappingStorage.loadPolicyAttributes().get("PVTNFPQQ").getUsePlain());
+        assertEquals(Boolean.TRUE, mappingStorage.loadPolicyAttributes().get("PVTNFPQQ").getUsePlain());
+        assertEquals(Integer.valueOf(0), mappingStorage.loadPolicyAttributes().get("PVTNFPQQ").getPlainStart());
+        assertEquals(Integer.valueOf(3), mappingStorage.loadPolicyAttributes().get("PVTNFPQQ").getPlainLength());
     }
 
     @Test

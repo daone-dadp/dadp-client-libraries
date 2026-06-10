@@ -4,8 +4,15 @@ import com.dadp.hub.crypto.HubCryptoService;
 import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.logging.DadpLogger;
 import com.dadp.common.logging.DadpLoggerFactory;
+import com.dadp.common.sync.policy.PolicyMappingStorage;
+import com.dadp.common.sync.policy.PolicyResolver;
+import com.dadp.wrapper.crypto.PolicyMaterial;
+import com.dadp.wrapper.crypto.PolicyMaterialCacheListener;
 import com.dadp.wrapper.crypto.UnsupportedCryptoMaterialException;
 import com.dadp.wrapper.crypto.WrapperLocalCryptoService;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 직접 암복호화 어댑터 (공통 라이브러리)
@@ -43,6 +50,8 @@ public class DirectCryptoAdapter {
     private volatile String localHubTenantId;
     private volatile boolean localCryptoStatsEnabled;
     private volatile String localCryptoStatsAggregationLevel = "1hour";
+    private volatile String localPolicyStorageDir;
+    private volatile String activeLocalPolicyStorageDir;
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -171,6 +180,7 @@ public class DirectCryptoAdapter {
                     && equalsNullable(this.localHubTenantId, hubTenantId)
                     && this.localCryptoStatsEnabled == cryptoStatsEnabled
                     && equalsNullable(this.localCryptoStatsAggregationLevel, normalizedStatsAggregationLevel)
+                    && equalsNullable(this.activeLocalPolicyStorageDir, this.localPolicyStorageDir)
                     && this.localTimeoutMillis != null
                     && this.localTimeoutMillis == effectiveTimeout) {
                 return;
@@ -181,12 +191,14 @@ public class DirectCryptoAdapter {
                     effectiveTimeout,
                     hubTenantId,
                     cryptoStatsEnabled,
-                    normalizedStatsAggregationLevel);
+                    normalizedStatsAggregationLevel,
+                    createLocalPolicyMaterialCacheListener());
             this.localHubBaseUrl = hubBaseUrl;
             this.localTimeoutMillis = effectiveTimeout;
             this.localHubTenantId = hubTenantId;
             this.localCryptoStatsEnabled = cryptoStatsEnabled;
             this.localCryptoStatsAggregationLevel = normalizedStatsAggregationLevel;
+            this.activeLocalPolicyStorageDir = this.localPolicyStorageDir;
             log.info("Wrapper local crypto mode enabled: fallbackRemote={}, cryptoStatsEnabled={}, cryptoStatsAggregationLevel={}",
                     localFallbackRemote, cryptoStatsEnabled, normalizedStatsAggregationLevel);
         } else {
@@ -197,8 +209,13 @@ public class DirectCryptoAdapter {
             this.localHubTenantId = null;
             this.localCryptoStatsEnabled = false;
             this.localCryptoStatsAggregationLevel = "1hour";
+            this.activeLocalPolicyStorageDir = null;
             log.trace("Wrapper crypto mode set to remote");
         }
+    }
+
+    public void setLocalPolicyStorageDir(String storageDir) {
+        this.localPolicyStorageDir = trimToNull(storageDir);
     }
 
     private void applySingleTransportMode(HubCryptoService cryptoService) {
@@ -244,6 +261,48 @@ public class DirectCryptoAdapter {
             method.invoke(cryptoService, profileRecorder);
         } catch (ReflectiveOperationException ignored) {
             log.trace("HubCryptoService does not expose optional profile recorder hook");
+        }
+    }
+
+    private PolicyMaterialCacheListener createLocalPolicyMaterialCacheListener() {
+        final String storageDir = this.localPolicyStorageDir;
+        if (storageDir == null || storageDir.trim().isEmpty()) {
+            return null;
+        }
+        return new PolicyMaterialCacheListener() {
+            @Override
+            public void onPolicyMaterialCached(PolicyMaterial policy) {
+                persistLocalPolicyAttributes(storageDir, policy);
+            }
+        };
+    }
+
+    private void persistLocalPolicyAttributes(String storageDir, PolicyMaterial policy) {
+        if (policy == null || policy.getPolicyCode() == null || policy.getPolicyCode().trim().isEmpty()) {
+            return;
+        }
+        PolicyMappingStorage storage = new PolicyMappingStorage(storageDir, "policy-mappings.json");
+        Map<String, String> mappings = storage.loadMappings();
+        Map<String, PolicyResolver.PolicyAttributes> attributes = storage.loadPolicyAttributes();
+        if (attributes == null) {
+            attributes = new HashMap<String, PolicyResolver.PolicyAttributes>();
+        }
+        String policyCode = policy.getPolicyCode().trim();
+        PolicyResolver.PolicyAttributes existing = attributes.get(policyCode);
+        Boolean useIv = existing != null ? existing.getUseIv() : null;
+        attributes.put(policyCode, new PolicyResolver.PolicyAttributes(
+                useIv,
+                policy.getUsePlain(),
+                policy.getPlainStart(),
+                policy.getPlainLength()));
+        boolean saved = storage.saveMappings(
+                mappings,
+                attributes,
+                storage.loadStoredLogConfig(),
+                storage.loadVersion());
+        if (saved) {
+            log.debug("Local runtime policy attributes persisted: storageDir={}, policyCode={}, usePlain={}, plainStart={}, plainLength={}",
+                    storageDir, policyCode, policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
         }
     }
     
@@ -553,6 +612,14 @@ public class DirectCryptoAdapter {
             return right == null;
         }
         return left.equals(right);
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String handleLocalEncryptFallback(String data, String policyName, Exception e) {

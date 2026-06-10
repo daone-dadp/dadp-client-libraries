@@ -156,7 +156,9 @@ public final class WrapperCliStorageSupport {
                 mappings.put(key, policyCode);
                 attributes.put(policyCode, new PolicyResolver.PolicyAttributes(
                         useIv(binding),
-                        usePlain(binding)));
+                        usePlain(binding),
+                        integerValue(firstPresent(binding, "plainStart", "partialPlainStart")),
+                        integerValue(firstPresent(binding, "plainLength", "partialPlainLength"))));
             }
         }
         Long version = parseLong(runtimeVersion);
@@ -186,6 +188,47 @@ public final class WrapperCliStorageSupport {
         }
         Boolean partialEncryption = booleanValue(binding.path("partialEncryption"));
         return partialEncryption != null ? partialEncryption : null;
+    }
+
+    private static JsonNode firstPresent(JsonNode node, String... names) {
+        if (node == null || names == null) {
+            return null;
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return value;
+            }
+        }
+        JsonNode[] nestedNodes = new JsonNode[] {
+                node.path("policyMetadata"),
+                node.path("metadata"),
+                node.path("policy"),
+                node.path("attributes")
+        };
+        for (JsonNode nested : nestedNodes) {
+            if (nested != null && nested.isObject()) {
+                JsonNode value = firstPresent(nested, names);
+                if (value != null && !value.isMissingNode() && !value.isNull()) {
+                    return value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Integer integerValue(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isNumber()) {
+            return Integer.valueOf(node.asInt());
+        }
+        try {
+            return Integer.valueOf(node.asText());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static Boolean booleanValue(JsonNode node) {

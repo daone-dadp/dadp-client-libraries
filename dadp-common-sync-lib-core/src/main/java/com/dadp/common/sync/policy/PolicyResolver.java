@@ -372,13 +372,21 @@ public class PolicyResolver {
     public static class PolicyAttributes {
         private Boolean useIv;
         private Boolean usePlain;
+        private Integer plainStart;
+        private Integer plainLength;
 
         public PolicyAttributes() {
         }
 
         public PolicyAttributes(Boolean useIv, Boolean usePlain) {
+            this(useIv, usePlain, null, null);
+        }
+
+        public PolicyAttributes(Boolean useIv, Boolean usePlain, Integer plainStart, Integer plainLength) {
             this.useIv = useIv;
             this.usePlain = usePlain;
+            this.plainStart = plainStart;
+            this.plainLength = plainLength;
         }
 
         public Boolean getUseIv() {
@@ -395,6 +403,22 @@ public class PolicyResolver {
 
         public void setUsePlain(Boolean usePlain) {
             this.usePlain = usePlain;
+        }
+
+        public Integer getPlainStart() {
+            return plainStart;
+        }
+
+        public void setPlainStart(Integer plainStart) {
+            this.plainStart = plainStart;
+        }
+
+        public Integer getPlainLength() {
+            return plainLength;
+        }
+
+        public void setPlainLength(Integer plainLength) {
+            this.plainLength = plainLength;
         }
     }
 

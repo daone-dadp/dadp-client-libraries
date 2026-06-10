@@ -246,6 +246,7 @@ public class DadpProxyConnection implements Connection {
             if (orchestrator != null) {
                 adapter.setFailOpen(orchestrator.isRuntimeFailOpen());
             }
+            adapter.setLocalPolicyStorageDir(config.getStorageDir());
             adapter.setCryptoMode(
                     orchestrator != null ? orchestrator.getRuntimeCryptoMode() : config.getCryptoMode(),
                     orchestrator != null ? orchestrator.getRuntimeHubUrl() : config.getHubUrl(),
