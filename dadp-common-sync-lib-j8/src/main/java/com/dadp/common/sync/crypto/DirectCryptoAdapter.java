@@ -454,7 +454,7 @@ public class DirectCryptoAdapter {
         if (encryptedDataList == null || encryptedDataList.isEmpty()) {
             return new java.util.ArrayList<>();
         }
-        
+
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
             if (failOpen) {
@@ -496,7 +496,7 @@ public class DirectCryptoAdapter {
         if (policyList == null || policyList.size() != dataList.size()) {
             throw new IllegalArgumentException("Policy list size does not match data list size");
         }
-        
+
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
             if (failOpen) {
@@ -558,7 +558,7 @@ public class DirectCryptoAdapter {
     private String handleLocalEncryptFallback(String data, String policyName, Exception e) {
         String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         if (localFallbackRemote) {
-            log.debug("Local encryption fallback to remote: policy={}, error={}", policyName, errorMsg);
+            log.warn("Local encryption fallback to remote: policy={}, error={}", policyName, errorMsg);
             return encryptRemote(data, policyName);
         }
         log.warn("Local encryption failed (policy: {}): {}", policyName, errorMsg);
@@ -571,7 +571,7 @@ public class DirectCryptoAdapter {
     private String handleLocalDecryptFallback(String encryptedData, String policyName, Exception e) {
         String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         if (localFallbackRemote) {
-            log.debug("Local decryption fallback to remote: {}", errorMsg);
+            log.warn("Local decryption fallback to remote: policy={}, error={}", policyName, errorMsg);
             return decryptRemote(encryptedData, policyName, null, null, false);
         }
         log.warn("Local decryption failed: policy={}, dataLength={}, dataPreview={}, error={}",
