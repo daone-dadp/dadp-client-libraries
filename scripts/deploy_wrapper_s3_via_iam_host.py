@@ -23,7 +23,7 @@ from datetime import date
 from pathlib import Path
 
 
-DEFAULT_HOST = "54.180.239.225"
+DEFAULT_HOST = "43.202.206.43"
 DEFAULT_USER = "ec2-user"
 DEFAULT_BUCKET = "dadp-artifacts"
 DEFAULT_REGION = "ap-northeast-2"
