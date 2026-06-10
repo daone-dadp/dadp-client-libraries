@@ -194,6 +194,10 @@ public class WrapperRuntimeConfigManager {
         return enabled;
     }
 
+    public String getRuntimeHubUrl() {
+        return runtimeHubUrl;
+    }
+
     public void clear() {
         String oldTenantId = this.cachedTenantId;
         this.cachedTenantId = null;

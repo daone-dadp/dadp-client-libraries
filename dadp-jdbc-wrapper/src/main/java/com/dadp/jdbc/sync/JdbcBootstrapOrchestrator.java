@@ -121,7 +121,10 @@ public class JdbcBootstrapOrchestrator {
         this.policyResolver = PolicyResolver.getInstance(instanceId);
         
         
-        this.endpointStorage = new EndpointStorage(instanceId);
+        String runtimeStorageDir = config.getStorageDir() != null
+                ? config.getStorageDir()
+                : StoragePathResolver.resolveStorageDir(instanceId);
+        this.endpointStorage = new EndpointStorage(runtimeStorageDir, "proxy-config.json");
         
         
         this.schemaCollector = new JdbcSchemaCollector(null, config);
@@ -401,7 +404,7 @@ public class JdbcBootstrapOrchestrator {
         
         String instanceId = instanceIdProvider.getInstanceId();
         this.mappingSyncService = new MappingSyncService(
-            config.getHubUrl(),
+            runtimeHubUrl(),
             tenantId,
             instanceId,
             "/hub/api/v1/runtime/wrappers",
@@ -410,9 +413,10 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.endpointSyncService = new EndpointSyncService(
-            config.getHubUrl(),
+            runtimeHubUrl(),
             tenantId,
-            instanceId
+            instanceId,
+            endpointStorage
         );
         
         
@@ -434,7 +438,7 @@ public class JdbcBootstrapOrchestrator {
         if (this.notificationService == null) {
             try {
                 this.notificationService = new HubNotificationService(
-                    config.getHubUrl(),
+                    runtimeHubUrl(),
                     tenantId,
                     instanceId,
                     config.isEnableLogging()
@@ -452,13 +456,20 @@ public class JdbcBootstrapOrchestrator {
             adapter.setFailOpen(tenantIdManager.isFailOpen());
             adapter.setCryptoMode(
                     tenantIdManager.getCryptoMode(),
-                    config.getHubUrl(),
+                    runtimeHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     tenantIdManager.getCachedTenantId(),
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }
+    }
+
+    private String runtimeHubUrl() {
+        String runtimeHubUrl = tenantIdManager != null ? tenantIdManager.getRuntimeHubUrl() : null;
+        return runtimeHubUrl != null && !runtimeHubUrl.trim().isEmpty()
+                ? runtimeHubUrl
+                : config.getHubUrl();
     }
 
     private void initializePolicyMappingSyncService(String tenantId) {
@@ -736,6 +747,10 @@ public class JdbcBootstrapOrchestrator {
     
     public String getRuntimeCryptoMode() {
         return tenantIdManager.getCryptoMode();
+    }
+
+    public String getRuntimeHubUrl() {
+        return runtimeHubUrl();
     }
 
     public boolean isRuntimeFailOpen() {

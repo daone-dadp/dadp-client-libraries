@@ -98,7 +98,7 @@ public class JdbcPolicyMappingSyncService {
         this.instanceId = instanceIdProvider.getInstanceId();
         
         
-        String hubUrl = config.getHubUrl();
+        String hubUrl = runtimeHubUrl();
         final JdbcPolicyMappingSyncService self = this;
         if (sharedRuntimeConfigManager != null) {
             this.tenantIdManager = sharedRuntimeConfigManager;
@@ -221,13 +221,20 @@ public class JdbcPolicyMappingSyncService {
     public void updateEndpointSyncService(String tenantId, String instanceId) {
         
         this.endpointSyncService = new EndpointSyncService(
-            config.getHubUrl(), tenantId, instanceId);
+            runtimeHubUrl(), tenantId, instanceId, endpointStorage);
         log.info("EndpointSyncService recreated: tenantId={}", tenantId);
+    }
+
+    private String runtimeHubUrl() {
+        String runtimeHubUrl = tenantIdManager != null ? tenantIdManager.getRuntimeHubUrl() : null;
+        return runtimeHubUrl != null && !runtimeHubUrl.trim().isEmpty()
+                ? runtimeHubUrl
+                : config.getHubUrl();
     }
     
     
     private void updateMappingSyncService(String tenantId, String instanceId) {
-        String hubUrl = config.getHubUrl();
+        String hubUrl = runtimeHubUrl();
         String apiBasePath = "/hub/api/v1/runtime/wrappers";
         this.mappingSyncService = new MappingSyncService(
             hubUrl,
@@ -417,7 +424,7 @@ public class JdbcPolicyMappingSyncService {
             String cryptoMode = wrapperConfig.getCryptoMode().trim();
             directCryptoAdapter.setCryptoMode(
                     cryptoMode,
-                    config.getHubUrl(),
+                    runtimeHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     tenantIdManager.getCachedTenantId(),

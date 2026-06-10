@@ -248,7 +248,7 @@ public class DadpProxyConnection implements Connection {
             }
             adapter.setCryptoMode(
                     orchestrator != null ? orchestrator.getRuntimeCryptoMode() : config.getCryptoMode(),
-                    config.getHubUrl(),
+                    orchestrator != null ? orchestrator.getRuntimeHubUrl() : config.getHubUrl(),
                     config.isCryptoLocalFallbackRemote(),
                     config.getCryptoLocalTimeoutMs(),
                     effectiveTenantId,
