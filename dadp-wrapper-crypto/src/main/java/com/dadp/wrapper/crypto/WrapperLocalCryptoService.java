@@ -227,6 +227,7 @@ public class WrapperLocalCryptoService {
             if (byCode != null && !byCode.isExpired(System.currentTimeMillis())) {
                 return byCode;
             }
+            return resolvePolicyByCode(policyCode);
         }
         if (policyName != null && !policyName.trim().isEmpty()) {
             PolicyMaterial byName = resolvePolicyByName(policyName);

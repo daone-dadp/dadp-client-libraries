@@ -4,7 +4,9 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -98,6 +100,51 @@ class WrapperLocalCryptoServiceTest {
 
             assertTrue(encrypted.startsWith("010::ENC::hub:ABCD1234:"));
             assertEquals("01012345678", service.decrypt(encrypted, null));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void decryptCacheMissResolvesRuntimeMaterialByPolicyCode() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        byte[] key = new byte[32];
+        String keyData = Base64.getEncoder().encodeToString(key);
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            assertEquals("POST", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            String requestBody = readBody(exchange);
+            assertTrue(requestBody.contains("\"policyCode\":\"ABCD1234\""));
+            assertTrue(!requestBody.contains("\"policyName\""));
+            writeJson(exchange,
+                    "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
+                            + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
+                            + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
+                            + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
+                            + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":300,"
+                            + "\"issuedAt\":\"2026-05-28T00:00:00Z\","
+                            + "\"expiresAt\":\"2099-01-01T00:00:00Z\"}}");
+        });
+        server.createContext("/hub/api/v1/runtime/policies/ABCD1234", exchange -> {
+            assertEquals("GET", exchange.getRequestMethod());
+            assertEquals("wtenant_local", exchange.getRequestHeaders().getFirst("X-DADP-Tenant-Id"));
+            writeJson(exchange,
+                    "{\"policyCode\":\"ABCD1234\",\"name\":\"partial-prefix3\",\"version\":1,"
+                            + "\"status\":\"ACTIVE\",\"algorithm\":\"A256GCM\","
+                            + "\"metadata\":{\"partialEncryption\":true,\"plainStart\":0,\"plainLength\":3}}");
+        });
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            WrapperLocalCryptoService encryptingService = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wtenant_local");
+            String encrypted = encryptingService.encryptByPolicyCode("01012345678", "ABCD1234");
+
+            WrapperLocalCryptoService decryptingService = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wtenant_local");
+            assertEquals("01012345678", decryptingService.decrypt(encrypted, "ABCD1234"));
         } finally {
             server.stop(0);
         }
@@ -205,6 +252,17 @@ class WrapperLocalCryptoServiceTest {
         exchange.sendResponseHeaders(200, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
+    }
+
+    private static String readBody(HttpExchange exchange) throws IOException {
+        InputStream input = exchange.getRequestBody();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            output.write(buffer, 0, read);
+        }
+        return new String(output.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private static final class MutableTimeProvider implements WrapperCryptoStatsSender.TimeProvider {
