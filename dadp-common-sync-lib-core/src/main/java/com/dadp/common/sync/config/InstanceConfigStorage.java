@@ -272,10 +272,10 @@ public class InstanceConfigStorage {
         ConfigData data = loadExistingConfig();
         String endpointUrl = null;
         if (data != null && data.getRuntime() != null) {
-            endpointUrl = trimToNull(data.getRuntime().getEngineEndpointUrl());
+            endpointUrl = absoluteHttpUrl(data.getRuntime().getEngineEndpointUrl());
         }
         if (endpointUrl == null && data != null && data.getEngine() != null) {
-            endpointUrl = trimToNull(data.getEngine().getWrapperEngineUrl());
+            endpointUrl = absoluteHttpUrl(data.getEngine().getWrapperEngineUrl());
         }
         if (data == null || endpointUrl == null) {
             return null;
@@ -429,6 +429,15 @@ public class InstanceConfigStorage {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String absoluteHttpUrl(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String lower = normalized.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://") ? normalized : null;
     }
 
     private static Long parseLong(String value) {

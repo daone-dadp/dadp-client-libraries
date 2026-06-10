@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dadp.common.sync.config.InstanceConfigStorage;
+import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.common.sync.policy.PolicyMappingStorage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -146,6 +147,29 @@ class WrapperCliStorageSupportTest {
         assertFalse(json.has("instanceId"));
         assertFalse(stored.contains("\"hubUrl\""));
         assertFalse(stored.contains("\"instanceId\""));
+    }
+
+    @Test
+    void relativeRuntimeEngineEndpointDoesNotOverrideAbsoluteWrapperEngineUrl() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+
+        String response = "{"
+                + "\"runtimeVersion\":8,"
+                + "\"wrapper\":{\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
+                + "\"engine\":{\"wrapperEngineUrl\":\"http://dadp-engine:9003\"},"
+                + "\"policyBindings\":[]"
+                + "}";
+
+        WrapperCliStorageSupport.RefreshApplyResult result =
+                WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
+
+        assertEquals("http://dadp-engine:9003", result.getWrapperEngineUrl());
+
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        EndpointStorage.EndpointData endpointData = configStorage.loadEndpointData();
+        assertNotNull(endpointData);
+        assertEquals("http://dadp-engine:9003", endpointData.getCryptoUrl());
     }
 
     @Test

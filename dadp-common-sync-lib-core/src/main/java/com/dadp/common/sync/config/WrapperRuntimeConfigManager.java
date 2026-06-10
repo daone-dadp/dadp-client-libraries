@@ -60,8 +60,8 @@ public class WrapperRuntimeConfigManager {
         this.cachedRuntimeVersion = trimToNull(stored.getRuntimeVersion());
         InstanceConfigStorage.RuntimeData runtime = stored.getRuntime();
         this.refreshUrl = firstNonBlank(
-                runtime != null ? runtime.getRefreshUrl() : null,
-                stored.getRefreshUrl(),
+                runtime != null ? absoluteHttpUrl(runtime.getRefreshUrl()) : null,
+                absoluteHttpUrl(stored.getRefreshUrl()),
                 this.refreshUrl);
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
@@ -243,6 +243,15 @@ public class WrapperRuntimeConfigManager {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String absoluteHttpUrl(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String lower = normalized.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://") ? normalized : null;
     }
 
     private static String firstNonBlank(String... values) {

@@ -79,10 +79,10 @@ public class ProxyConfig {
         this.storageDir = runtimeStorage != null ? runtimeStorage.storageDir : null;
         InstanceConfigStorage.RuntimeData runtime = storedConfig != null ? storedConfig.getRuntime() : null;
         this.refreshUrl = firstNonBlank(
-                runtime != null ? runtime.getRefreshUrl() : null,
-                storedConfig != null ? storedConfig.getRefreshUrl() : null);
+                runtime != null ? absoluteHttpUrl(runtime.getRefreshUrl()) : null,
+                storedConfig != null ? absoluteHttpUrl(storedConfig.getRefreshUrl()) : null);
         this.hubUrl = firstNonBlank(
-                runtime != null ? runtime.getHubUrl() : null,
+                runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
                 deriveHubBaseUrl(this.refreshUrl));
         this.hubUrlConfigured = this.hubUrl != null;
         if (!this.aliasConfigured) {
@@ -527,6 +527,15 @@ public class ProxyConfig {
 
     private static String trimToNull(String value) {
         return value != null && !value.trim().isEmpty() ? value.trim() : null;
+    }
+
+    private static String absoluteHttpUrl(String value) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        String lower = normalized.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://") ? normalized : null;
     }
     
     /**

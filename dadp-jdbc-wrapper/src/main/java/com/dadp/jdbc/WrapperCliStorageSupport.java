@@ -120,7 +120,7 @@ public final class WrapperCliStorageSupport {
                 text(root.path("runtime").path("schemaSyncUrl")),
                 text(root.path("schemaSyncUrl")),
                 buildRuntimeUrl(runtimeHubUrl, tenantId, "schema-sync"));
-        String wrapperEngineUrl = firstNonBlank(
+        String wrapperEngineUrl = firstAbsoluteHttpUrl(
                 text(root.path("runtime").path("engineEndpointUrl")),
                 text(root.path("engine").path("wrapperEngineUrl")));
 
@@ -237,6 +237,23 @@ public final class WrapperCliStorageSupport {
         for (String value : values) {
             String normalized = trimToNull(value);
             if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static String firstAbsoluteHttpUrl(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized == null) {
+                continue;
+            }
+            String lower = normalized.toLowerCase();
+            if (lower.startsWith("http://") || lower.startsWith("https://")) {
                 return normalized;
             }
         }
