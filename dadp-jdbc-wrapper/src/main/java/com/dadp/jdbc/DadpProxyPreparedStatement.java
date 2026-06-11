@@ -397,6 +397,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             // Data truncation 에러 감지 (암호화된 데이터가 컬럼 크기 초과)
             if (e.getErrorCode() == 1406 || 
                 (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
+
+                if (!isFailOpenEnabled()) {
+                    log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
+                            e.getMessage());
+                    throw e;
+                }
                 
                 // 원본 데이터가 저장된 파라미터가 있는지 확인
                 if (originalDataMap.isEmpty()) {
@@ -1944,6 +1950,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     // Data truncation 에러 처리 (executeUpdate()와 동일한 로직)
                     if (e.getErrorCode() == 1406 || 
                         (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
+
+                        if (!isFailOpenEnabled()) {
+                            log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
+                                    e.getMessage());
+                            throw e;
+                        }
                         
                         // 원본 데이터가 저장된 파라미터가 있는지 확인
                         if (originalDataMap.isEmpty()) {
@@ -2039,6 +2051,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
         long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
         proxyConnection.sendSqlTelemetry(sqlText, extractSqlType(sqlText), durationMs, errorFlag);
+    }
+
+    private boolean isFailOpenEnabled() {
+        return proxyConnection != null
+                && proxyConnection.getConfig() != null
+                && proxyConnection.getConfig().isFailOpen();
     }
 
     private String extractSqlType(String sqlText) {

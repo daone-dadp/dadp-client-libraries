@@ -237,6 +237,82 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void preparedStatementDoesNotRetryTruncationAsPlaintextWhenFailClosed() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(13L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice-that-is-too-long");
+        when(actualPreparedStatement.executeUpdate())
+                .thenThrow(new SQLException("Data too long for column 'email'", "22001", 1406))
+                .thenReturn(1);
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "alice@example.com");
+
+        assertThrows(SQLException.class, proxyPreparedStatement::executeUpdate);
+
+        verify(actualPreparedStatement).setString(1, "enc-alice-that-is-too-long");
+        verify(actualPreparedStatement, never()).setString(1, "alice@example.com");
+        verify(actualPreparedStatement, times(1)).executeUpdate();
+    }
+
+    @Test
+    void preparedStatementExecuteDoesNotRetryTruncationAsPlaintextWhenFailClosed() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(14L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("enc-alice-that-is-too-long");
+        when(actualPreparedStatement.execute())
+                .thenThrow(new SQLException("Data too long for column 'email'", "22001", 1406))
+                .thenReturn(false);
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "alice@example.com");
+
+        assertThrows(SQLException.class, proxyPreparedStatement::execute);
+
+        verify(actualPreparedStatement).setString(1, "enc-alice-that-is-too-long");
+        verify(actualPreparedStatement, never()).setString(1, "alice@example.com");
+        verify(actualPreparedStatement, times(1)).execute();
+    }
+
+    @Test
     void preparedStatementCachesSearchEncryptionPlanAcrossRepeatedBinds() throws Exception {
         PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
         DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
