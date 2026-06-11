@@ -14,10 +14,12 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class DirectCryptoAdapterLocalModeTest {
 
@@ -74,6 +76,49 @@ class DirectCryptoAdapterLocalModeTest {
             assertEquals(Boolean.TRUE, attributes.getUsePlain());
             assertEquals(Integer.valueOf(0), attributes.getPlainStart());
             assertEquals(Integer.valueOf(3), attributes.getPlainLength());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void localEncryptNotifiesListenerWhenExecutionKeyPullFails() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            byte[] body = "{\"error\":\"missing key\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(500, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            AtomicReference<String> operation = new AtomicReference<String>();
+            AtomicReference<String> policyIdentifier = new AtomicReference<String>();
+            AtomicReference<String> failureType = new AtomicReference<String>();
+
+            DirectCryptoAdapter adapter = new DirectCryptoAdapter(false);
+            adapter.setCryptoMode("local", hubUrl, false, 1000, "wtenant_local", false, "1hour");
+            adapter.setLocalCryptoFailureListener((op, policy, type, message, fallbackRemote, failOpen) -> {
+                operation.set(op);
+                policyIdentifier.set(policy);
+                failureType.set(type);
+                assertEquals(false, fallbackRemote);
+                assertEquals(false, failOpen);
+            });
+
+            try {
+                adapter.encrypt("01012345678", "PART1234");
+                fail("local encryption should fail closed when key material cannot be pulled");
+            } catch (RuntimeException expected) {
+                assertTrue(expected.getMessage().contains("Local encryption failed"));
+            }
+
+            assertEquals("encrypt", operation.get());
+            assertEquals("PART1234", policyIdentifier.get());
+            assertEquals("KEY_PULL_FAILED", failureType.get());
         } finally {
             server.stop(0);
         }

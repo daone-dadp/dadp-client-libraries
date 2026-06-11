@@ -132,6 +132,20 @@ WrapperCliStorageSupport.saveEnrollment(
     null);
 ```
 
+Stable JAR entrypoint:
+
+```bash
+java -cp "dadp-jdbc-wrapper.jar" com.dadp.jdbc.WrapperCliStorageCommand save-enrollment \
+  --storage-dir "{storageDir}" \
+  --tenant-id "{tenantId}" \
+  --alias "{alias}" \
+  --runtime-version "{runtimeVersion}" \
+  --runtime-hub-url "{hubUrl}"
+```
+
+The Go CLI must call the JAR entrypoint or `WrapperCliStorageSupport`; it must
+not rebuild `proxy-config.json` DTOs itself.
+
 Source-of-truth `proxy-config.json`:
 
 ```json
@@ -210,6 +224,25 @@ Refresh response values not persisted:
 Active policy bindings are stored in `policy-mappings.json` using
 `schema.table.column -> policyCode`. Local crypto policy attributes are stored
 there too.
+
+Stable JAR entrypoint:
+
+```bash
+java -cp "dadp-jdbc-wrapper.jar" com.dadp.jdbc.WrapperCliStorageCommand apply-refresh-response \
+  --storage-dir "{storageDir}" \
+  --response-file "{refresh-response.json}"
+```
+
+This command writes both `proxy-config.json` and `policy-mappings.json` through
+wrapper storage code and returns:
+
+```json
+{
+  "runtimeVersion": 8,
+  "mappingCount": 2,
+  "engineUrl": "http://dadp-engine:9003"
+}
+```
 
 ## Wrapper Runtime
 

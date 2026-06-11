@@ -423,18 +423,6 @@ public class JdbcBootstrapOrchestrator {
         
         
         this.directCryptoAdapter = new DirectCryptoAdapter(tenantIdManager.isFailOpen());
-        applyCryptoMode(this.directCryptoAdapter);
-        
-        
-        EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
-        if (endpointData != null && endpointData.getCryptoUrl() != null && 
-            !endpointData.getCryptoUrl().trim().isEmpty()) {
-            directCryptoAdapter.setEndpointData(endpointData);
-            log.info("Crypto adapter initialized: cryptoUrl={}, tenantId={}, version={}",
-                    endpointData.getCryptoUrl(), endpointData.getTenantId(), endpointData.getVersion());
-        }
-        
-        
         if (this.notificationService == null) {
             try {
                 this.notificationService = new HubNotificationService(
@@ -448,6 +436,17 @@ public class JdbcBootstrapOrchestrator {
                 log.warn("Hub notification service initialization failed (ignored): {}", e.getMessage());
                 this.notificationService = null;
             }
+        }
+        applyLocalCryptoFailureNotification(this.directCryptoAdapter);
+        applyCryptoMode(this.directCryptoAdapter);
+        
+        
+        EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+        if (endpointData != null && endpointData.getCryptoUrl() != null && 
+            !endpointData.getCryptoUrl().trim().isEmpty()) {
+            directCryptoAdapter.setEndpointData(endpointData);
+            log.info("Crypto adapter initialized: cryptoUrl={}, tenantId={}, version={}",
+                    endpointData.getCryptoUrl(), endpointData.getTenantId(), endpointData.getVersion());
         }
     }
 
@@ -464,6 +463,18 @@ public class JdbcBootstrapOrchestrator {
                     config.isWrapperCryptoStatsEnabled(),
                     config.getWrapperCryptoStatsAggregationLevel());
         }
+    }
+
+    private void applyLocalCryptoFailureNotification(DirectCryptoAdapter adapter) {
+        if (adapter == null) {
+            return;
+        }
+        adapter.setLocalCryptoFailureListener((operation, policyIdentifier, failureType, errorMessage, fallbackRemote, failOpen) -> {
+            HubNotificationService service = notificationService;
+            if (service != null) {
+                service.notifyLocalCryptoFailure(operation, policyIdentifier, failureType, errorMessage, fallbackRemote, failOpen);
+            }
+        });
     }
 
     private String runtimeHubUrl() {

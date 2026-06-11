@@ -52,6 +52,7 @@ public class DirectCryptoAdapter {
     private volatile String localCryptoStatsAggregationLevel = "1hour";
     private volatile String localPolicyStorageDir;
     private volatile String activeLocalPolicyStorageDir;
+    private volatile LocalCryptoFailureListener localCryptoFailureListener;
     
     public DirectCryptoAdapter(boolean failOpen) {
         this.failOpen = failOpen;
@@ -216,6 +217,14 @@ public class DirectCryptoAdapter {
 
     public void setLocalPolicyStorageDir(String storageDir) {
         this.localPolicyStorageDir = trimToNull(storageDir);
+    }
+
+    public void setLocalCryptoFailureListener(LocalCryptoFailureListener listener) {
+        this.localCryptoFailureListener = listener;
+    }
+
+    public boolean isLocalCryptoMode() {
+        return "local".equals(cryptoMode);
     }
 
     private void applySingleTransportMode(HubCryptoService cryptoService) {
@@ -624,6 +633,7 @@ public class DirectCryptoAdapter {
 
     private String handleLocalEncryptFallback(String data, String policyName, Exception e) {
         String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        notifyLocalCryptoFailure("encrypt", policyName, e, errorMsg);
         if (localFallbackRemote) {
             log.warn("Local encryption fallback to remote: policy={}, error={}", policyName, errorMsg);
             return encryptRemote(data, policyName);
@@ -637,6 +647,7 @@ public class DirectCryptoAdapter {
 
     private String handleLocalDecryptFallback(String encryptedData, String policyName, Exception e) {
         String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        notifyLocalCryptoFailure("decrypt", policyName, e, errorMsg);
         if (localFallbackRemote) {
             log.warn("Local decryption fallback to remote: policy={}, error={}", policyName, errorMsg);
             return decryptRemote(encryptedData, policyName, null, null, false);
@@ -644,6 +655,38 @@ public class DirectCryptoAdapter {
         log.warn("Local decryption failed: policy={}, dataLength={}, dataPreview={}, error={}",
                 policyName, encryptedData != null ? encryptedData.length() : 0, preview(encryptedData), errorMsg);
         return encryptedData;
+    }
+
+    private void notifyLocalCryptoFailure(String operation, String policyIdentifier, Exception exception, String errorMsg) {
+        LocalCryptoFailureListener listener = this.localCryptoFailureListener;
+        if (listener == null || !"local".equals(cryptoMode)) {
+            return;
+        }
+        try {
+            listener.onLocalCryptoFailure(
+                    operation,
+                    policyIdentifier,
+                    classifyLocalCryptoFailure(exception, errorMsg),
+                    errorMsg,
+                    localFallbackRemote,
+                    failOpen);
+        } catch (RuntimeException notifyError) {
+            log.debug("Local crypto failure listener failed: {}", notifyError.getMessage());
+        }
+    }
+
+    private static String classifyLocalCryptoFailure(Exception exception, String errorMsg) {
+        String message = errorMsg != null ? errorMsg : "";
+        if (message.contains("Runtime policy snapshot")) {
+            return "POLICY_PULL_FAILED";
+        }
+        if (message.contains("execution-key resolve")) {
+            return "KEY_PULL_FAILED";
+        }
+        if (exception instanceof UnsupportedCryptoMaterialException) {
+            return "UNSUPPORTED_CRYPTO_MATERIAL";
+        }
+        return "LOCAL_CRYPTO_FAILED";
     }
 
     private static String preview(String value) {

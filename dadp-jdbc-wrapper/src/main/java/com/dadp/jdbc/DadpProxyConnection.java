@@ -182,6 +182,8 @@ public class DadpProxyConnection implements Connection {
         this.mappingSyncService = this.orchestrator.getMappingSyncService();
         this.endpointSyncService = this.orchestrator.getEndpointSyncService();
         this.directCryptoAdapter = this.orchestrator.getDirectCryptoAdapter();
+        this.notificationService = this.orchestrator.getNotificationService();
+        applyLocalCryptoFailureNotification(this.directCryptoAdapter);
         applyCryptoMode(this.directCryptoAdapter);
         applySingleTransportMode(this.directCryptoAdapter);
         applyEngineTransport(this.directCryptoAdapter);
@@ -202,12 +204,22 @@ public class DadpProxyConnection implements Connection {
                 : null;
         applyCryptoProfileRecorder(this.directCryptoAdapter);
         
-        // Hub 알림 서비스: 오케스트레이터에서 instanceId당 1개 공유 (커넥션마다 생성하지 않음)
-        this.notificationService = this.orchestrator.getNotificationService();
         this.wrapperRuntimeAvailable = true;
         log.info("DADP Wrapper runtime activated: tenantId={}, alias={}, reason={}",
                 tenantId, config.getAlias(), reason);
         return true;
+    }
+
+    private void applyLocalCryptoFailureNotification(DirectCryptoAdapter adapter) {
+        if (adapter == null) {
+            return;
+        }
+        adapter.setLocalCryptoFailureListener((operation, policyIdentifier, failureType, errorMessage, fallbackRemote, failOpen) -> {
+            HubNotificationService service = notificationService;
+            if (service != null) {
+                service.notifyLocalCryptoFailure(operation, policyIdentifier, failureType, errorMessage, fallbackRemote, failOpen);
+            }
+        });
     }
 
     private void applyCryptoProfileRecorder(DirectCryptoAdapter adapter) {
@@ -636,6 +648,8 @@ public class DadpProxyConnection implements Connection {
                 // 오케스트레이터의 어댑터가 있으면 그것을 사용 (엔드포인트 정보가 설정되어 있을 수 있음)
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
+                    this.notificationService = this.orchestrator.getNotificationService();
+                    applyLocalCryptoFailureNotification(this.directCryptoAdapter);
                     applyCryptoMode(this.directCryptoAdapter);
                     applySingleTransportMode(this.directCryptoAdapter);
                     applyEngineTransport(this.directCryptoAdapter);
@@ -686,6 +700,7 @@ public class DadpProxyConnection implements Connection {
                 
                 if (endpointData != null && endpointData.getCryptoUrl() != null && !endpointData.getCryptoUrl().trim().isEmpty()) {
                     this.directCryptoAdapter = new DirectCryptoAdapter(config.isFailOpen());
+                    applyLocalCryptoFailureNotification(this.directCryptoAdapter);
                     applyCryptoMode(this.directCryptoAdapter);
                     applySingleTransportMode(this.directCryptoAdapter);
                     applyEngineTransport(this.directCryptoAdapter);
