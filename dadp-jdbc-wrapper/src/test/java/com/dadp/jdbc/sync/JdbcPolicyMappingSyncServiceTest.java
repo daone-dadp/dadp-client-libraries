@@ -214,6 +214,9 @@ class JdbcPolicyMappingSyncServiceTest {
 
         service.setInitialized(true, "wtenant_manual");
         service.shutdown();
+        org.mockito.Mockito.reset(mappingSyncService, directCryptoAdapter);
+        when(mappingSyncService.syncPolicyMappingsAndUpdateVersion(any())).thenReturn(2);
+        when(mappingSyncService.getLastSnapshot()).thenReturn(snapshot);
         service.refreshNow();
 
         verify(mappingSyncService).syncPolicyMappingsAndUpdateVersion(any());
@@ -350,6 +353,10 @@ class JdbcPolicyMappingSyncServiceTest {
 
         service.setInitialized(true, "wtenant_disabled");
         service.shutdown();
+        org.mockito.Mockito.reset(mappingSyncService, proxyConfig);
+        when(proxyConfig.isEnabled()).thenReturn(true);
+        when(mappingSyncService.syncPolicyMappingsAndUpdateVersion(any())).thenReturn(1);
+        when(mappingSyncService.getLastSnapshot()).thenReturn(snapshot);
         service.refreshNow();
 
         verify(proxyConfig).setEnabled(false);
