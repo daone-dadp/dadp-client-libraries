@@ -44,6 +44,18 @@ public final class WrapperCliStorageCommand {
                 writeJson(out, result("storageDir", storageDir));
                 return 0;
             }
+            if ("resolve-runtime-context".equals(command)) {
+                WrapperCliStorageSupport.RuntimeContext context =
+                        WrapperCliStorageSupport.resolveRuntimeContext(required(options, "wrapper-lib-dir"));
+                Map<String, Object> output = new LinkedHashMap<String, Object>();
+                output.put("storageDir", context.getStorageDir());
+                output.put("proxyConfigPath", context.getProxyConfigPath());
+                output.put("tenantId", context.getTenantId());
+                output.put("alias", context.getAlias());
+                output.put("runtimeVersion", context.getRuntimeVersion());
+                writeJson(out, output);
+                return 0;
+            }
             if ("build-schema-register-payload".equals(command)) {
                 Map<String, Object> payload = WrapperCliStorageSupport.buildSchemaRegisterPayload(
                         new File(required(options, "schemas-json")),
@@ -73,13 +85,15 @@ public final class WrapperCliStorageCommand {
                         WrapperCliStorageSupport.applyRefreshResponse(required(options, "storage-dir"), responseBody);
                 Map<String, Object> output = new LinkedHashMap<String, Object>();
                 output.put("runtimeVersion", result.getRuntimeVersion());
+                output.put("policyBindingCount", Integer.valueOf(result.getPolicyBindingCount()));
                 output.put("mappingCount", result.getMappingCount());
                 output.put("engineUrl", result.getEngineUrl());
+                output.put("cryptoMode", result.getCryptoMode());
                 writeJson(out, output);
                 return 0;
             }
             if ("load-tenant-id".equals(command)) {
-                writeJson(out, result("tenantId", WrapperCliStorageSupport.loadTenantId(required(options, "storage-dir"))));
+                writeJson(out, result("tenantId", WrapperCliStorageSupport.loadTenantId(required(options, "storage-dir"), options.get("alias"))));
                 return 0;
             }
             if ("load-runtime-version".equals(command)) {
@@ -154,6 +168,7 @@ public final class WrapperCliStorageCommand {
         out.println("Usage: java -cp dadp-jdbc-wrapper.jar com.dadp.jdbc.WrapperCliStorageCommand <command> [options]");
         out.println("Commands:");
         out.println("  resolve-storage-dir --wrapper-lib-dir <dir> --alias <alias>");
+        out.println("  resolve-runtime-context --wrapper-lib-dir <dir>");
         out.println("  build-schema-register-payload --schemas-json <file> --storage-dir <dir> --app-name <name> --wrapper-version <version> --client-instance-id <id> [--output <file>]");
         out.println("  save-enrollment --storage-dir <dir> --tenant-id <tenantId> [--alias <alias>] [--runtime-version <version>] [--runtime-hub-url <url>]");
         out.println("  apply-refresh-response --storage-dir <dir> --response-file <file>");

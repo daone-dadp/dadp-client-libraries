@@ -10,8 +10,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,6 +42,20 @@ public final class WrapperCliStorageSupport {
         return config != null ? trimToNull(config.getTenantId()) : null;
     }
 
+    public static String loadTenantId(String storageDir, String expectedAlias) {
+        InstanceConfigStorage.ConfigData config = loadProxyConfig(storageDir);
+        if (config == null) {
+            return null;
+        }
+        String storedAlias = trimToNull(config.getAlias());
+        String normalizedExpectedAlias = trimToNull(expectedAlias);
+        if (storedAlias != null && normalizedExpectedAlias != null && !storedAlias.equals(normalizedExpectedAlias)) {
+            throw new IllegalStateException("Existing wrapper enrollment alias mismatch: storageAlias="
+                    + storedAlias + ", requestedAlias=" + normalizedExpectedAlias);
+        }
+        return trimToNull(config.getTenantId());
+    }
+
     public static Long loadPolicyVersion(String storageDir) {
         return new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE).loadVersion();
     }
@@ -51,6 +71,36 @@ public final class WrapperCliStorageSupport {
 
     public static String resolveRuntimeStorageDir(String alias) {
         return StoragePathResolver.resolveStorageDir(alias);
+    }
+
+    public static RuntimeContext resolveRuntimeContext(String wrapperLibDir) throws IOException {
+        String storageRoot = StoragePathResolver.resolveWrapperStorageRoot(wrapperLibDir);
+        Path root = Paths.get(storageRoot);
+        List<RuntimeContext> contexts = new ArrayList<RuntimeContext>();
+
+        addRuntimeContextIfPresent(contexts, root.resolve(PROXY_CONFIG_FILE));
+        if (Files.isDirectory(root)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+                for (Path child : stream) {
+                    addRuntimeContextIfPresent(contexts, child.resolve(PROXY_CONFIG_FILE));
+                }
+            }
+        }
+
+        if (contexts.isEmpty()) {
+            throw new IllegalStateException("Wrapper enrollment is missing under " + storageRoot
+                    + ". Run wrapper schema register or wrapper enroll first.");
+        }
+        if (contexts.size() > 1) {
+            List<String> tenants = new ArrayList<String>();
+            for (RuntimeContext context : contexts) {
+                tenants.add(context.getTenantId());
+            }
+            throw new IllegalStateException("Multiple wrapper runtime directories found under "
+                    + storageRoot + ": " + tenants
+                    + ". Keep one active wrapper runtime per lib directory and remove stale entries.");
+        }
+        return contexts.get(0);
     }
 
     public static Map<String, Object> buildSchemaRegisterPayload(File schemasJson,
@@ -108,12 +158,25 @@ public final class WrapperCliStorageSupport {
 
         String runtimeVersion = text(root.path("runtimeVersion"));
         JsonNode wrapper = root.path("wrapper");
-        String cryptoMode = text(wrapper.path("cryptoMode"));
-        Boolean failOpen = booleanValue(wrapper.path("failOpen"));
-        Boolean policySyncAutoEnabled = booleanValue(wrapper.path("policySyncAutoEnabled"));
+        String cryptoMode = firstNonNull(
+                text(root.path("runtime").path("cryptoMode")),
+                text(wrapper.path("cryptoMode")),
+                text(wrapper.path("options").path("cryptoMode")));
+        Boolean failOpen = firstBoolean(
+                booleanValue(root.path("runtime").path("failOpen")),
+                booleanValue(wrapper.path("failOpen")),
+                booleanValue(wrapper.path("options").path("failOpen")));
+        Boolean policySyncAutoEnabled = firstBoolean(
+                booleanValue(root.path("runtime").path("policySyncAutoEnabled")),
+                booleanValue(wrapper.path("policySyncAutoEnabled")),
+                booleanValue(wrapper.path("options").path("policySyncAutoEnabled")));
+        String currentRuntimeHubUrl = currentConfig != null && currentConfig.getRuntime() != null
+                ? firstAbsoluteHttpUrl(currentConfig.getRuntime().getHubUrl())
+                : null;
         String runtimeHubUrl = firstAbsoluteHttpUrl(
                 text(wrapper.path("hubUrl")),
-                text(wrapper.path("options").path("hubUrl")));
+                text(wrapper.path("options").path("hubUrl")),
+                currentRuntimeHubUrl);
         if (runtimeHubUrl == null) {
             throw new IllegalStateException("wrapper.hubUrl is missing in Hub refresh response");
         }
@@ -136,9 +199,12 @@ public final class WrapperCliStorageSupport {
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
         Map<String, PolicyResolver.PolicyAttributes> attributes = new HashMap<>();
+        PolicyResolver.StoredLogConfig logConfig = buildStoredLogConfig(root, wrapper);
+        int policyBindingCount = 0;
         JsonNode bindings = root.path("policyBindings");
         if (bindings.isArray()) {
             for (JsonNode binding : bindings) {
+                policyBindingCount++;
                 String status = text(binding.path("status"));
                 if (status != null && !"ACTIVE".equalsIgnoreCase(status)) {
                     continue;
@@ -162,14 +228,32 @@ public final class WrapperCliStorageSupport {
             }
         }
         Long version = parseLong(runtimeVersion);
-        mappingStorage.saveMappings(mappings, attributes, version);
+        mappingStorage.saveMappings(mappings, attributes, logConfig, version);
 
-        return new RefreshApplyResult(version, mappings.size(), engineUrl);
+        return new RefreshApplyResult(version, policyBindingCount, mappings.size(), engineUrl, cryptoMode);
     }
 
     private static InstanceConfigStorage.ConfigData loadProxyConfig(String storageDir) {
         InstanceConfigStorage storage = new InstanceConfigStorage(storageDir, PROXY_CONFIG_FILE);
         return storage.loadConfig(null, null);
+    }
+
+    private static void addRuntimeContextIfPresent(List<RuntimeContext> contexts, Path proxyConfigPath) throws IOException {
+        if (proxyConfigPath == null || !Files.isRegularFile(proxyConfigPath)) {
+            return;
+        }
+        JsonNode root = OBJECT_MAPPER.readTree(proxyConfigPath.toFile());
+        String tenantId = text(root.path("tenantId"));
+        if (tenantId == null) {
+            return;
+        }
+        Path storageDir = proxyConfigPath.getParent();
+        contexts.add(new RuntimeContext(
+                storageDir != null ? storageDir.toString() : "",
+                proxyConfigPath.toString(),
+                tenantId,
+                text(root.path("alias")),
+                text(root.path("runtimeVersion"))));
     }
 
     private static Boolean useIv(JsonNode binding) {
@@ -274,6 +358,50 @@ public final class WrapperCliStorageSupport {
         return null;
     }
 
+    private static String firstNonNull(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = trimToNull(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static Boolean firstBoolean(Boolean... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Boolean value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static PolicyResolver.StoredLogConfig buildStoredLogConfig(JsonNode root, JsonNode wrapper) {
+        JsonNode runtimeLogConfig = root.path("runtime").path("logConfig");
+        JsonNode wrapperLogConfig = wrapper.path("logConfig");
+        Boolean enabled = firstBoolean(
+                booleanValue(runtimeLogConfig.path("enabled")),
+                booleanValue(wrapperLogConfig.path("enabled")),
+                booleanValue(wrapper.path("debugEnabled")),
+                booleanValue(wrapper.path("options").path("debugEnabled")));
+        String level = firstNonNull(
+                text(runtimeLogConfig.path("level")),
+                text(wrapperLogConfig.path("level")),
+                text(wrapper.path("debugLevel")),
+                text(wrapper.path("options").path("debugLevel")));
+        if (enabled == null && level == null) {
+            return null;
+        }
+        return new PolicyResolver.StoredLogConfig(enabled, level);
+    }
+
     private static String trimToNull(String value) {
         if (value == null) {
             return null;
@@ -284,13 +412,21 @@ public final class WrapperCliStorageSupport {
 
     public static final class RefreshApplyResult {
         private final Long runtimeVersion;
+        private final int policyBindingCount;
         private final int mappingCount;
         private final String engineUrl;
+        private final String cryptoMode;
 
-        private RefreshApplyResult(Long runtimeVersion, int mappingCount, String engineUrl) {
+        private RefreshApplyResult(Long runtimeVersion,
+                                   int policyBindingCount,
+                                   int mappingCount,
+                                   String engineUrl,
+                                   String cryptoMode) {
             this.runtimeVersion = runtimeVersion;
+            this.policyBindingCount = policyBindingCount;
             this.mappingCount = mappingCount;
             this.engineUrl = engineUrl;
+            this.cryptoMode = cryptoMode;
         }
 
         public Long getRuntimeVersion() {
@@ -301,9 +437,57 @@ public final class WrapperCliStorageSupport {
             return mappingCount;
         }
 
+        public int getPolicyBindingCount() {
+            return policyBindingCount;
+        }
+
         public String getEngineUrl() {
             return engineUrl;
         }
 
+        public String getCryptoMode() {
+            return cryptoMode;
+        }
+
+    }
+
+    public static final class RuntimeContext {
+        private final String storageDir;
+        private final String proxyConfigPath;
+        private final String tenantId;
+        private final String alias;
+        private final String runtimeVersion;
+
+        private RuntimeContext(String storageDir,
+                               String proxyConfigPath,
+                               String tenantId,
+                               String alias,
+                               String runtimeVersion) {
+            this.storageDir = storageDir;
+            this.proxyConfigPath = proxyConfigPath;
+            this.tenantId = tenantId;
+            this.alias = alias;
+            this.runtimeVersion = runtimeVersion;
+        }
+
+        public String getStorageDir() {
+            return storageDir;
+        }
+
+        public String getProxyConfigPath() {
+            return proxyConfigPath;
+        }
+
+        public String getTenantId() {
+            return tenantId;
+        }
+
+        public String getAlias() {
+            return alias;
+        }
+
+        public String getRuntimeVersion() {
+            return runtimeVersion;
+        }
     }
 }

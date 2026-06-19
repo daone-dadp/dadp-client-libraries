@@ -1,7 +1,10 @@
 # Wrapper 6.0 CLI Storage And Call Contract
 
-Wrapper is a JDBC driver, not a server. The `dadp` CLI owns schema collection,
-schema registration, refresh calls, and JSON file creation.
+Wrapper is a JDBC driver, not a server. The wrapper JAR owns runtime storage,
+runtime DTO serialization, tenant reuse checks, and version checks through
+CLI-callable helper entrypoints. The `dadp` CLI only triggers those helpers,
+collects operator input, and sends Hub API requests with values returned by the
+wrapper helper.
 
 ## Fixed Storage
 
@@ -32,7 +35,7 @@ services:
 
 ## Runtime Files
 
-The CLI writes:
+The wrapper helper writes:
 
 ```text
 <storage-dir>/proxy-config.json
@@ -45,7 +48,9 @@ Optional schema cache:
 <storage-dir>/schemas.json
 ```
 
-Do not create or read `crypto-endpoints.json`.
+The Go CLI must not create, rewrite, normalize, or directly parse these runtime
+DTOs except for displaying helper-returned summaries. Do not create or read
+`crypto-endpoints.json`.
 
 ## JDBC URL
 
@@ -74,8 +79,8 @@ Map<String, Object> schemaCache =
         clientInstanceId);
 ```
 
-This returns data only. The CLI may keep it in memory or write it to
-`schemas.json`.
+This returns data only. The CLI may keep it in memory or write it to an operator
+chosen schema JSON file for review. Schema JSON is not wrapper runtime state.
 
 Command entrypoint:
 
@@ -93,18 +98,23 @@ Default output is stdout. `--output` is optional and controlled by CLI.
 
 The CLI calls Hub schema registration using its login/JWT session.
 
-Before calling Hub, read:
+Before calling Hub, the CLI must ask the wrapper helper to load an existing
+tenantId from the wrapper-managed directory:
 
-```text
-<storage-dir>/proxy-config.json
+```bash
+java -cp "dadp-jdbc-wrapper.jar:${DB_DRIVER}" com.dadp.jdbc.WrapperCliStorageCommand load-tenant-id \
+  --storage-dir "{storageDir}" \
+  --alias "{alias}"
 ```
 
-If it exists and has `tenantId`, reuse that tenantId:
+If the helper returns `tenantId`, reuse that tenantId:
 
 - include top-level `tenantId` in the request body
 - send `X-DADP-Tenant-Id: {tenantId}` header
 
-If it does not exist, omit tenantId and let Hub issue a new one.
+If it does not return tenantId, omit tenantId and let Hub issue a new one. Alias
+mismatch and malformed runtime files are wrapper helper errors and must stop the
+Hub call.
 
 Build the request body from schema cache:
 
@@ -168,7 +178,17 @@ Source-of-truth `proxy-config.json`:
 
 ## Refresh
 
-CLI refresh reads `proxy-config.json`.
+CLI refresh resolves runtime context through the wrapper helper. It does not
+scan or interpret runtime JSON by itself.
+
+```bash
+java -cp "dadp-jdbc-wrapper.jar:${DB_DRIVER}" com.dadp.jdbc.WrapperCliStorageCommand resolve-runtime-context \
+  --wrapper-lib-dir "{wrapperLibDir}"
+```
+
+The helper returns `storageDir`, `proxyConfigPath`, `tenantId`, `alias`, and
+`runtimeVersion` for exactly one enrolled wrapper under
+`<wrapper-lib-dir>/dadp/wrapper`.
 
 If missing:
 
@@ -180,6 +200,14 @@ If `tenantId` is missing:
 
 ```text
 Wrapper tenantId is missing. Run wrapper schema register first.
+```
+
+Before calling Hub, the CLI asks the wrapper helper for the stored policy mapping
+version:
+
+```bash
+java -cp "dadp-jdbc-wrapper.jar:${DB_DRIVER}" com.dadp.jdbc.WrapperCliStorageCommand load-policy-version \
+  --storage-dir "{storageDir}"
 ```
 
 Hub call:
@@ -196,7 +224,7 @@ Status handling:
 
 | Status | CLI action |
 | --- | --- |
-| `304` | Do not modify files. |
+| `304` | Do not modify files. Print `wrapper refresh: no changes`. |
 | `200` | Call `WrapperCliStorageSupport.applyRefreshResponse(storageDir, body)`. |
 | `401` | Do not retry with JWT. Report tenant runtime auth rejection. |
 | `404` | Report missing wrapper enrollment. |
@@ -239,8 +267,10 @@ wrapper storage code and returns:
 ```json
 {
   "runtimeVersion": 8,
+  "policyBindingCount": 3,
   "mappingCount": 2,
-  "engineUrl": "http://dadp-engine:9003"
+  "engineUrl": "http://dadp-engine:9003",
+  "cryptoMode": "local"
 }
 ```
 
@@ -256,11 +286,15 @@ At startup, wrapper runtime:
 6. starts automatic refresh only if `policySyncAutoEnabled=true` and
    `runtime.hubUrl` is present
 
-Wrapper runtime does not:
+The long-running wrapper runtime does not:
 
 - collect DB schema
 - call schema register
 - issue tenantId
 - read `hubUrl` or `alias` from JDBC URL
 - read storage path from env/system/CLI config
-- create runtime JSON files
+- create runtime JSON files directly during SQL execution
+
+The CLI-callable wrapper helper does create and update runtime JSON files. This
+keeps CLI-triggered behavior and wrapper runtime behavior on the same DTO and
+storage code.

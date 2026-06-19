@@ -91,4 +91,44 @@ class WrapperCliStorageCommandTest {
         assertEquals("A01", payload.path("alias").asText());
         assertEquals("app", payload.path("appName").asText());
     }
+
+    @Test
+    void commandResolvesRuntimeContextFromWrapperLibDir() throws Exception {
+        Path libDir = tempDir.resolve("lib");
+        Path storageDir = libDir.resolve("dadp").resolve("wrapper").resolve("A01");
+        WrapperCliStorageSupport.saveEnrollment(storageDir.toString(), "wtenant_existing", "A01", "7", "http://hub:9004");
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int exitCode = WrapperCliStorageCommand.run(new String[] {
+                "resolve-runtime-context",
+                "--wrapper-lib-dir", libDir.toString()
+        }, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()));
+
+        assertEquals(0, exitCode);
+        JsonNode context = new ObjectMapper().readTree(out.toString("UTF-8"));
+        assertEquals("wtenant_existing", context.path("tenantId").asText());
+        assertEquals("A01", context.path("alias").asText());
+        assertEquals("7", context.path("runtimeVersion").asText());
+        assertEquals(storageDir.toString(), context.path("storageDir").asText());
+    }
+
+    @Test
+    void commandRejectsMultipleRuntimeContexts() throws Exception {
+        Path libDir = tempDir.resolve("lib");
+        WrapperCliStorageSupport.saveEnrollment(
+                libDir.resolve("dadp").resolve("wrapper").resolve("A01").toString(),
+                "wtenant_one", "A01", "1", "http://hub:9004");
+        WrapperCliStorageSupport.saveEnrollment(
+                libDir.resolve("dadp").resolve("wrapper").resolve("A02").toString(),
+                "wtenant_two", "A02", "1", "http://hub:9004");
+
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int exitCode = WrapperCliStorageCommand.run(new String[] {
+                "resolve-runtime-context",
+                "--wrapper-lib-dir", libDir.toString()
+        }, new PrintStream(new ByteArrayOutputStream()), new PrintStream(err));
+
+        assertEquals(1, exitCode);
+        assertTrue(err.toString("UTF-8").contains("Multiple wrapper runtime directories found"));
+    }
 }

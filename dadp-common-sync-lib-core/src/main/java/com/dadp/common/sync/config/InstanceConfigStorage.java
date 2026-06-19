@@ -14,13 +14,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * 인스턴스 설정 영구 저장소
- * 
- * Hub에서 받은 tenantId 및 설정 정보를 파일에 저장하고,
- * 재시작 시에도 저장된 정보를 사용합니다.
- * 
- * Wrapper runtime enrollment and snapshot state storage.
- * 
+ * Persistent storage for wrapper enrollment and runtime snapshot state.
+ *
+ * <p>The CLI writes Hub-issued tenant identity and runtime options through this
+ * class, and the wrapper runtime reads the same file after restart.</p>
+ *
  * @author DADP Development Team
  * @version 5.0.9
  * @since 2025-12-31
@@ -33,13 +31,13 @@ public class InstanceConfigStorage {
     private final ObjectMapper objectMapper;
     
     /**
-     * 커스텀 저장 경로 지정
-     * 
-     * @param storageDir 저장 디렉토리
-     * @param fileName 파일명
+     * Creates storage using the wrapper-managed directory and file name.
+     *
+     * @param storageDir wrapper-managed storage directory
+     * @param fileName storage file name
      */
     public InstanceConfigStorage(String storageDir, String fileName) {
-        // 디렉토리 생성
+        // Ensure the wrapper-managed directory exists before writing runtime files.
         Path dirPath = Paths.get(storageDir);
         String finalStoragePath = null;
         try {
@@ -47,13 +45,13 @@ public class InstanceConfigStorage {
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
             log.warn("Failed to create storage directory: {} (storage unavailable)", storageDir, e);
-            finalStoragePath = null; // 저장 불가
+            finalStoragePath = null; // Storage is unavailable.
         }
         
         this.storagePath = finalStoragePath;
         this.objectMapper = new ObjectMapper();
         if (finalStoragePath != null) {
-            // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
+            // This object is frequently constructed by connection pools, so TRACE keeps normal logs clean.
             log.trace("Instance config storage initialized: {}", this.storagePath);
         } else {
             log.warn("Instance config storage initialization failed: storage unavailable");
@@ -61,14 +59,14 @@ public class InstanceConfigStorage {
     }
     
     /**
-     * 인스턴스 설정 저장
-     * 
-     * @param tenantId Hub가 발급한 고유 ID
+     * Saves legacy-compatible wrapper instance configuration.
+     *
+     * @param tenantId Hub-issued wrapper tenant ID
      * @param hubUrl Hub URL. DADP 6 wrapper keeps hubUrl as a JDBC URL-only input; this value is accepted
      *               for legacy callers but is not persisted as runtime configuration.
-     * @param instanceId 사용자가 설정한 별칭
+     * @param instanceId legacy user-defined instance alias
      * @param failOpen Fail-open mode. DADP 6 runtime refresh is the final source for this option.
-     * @return 저장 성공 여부
+     * @return true when the configuration was saved
      */
     public boolean saveConfig(String tenantId, String hubUrl, String instanceId, Boolean failOpen) {
         return saveConfig(tenantId, hubUrl, instanceId, failOpen, null);
@@ -99,7 +97,7 @@ public class InstanceConfigStorage {
             }
             saveRuntimeConfig(data, null, null, null, failOpen, null);
             
-            // 파일에 저장
+            // Persist the canonical JSON file used by CLI and wrapper runtime.
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
@@ -261,11 +259,11 @@ public class InstanceConfigStorage {
     }
     
     /**
-     * 인스턴스 설정 로드
-     * 
-     * @param hubUrl Hub URL (일치하는 경우만 로드)
-     * @param instanceId 인스턴스 ID (일치하는 경우만 로드)
-     * @return 설정 데이터, 로드 실패 또는 불일치 시 null
+     * Loads persisted wrapper instance configuration.
+     *
+     * @param hubUrl historical Hub URL selector; DADP 6 runtime ignores it for storage matching
+     * @param instanceId optional alias selector
+     * @return persisted configuration, or null when the file is missing or does not match the selector
      */
     public ConfigData loadConfig(String hubUrl, String instanceId) {
         if (storagePath == null) {
@@ -384,6 +382,8 @@ public class InstanceConfigStorage {
         }
         if (normalizedEngineUrl != null) {
             runtime.put("engineUrl", normalizedEngineUrl);
+        } else {
+            runtime.remove("engineUrl");
         }
         if (normalizedCryptoMode != null) {
             runtime.put("cryptoMode", normalizedCryptoMode);
@@ -482,9 +482,9 @@ public class InstanceConfigStorage {
     }
     
     /**
-     * 저장 파일 존재 여부 확인
-     * 
-     * @return 파일 존재 여부
+     * Checks whether the storage file exists.
+     *
+     * @return true when the storage file exists
      */
     public boolean hasStoredConfig() {
         if (storagePath == null) {
@@ -494,9 +494,9 @@ public class InstanceConfigStorage {
     }
     
     /**
-     * 저장 파일 삭제
-     * 
-     * @return 삭제 성공 여부
+     * Deletes the storage file.
+     *
+     * @return true when the file is absent or deleted
      */
     public boolean clearStorage() {
         if (storagePath == null) {
@@ -513,29 +513,29 @@ public class InstanceConfigStorage {
             }
             return deleted;
         }
-        return true; // 파일이 없으면 성공으로 간주
+        return true; // Treat an absent file as already cleared.
     }
     
     /**
-     * 저장 경로 조회
-     * 
-     * @return 저장 경로
+     * Returns the configured storage file path.
+     *
+     * @return storage file path
      */
     public String getStoragePath() {
         return storagePath;
     }
     
     /**
-     * 인스턴스 설정 데이터 구조
+     * Persisted wrapper runtime configuration.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ConfigData {
         private long timestamp;
-        private String tenantId;  // Hub가 발급한 고유 ID
-        private String alias;  // CLI schema register가 확정한 wrapper alias
-        private String hubUrl;  // Hub URL
+        private String tenantId;  // Hub-issued wrapper tenant ID.
+        private String alias;  // Wrapper alias confirmed by CLI registration.
+        private String hubUrl;  // Legacy top-level Hub URL; new runtime data uses runtime.hubUrl.
         private String refreshUrl;  // Optional canonical runtime refresh URL
-        private String instanceId;  // 사용자가 설정한 별칭
+        private String instanceId;  // Legacy user-defined instance alias.
         private Boolean failOpen;  // Fail-open mode; Hub runtime refresh has priority.
         private String runtimeVersion;  // Hub runtime contract version
         private String cryptoMode;  // Hub refresh runtime option: remote | local
