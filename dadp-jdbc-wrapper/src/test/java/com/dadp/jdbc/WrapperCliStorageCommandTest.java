@@ -64,6 +64,30 @@ class WrapperCliStorageCommandTest {
     }
 
     @Test
+    void commandAppliesRefreshResponseWithCliHubUrlFallback() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_cli", "A01", "1", null);
+        String response = "{"
+                + "\"runtimeVersion\":2,"
+                + "\"wrapper\":{\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"remote\",\"failOpen\":false},"
+                + "\"policyBindings\":[]"
+                + "}";
+        Path responseFile = tempDir.resolve("refresh-no-hub-url.json");
+        Files.write(responseFile, response.getBytes(StandardCharsets.UTF_8));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int refreshCode = WrapperCliStorageCommand.run(new String[] {
+                "apply-refresh-response",
+                "--storage-dir", tempDir.toString(),
+                "--response-file", responseFile.toString(),
+                "--runtime-hub-url", "http://cli-hub:9004"
+        }, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()));
+
+        assertEquals(0, refreshCode);
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        assertEquals("http://cli-hub:9004", configStorage.loadConfig(null, null).getRuntime().getHubUrl());
+    }
+
+    @Test
     void commandBuildsSchemaRegisterPayloadWithoutCliDtoReimplementation() throws Exception {
         WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "1");
         Path schemasJson = tempDir.resolve("schemas.json");

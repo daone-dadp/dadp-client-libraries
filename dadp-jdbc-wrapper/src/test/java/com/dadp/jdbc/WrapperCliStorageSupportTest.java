@@ -157,8 +157,7 @@ class WrapperCliStorageSupportTest {
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
-                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\"},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
                 + "\"runtime\":{\"engineEndpointUrl\":\"/hub/api/v1/runtime/engine-endpoint\"},"
                 + "\"policyBindings\":[]"
                 + "}";
@@ -175,24 +174,22 @@ class WrapperCliStorageSupportTest {
     }
 
     @Test
-    void refreshResponseRequiresWrapperHubUrl() throws Exception {
+    void refreshResponseUsesCliHubUrlWhenHubResponseOmitsHubUrl() throws Exception {
         WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
-                + "\"wrapper\":{\"engineUrl\":\"http://dadp-engine:9003\"},"
-                + "\"runtime\":{\"refreshUrl\":\"http://wrong-hub:9004/hub/api/v1/runtime/wrappers/wtenant_existing/refresh\"},"
+                + "\"wrapper\":{\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
                 + "\"policyBindings\":[]"
                 + "}";
 
-        try {
-            WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
-        } catch (IllegalStateException expected) {
-            assertTrue(expected.getMessage().contains("wrapper.hubUrl"));
-            return;
-        }
-        throw new AssertionError("expected missing wrapper.hubUrl to fail");
+        WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response, "http://cli-hub:9004");
+
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
+        assertNotNull(config);
+        assertEquals("http://cli-hub:9004", config.getRuntime().getHubUrl());
+        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineUrl());
     }
 
     @Test

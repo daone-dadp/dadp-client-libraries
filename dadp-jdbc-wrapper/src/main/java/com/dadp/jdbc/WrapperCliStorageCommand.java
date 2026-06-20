@@ -82,7 +82,10 @@ public final class WrapperCliStorageCommand {
             if ("apply-refresh-response".equals(command)) {
                 String responseBody = readFile(required(options, "response-file"));
                 WrapperCliStorageSupport.RefreshApplyResult result =
-                        WrapperCliStorageSupport.applyRefreshResponse(required(options, "storage-dir"), responseBody);
+                        WrapperCliStorageSupport.applyRefreshResponse(
+                                required(options, "storage-dir"),
+                                responseBody,
+                                options.get("runtime-hub-url"));
                 Map<String, Object> output = new LinkedHashMap<String, Object>();
                 output.put("runtimeVersion", result.getRuntimeVersion());
                 output.put("policyBindingCount", Integer.valueOf(result.getPolicyBindingCount()));
@@ -171,7 +174,7 @@ public final class WrapperCliStorageCommand {
         out.println("  resolve-runtime-context --wrapper-lib-dir <dir>");
         out.println("  build-schema-register-payload --schemas-json <file> --storage-dir <dir> --app-name <name> --wrapper-version <version> --client-instance-id <id> [--output <file>]");
         out.println("  save-enrollment --storage-dir <dir> --tenant-id <tenantId> [--alias <alias>] [--runtime-version <version>] [--runtime-hub-url <url>]");
-        out.println("  apply-refresh-response --storage-dir <dir> --response-file <file>");
+        out.println("  apply-refresh-response --storage-dir <dir> --response-file <file> [--runtime-hub-url <url>]");
         out.println("  load-tenant-id --storage-dir <dir>");
         out.println("  load-runtime-version --storage-dir <dir>");
         out.println("  load-policy-version --storage-dir <dir>");

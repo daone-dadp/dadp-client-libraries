@@ -150,6 +150,12 @@ public final class WrapperCliStorageSupport {
     }
 
     public static RefreshApplyResult applyRefreshResponse(String storageDir, String responseBody) throws IOException {
+        return applyRefreshResponse(storageDir, responseBody, null);
+    }
+
+    public static RefreshApplyResult applyRefreshResponse(String storageDir,
+                                                          String responseBody,
+                                                          String runtimeHubUrlFallback) throws IOException {
         JsonNode root = OBJECT_MAPPER.readTree(responseBody);
         InstanceConfigStorage configStorage = new InstanceConfigStorage(storageDir, PROXY_CONFIG_FILE);
         InstanceConfigStorage.ConfigData currentConfig = configStorage.loadConfig(null, null);
@@ -176,11 +182,12 @@ public final class WrapperCliStorageSupport {
                 ? firstAbsoluteHttpUrl(currentConfig.getRuntime().getHubUrl())
                 : null;
         String runtimeHubUrl = firstAbsoluteHttpUrl(
+                runtimeHubUrlFallback,
+                currentRuntimeHubUrl,
                 text(wrapper.path("hubUrl")),
-                text(wrapper.path("options").path("hubUrl")),
-                currentRuntimeHubUrl);
+                text(wrapper.path("options").path("hubUrl")));
         if (runtimeHubUrl == null) {
-            throw new IllegalStateException("wrapper.hubUrl is missing in Hub refresh response");
+            throw new IllegalStateException("wrapper runtime hubUrl is missing. Run dadp --hub-url <hub-url> login and retry wrapper refresh.");
         }
         String engineUrl = firstAbsoluteHttpUrl(
                 text(root.path("runtime").path("engineUrl")),
