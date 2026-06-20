@@ -87,6 +87,7 @@ class WrapperCliStorageSupportTest {
         assertEquals(Long.valueOf(8L), result.getRuntimeVersion());
         assertEquals(1, result.getMappingCount());
         assertEquals("http://dadp-engine:9003", result.getEngineUrl());
+        assertTrue(Files.isRegularFile(tempDir.resolve(".dadp-refresh-trigger")));
 
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);

@@ -10,6 +10,7 @@ import com.dadp.jdbc.schema.JdbcSchemaSyncService;
 import com.dadp.jdbc.schema.JdbcSchemaCollector;
 import com.dadp.jdbc.sync.JdbcBootstrapOrchestrator;
 import com.dadp.jdbc.sync.JdbcPolicyMappingSyncService;
+import com.dadp.jdbc.sync.WrapperRuntimeRefreshWatcher;
 import com.dadp.hub.crypto.WrapperCryptoProfileRecorder;
 // 공통 라이브러리 사용
 import com.dadp.common.sync.policy.PolicyResolver;
@@ -45,7 +46,7 @@ public class DadpProxyConnection implements Connection {
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DadpProxyConnection.class);
     
     private final Connection actualConnection;
-    private final ProxyConfig config;
+    private volatile ProxyConfig config;
     private volatile DirectCryptoAdapter directCryptoAdapter; // 직접 암복호화 어댑터
     private JdbcSchemaSyncService schemaSyncService;
     private MappingSyncService mappingSyncService;
@@ -54,14 +55,18 @@ public class DadpProxyConnection implements Connection {
     private TelemetryStatsSender telemetryStatsSender;
     private PolicyResolver policyResolver;
     private HubNotificationService notificationService;
-    private final String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
-    private final String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
-    private final JdbcVendorResolutionStrategy resolutionStrategy;
+    private volatile String currentDatabaseName;  // 현재 연결된 데이터베이스/스키마명
+    private volatile String dbVendor;  // DB 벤더 정보 (mysql, postgresql 등)
+    private volatile JdbcVendorResolutionStrategy resolutionStrategy;
     private volatile boolean wrapperRuntimeAvailable;
     private volatile String cachedSchemaName;  // 캐싱된 스키마 이름 (매 SQL마다 DB 조회 방지, setSchema() 시 갱신)
     private boolean closed = false;
-    private final JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
+    private volatile JdbcBootstrapOrchestrator orchestrator; // 오케스트레이터 참조 저장 (directCryptoAdapter 업데이트 확인용)
     private WrapperCryptoProfileRecorder cryptoProfileRecorder;
+    private final String originalUrl;
+    private final Map<String, String> originalUrlParams;
+    private final java.util.Properties originalConnectionProperties;
+    private final WrapperRuntimeRefreshWatcher.RuntimeRefreshTarget runtimeRefreshTarget = this::reloadRuntimeFromStorage;
     
     public DadpProxyConnection(Connection actualConnection, String originalUrl) {
         this(actualConnection, originalUrl, null);
@@ -73,6 +78,9 @@ public class DadpProxyConnection implements Connection {
 
     public DadpProxyConnection(Connection actualConnection, String originalUrl, Map<String, String> urlParams, java.util.Properties connectionProperties) {
         this.actualConnection = actualConnection;
+        this.originalUrl = originalUrl;
+        this.originalUrlParams = urlParams;
+        this.originalConnectionProperties = connectionProperties;
         // JDBC URL 파라미터가 있으면 사용, 없으면 싱글톤 인스턴스 사용
         this.config = urlParams != null ? new ProxyConfig(urlParams) : ProxyConfig.getInstance();
 
@@ -97,39 +105,11 @@ public class DadpProxyConnection implements Connection {
             this.cryptoProfileRecorder = null;
             this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(null);
             this.wrapperRuntimeAvailable = false;
+            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
 
-        // DB 벤더 정보 저장
-        String vendor = null;
-        try {
-            DatabaseMetaData metaData = actualConnection.getMetaData();
-            vendor = normalizeDbVendor(metaData.getDatabaseProductName());
-        } catch (SQLException e) {
-            log.debug("DB vendor info lookup failed (ignored): {}", e.getMessage());
-        }
-        this.dbVendor = vendor;
-        this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(vendor);
-        
-        // 현재 연결된 데이터베이스/스키마명 저장 (Connection에서 가져옴)
-        String dbName = null;
-        try {
-            dbName = actualConnection.getCatalog();  // MySQL: database, PostgreSQL: database
-            if (dbName == null || dbName.trim().isEmpty()) {
-                // getCatalog()가 null인 경우 스키마 정보 시도 (PostgreSQL 등)
-                try {
-                    dbName = actualConnection.getSchema();  // PostgreSQL: schema
-                } catch (SQLException e) {
-                    log.debug("Schema info lookup failed (ignored): {}", e.getMessage());
-                }
-            }
-        } catch (SQLException e) {
-            log.warn("Failed to retrieve current database name (ignored): {}", e.getMessage());
-        }
-        this.currentDatabaseName = dbName;
-
-        // 스키마 이름을 Connection 생성 시 1회만 조회하여 캐싱 (매 SQL마다 DB 조회 방지)
-        this.cachedSchemaName = resolveSchemaName(actualConnection, vendor, dbName);
+        initializeConnectionMetadata();
         log.trace("Current database/schema: {}, cachedSchema: {}",
                 currentDatabaseName != null ? currentDatabaseName : "null",
                 cachedSchemaName != null ? cachedSchemaName : "null");
@@ -156,16 +136,46 @@ public class DadpProxyConnection implements Connection {
             this.notificationService = null;
             this.cryptoProfileRecorder = null;
             this.wrapperRuntimeAvailable = false;
+            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
         
         // 오케스트레이터에서 초기화된 서비스 가져오기
         activateRuntimeServicesFromOrchestrator("startup");
+        WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
         
         // Runtime synchronization is owned by JdbcBootstrapOrchestrator.
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("DADP Proxy Connection created");
+    }
+
+    private void initializeConnectionMetadata() {
+        String vendor = null;
+        try {
+            DatabaseMetaData metaData = actualConnection.getMetaData();
+            vendor = normalizeDbVendor(metaData.getDatabaseProductName());
+        } catch (SQLException e) {
+            log.debug("DB vendor info lookup failed (ignored): {}", e.getMessage());
+        }
+        this.dbVendor = vendor;
+        this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(vendor);
+
+        String dbName = null;
+        try {
+            dbName = actualConnection.getCatalog();
+            if (dbName == null || dbName.trim().isEmpty()) {
+                try {
+                    dbName = actualConnection.getSchema();
+                } catch (SQLException e) {
+                    log.debug("Schema info lookup failed (ignored): {}", e.getMessage());
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("Failed to retrieve current database name (ignored): {}", e.getMessage());
+        }
+        this.currentDatabaseName = dbName;
+        this.cachedSchemaName = resolveSchemaName(actualConnection, vendor, dbName);
     }
 
     private boolean activateRuntimeServicesFromOrchestrator(String reason) {
@@ -238,8 +248,17 @@ public class DadpProxyConnection implements Connection {
         if (isWrapperRuntimeAvailable()) {
             return true;
         }
-        if (!config.isStartupReady() || orchestrator == null) {
-            return false;
+        if (config == null || !config.isStartupReady() || orchestrator == null) {
+            ProxyConfig refreshedConfig = originalUrlParams != null ? new ProxyConfig(originalUrlParams) : new ProxyConfig(null);
+            if (!refreshedConfig.isStartupReady()) {
+                return false;
+            }
+            this.config = refreshedConfig;
+            initializeConnectionMetadata();
+            this.orchestrator = JdbcBootstrapOrchestrator.getOrCreate(refreshedConfig.getInstanceId(), originalUrl, refreshedConfig);
+            if (originalConnectionProperties != null) {
+                this.orchestrator.setNativeConnectionProperties(originalConnectionProperties);
+            }
         }
         boolean initialized = orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
@@ -247,6 +266,32 @@ public class DadpProxyConnection implements Connection {
             return false;
         }
         return activateRuntimeServicesFromOrchestrator("manual-refresh");
+    }
+
+    private void reloadRuntimeFromStorage() {
+        try {
+            if (!initializeRuntimeForRefreshTrigger()) {
+                log.debug("Wrapper runtime storage changed but runtime enrollment is still unavailable");
+                return;
+            }
+            if (orchestrator != null) {
+                JdbcPolicyMappingSyncService syncService = orchestrator.getPolicyMappingSyncService();
+                if (syncService != null) {
+                    syncService.reloadFromLocalStorage("cli-refresh-file-change");
+                }
+                this.directCryptoAdapter = orchestrator.getDirectCryptoAdapter();
+                this.notificationService = orchestrator.getNotificationService();
+                applyLocalCryptoFailureNotification(this.directCryptoAdapter);
+                applyCryptoMode(this.directCryptoAdapter);
+                applySingleTransportMode(this.directCryptoAdapter);
+                applyEngineTransport(this.directCryptoAdapter);
+                applyCryptoProfileRecorder(this.directCryptoAdapter);
+            }
+            log.info("Wrapper runtime refresh applied from local storage: alias={}, tenantId={}",
+                    config.getAlias(), orchestrator != null ? orchestrator.getCachedTenantId() : null);
+        } catch (Exception e) {
+            log.warn("Wrapper runtime refresh apply failed: {}", e.getMessage());
+        }
     }
 
     private void applyCryptoMode(DirectCryptoAdapter adapter) {
@@ -789,6 +834,7 @@ public class DadpProxyConnection implements Connection {
         if (!closed) {
             actualConnection.close();
             closed = true;
+            WrapperRuntimeRefreshWatcher.unregister(runtimeRefreshTarget);
             // TRACE 레벨로 변경: 연결 풀에서 여러 Connection이 종료될 때 로그 스팸 방지
             log.trace("DADP Proxy Connection closed");
         }

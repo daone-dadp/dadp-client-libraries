@@ -253,6 +253,41 @@ public class JdbcPolicyMappingSyncService {
         refreshFromHub("manual");
     }
 
+    public void reloadFromLocalStorage(String trigger) {
+        try {
+            tenantIdManager.loadFromStorage();
+            policyResolver.reloadFromStorage();
+            Long loadedVersion = policyResolver.getCurrentVersion();
+            updateSchemaPolicyNames();
+
+            EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
+            if (endpointData != null && directCryptoAdapter != null) {
+                directCryptoAdapter.setEndpointData(endpointData);
+            }
+
+            PolicyResolver.StoredLogConfig logConfig = policyResolver.getStoredLogConfig();
+            if (logConfig != null && logConfig.getEnabled() != null) {
+                DadpLoggerFactory.setFromHub(logConfig.getEnabled(), logConfig.getLevel());
+            }
+
+            if (directCryptoAdapter != null) {
+                directCryptoAdapter.setFailOpen(tenantIdManager.isFailOpen());
+                directCryptoAdapter.setCryptoMode(
+                        tenantIdManager.getCryptoMode(),
+                        runtimeHubUrl(),
+                        config.isCryptoLocalFallbackRemote(),
+                        config.getCryptoLocalTimeoutMs(),
+                        tenantIdManager.getCachedTenantId(),
+                        config.isWrapperCryptoStatsEnabled(),
+                        config.getWrapperCryptoStatsAggregationLevel());
+            }
+            log.info("Wrapper runtime files applied: trigger={}, alias={}, tenantId={}, version={}",
+                    trigger, instanceId, tenantIdManager.getCachedTenantId(), loadedVersion);
+        } catch (Exception e) {
+            log.warn("Wrapper runtime file apply failed: trigger={}, error={}", trigger, e.getMessage());
+        }
+    }
+
     private void refreshFromHub(String trigger) {
         if (!initialized) {
             log.warn("Policy mapping refresh skipped: service not initialized, trigger={}. Run CLI wrapper schema collect and wrapper schema register first, then restart or initialize wrapper runtime.",

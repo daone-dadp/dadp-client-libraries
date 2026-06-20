@@ -143,8 +143,10 @@ public final class WrapperCliStorageSupport {
             throw new IllegalArgumentException("tenantId is required");
         }
         InstanceConfigStorage storage = new InstanceConfigStorage(storageDir, PROXY_CONFIG_FILE);
-        return storage.saveEnrollment(normalizedTenantId, alias, runtimeVersion,
+        boolean saved = storage.saveEnrollment(normalizedTenantId, alias, runtimeVersion,
                 runtimeHubUrl, refreshUrl, schemaSyncUrl, engineEndpointUrl);
+        touchRefreshTrigger(storageDir);
+        return saved;
     }
 
     public static RefreshApplyResult applyRefreshResponse(String storageDir, String responseBody) throws IOException {
@@ -229,8 +231,20 @@ public final class WrapperCliStorageSupport {
         }
         Long version = parseLong(runtimeVersion);
         mappingStorage.saveMappings(mappings, attributes, logConfig, version);
+        touchRefreshTrigger(storageDir);
 
         return new RefreshApplyResult(version, policyBindingCount, mappings.size(), engineUrl, cryptoMode);
+    }
+
+    private static void touchRefreshTrigger(String storageDir) {
+        try {
+            Path dir = Paths.get(storageDir);
+            Files.createDirectories(dir);
+            Files.write(dir.resolve(".dadp-refresh-trigger"),
+                    String.valueOf(System.currentTimeMillis()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // Runtime files are already written. The watcher also observes those files.
+        }
     }
 
     private static InstanceConfigStorage.ConfigData loadProxyConfig(String storageDir) {
