@@ -143,7 +143,7 @@ public class JdbcPolicyMappingSyncService {
                     }
                     
                     applyLogConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
-                    // Hub PolicySnapshot wrapperConfig 적용 (매핑 갱신 시마다 반영)
+                    // Hub PolicySnapshot wrapperConfig is applied whenever mappings are refreshed.
                     applyWrapperConfigFromSnapshot(self.mappingSyncService.getLastSnapshot());
                 }
 
@@ -161,7 +161,7 @@ public class JdbcPolicyMappingSyncService {
         
         
         if (tenantId != null && !tenantId.trim().isEmpty()) {
-            tenantIdManager.setTenantId(tenantId, false); 
+            tenantIdManager.setWrapperEnrollment(tenantId, null, false);
         }
         
         log.info("JdbcPolicyMappingSyncService initialization notification: initialized={}, tenantId={}", initialized, tenantId);
@@ -295,8 +295,8 @@ public class JdbcPolicyMappingSyncService {
             return;
         }
         String tenantId = tenantIdManager.getCachedTenantId();
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            log.warn("Policy mapping refresh skipped: tenantId not available, trigger={}. Run CLI wrapper schema collect and wrapper schema register first.",
+        if (!tenantIdManager.hasRuntimeEnrollment()) {
+            log.warn("Policy mapping refresh skipped: wrapper enrollment is incomplete, trigger={}. Run CLI wrapper schema register or wrapper enroll first.",
                     trigger);
             return;
         }
@@ -354,13 +354,8 @@ public class JdbcPolicyMappingSyncService {
         
         try {
             
-            String currentTenantId = tenantIdManager.getCachedTenantId();
             Long currentVersion = policyResolver.getCurrentVersion();
             String currentVersionValue = currentVersion != null ? String.valueOf(currentVersion) : null;
-            
-            if (currentTenantId != null && !currentTenantId.trim().isEmpty()) {
-                configStorage.saveConfig(currentTenantId.trim(), null, null, null, currentVersionValue);
-            }
             boolean saved = configStorage.saveEngineEndpoint(cryptoUrl.trim(), currentVersionValue);
             
             if (saved) {
@@ -372,7 +367,7 @@ public class JdbcPolicyMappingSyncService {
                         directCryptoAdapter.setEndpointData(endpointData);
                     }
                     log.info("Engine endpoint from refresh saved in proxy-config.json and applied: cryptoUrl={}, tenantId={}, version={}",
-                            cryptoUrl, currentTenantId, currentVersion);
+                            cryptoUrl, tenantIdManager.getCachedTenantId(), currentVersion);
                 } else {
                     log.warn("Failed to load endpoint info after saving");
                 }

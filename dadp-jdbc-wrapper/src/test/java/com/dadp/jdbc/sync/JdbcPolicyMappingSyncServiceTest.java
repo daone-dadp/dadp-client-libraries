@@ -39,6 +39,14 @@ class JdbcPolicyMappingSyncServiceTest {
     void savesEngineEndpointInProxyConfigFromPolicySnapshotEndpoint() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        assertTrue(configStorage.saveEnrollment(
+                "hub-test",
+                "wrapper-test",
+                "77",
+                "http://hub:9004",
+                null,
+                null,
+                null));
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
         EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
@@ -67,7 +75,7 @@ class JdbcPolicyMappingSyncServiceTest {
         Field tenantIdManagerField = JdbcPolicyMappingSyncService.class.getDeclaredField("tenantIdManager");
         tenantIdManagerField.setAccessible(true);
         WrapperRuntimeConfigManager tenantIdManager = (WrapperRuntimeConfigManager) tenantIdManagerField.get(service);
-        tenantIdManager.setTenantId("hub-test", false);
+        tenantIdManager.setWrapperEnrollment("hub-test", "77", false);
 
         MappingSyncService.EndpointInfo endpointInfo = new MappingSyncService.EndpointInfo();
         endpointInfo.setCryptoUrl("http://engine:9003");
@@ -171,6 +179,14 @@ class JdbcPolicyMappingSyncServiceTest {
     void manualRefreshAppliesEndpointAndCryptoModeFromSnapshot() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        assertTrue(configStorage.saveEnrollment(
+                "wtenant_manual",
+                "manual-refresh-wrapper",
+                "6",
+                "http://hub:9004",
+                null,
+                null,
+                null));
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
         EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
@@ -235,7 +251,6 @@ class JdbcPolicyMappingSyncServiceTest {
     void manualRefreshDoesNotLoadTenantIdOrCallHubWhenServiceIsNotInitialized() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
-        configStorage.saveConfig("wtenant_late_enrolled", null, null, null, "6");
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
         EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
@@ -314,6 +329,14 @@ class JdbcPolicyMappingSyncServiceTest {
     void manualRefreshAppliesEnabledFalseInMemoryWithoutPersistingIt() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        assertTrue(configStorage.saveEnrollment(
+                "wtenant_disabled",
+                "manual-refresh-disabled-wrapper",
+                "10",
+                "http://hub:9004",
+                null,
+                null,
+                null));
 
         MappingSyncService mappingSyncService = mock(MappingSyncService.class);
         EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);

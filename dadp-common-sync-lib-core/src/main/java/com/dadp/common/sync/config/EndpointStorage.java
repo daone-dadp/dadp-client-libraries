@@ -140,11 +140,8 @@ public class EndpointStorage {
         }
 
         try {
-            InstanceConfigStorage configStorage = new InstanceConfigStorage(storageDir, DEFAULT_STORAGE_FILE);
             String runtimeVersion = version != null ? String.valueOf(version) : null;
-            if (tenantId != null && !tenantId.trim().isEmpty()) {
-                configStorage.saveConfig(tenantId.trim(), null, null, null, runtimeVersion);
-            }
+            InstanceConfigStorage configStorage = new InstanceConfigStorage(storageDir, DEFAULT_STORAGE_FILE);
             boolean saved = configStorage.saveEngineEndpoint(cryptoUrl, runtimeVersion);
             log.debug("Runtime engine endpoint saved in proxy-config.json: cryptoUrl={}, tenantId={}, version={} -> {}",
                     cryptoUrl, tenantId, version, storagePath);

@@ -9,7 +9,7 @@ import com.dadp.common.logging.DadpLoggerFactory;
  * Runtime identity is loaded from CLI-owned proxy-config.json.
  *
  * Persistent runtime values:
- * - tenantId
+ * - tenantId and alias
  * - cryptoMode, failOpen, policySyncAutoEnabled
  * - runtimeVersion
  *
@@ -27,6 +27,7 @@ public class WrapperRuntimeConfigManager {
     private final TenantIdChangeCallback changeCallback;
 
     private volatile String cachedTenantId;
+    private volatile String cachedAlias;
     private volatile String cachedRuntimeVersion;
     private volatile String cryptoMode = DEFAULT_CRYPTO_MODE;
     private volatile boolean failOpen = false;
@@ -63,16 +64,29 @@ public class WrapperRuntimeConfigManager {
                 runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
                 absoluteHttpUrl(stored.getHubUrl()),
                 this.runtimeHubUrl);
+        if (runtime != null && runtime.getEnabled() != null) {
+            this.enabled = runtime.getEnabled().booleanValue();
+        }
         this.cryptoMode = normalizeCryptoMode(stored.getCryptoMode());
         this.failOpen = Boolean.TRUE.equals(stored.getFailOpen());
         this.policySyncAutoEnabled = Boolean.TRUE.equals(stored.getPolicySyncAutoEnabled());
 
         String storedTenantId = trimToNull(stored.getTenantId());
-        if (storedTenantId != null) {
-            setTenantId(storedTenantId, false);
+        String expectedAlias = trimToNull(alias);
+        String storedAlias = trimToNull(stored.getAlias());
+        if (storedTenantId != null && storedAlias != null && expectedAlias != null && !expectedAlias.equals(storedAlias)) {
+            log.warn("Wrapper runtime config rejected: alias mismatch, expected={}, stored={}", expectedAlias, storedAlias);
+            return null;
         }
-        log.debug("Wrapper runtime config loaded: tenantId={}, cryptoMode={}, failOpen={}, policySyncAutoEnabled={}",
-                cachedTenantId, cryptoMode, failOpen, policySyncAutoEnabled);
+        if (storedTenantId != null && storedAlias != null) {
+            this.cachedAlias = storedAlias;
+            setTenantId(storedTenantId, false);
+        } else if (storedTenantId != null || storedAlias != null) {
+            log.warn("Wrapper runtime config rejected: proxy-config.json must contain both tenantId and alias");
+            return null;
+        }
+        log.debug("Wrapper runtime config loaded: tenantId={}, alias={}, cryptoMode={}, failOpen={}, policySyncAutoEnabled={}",
+                cachedTenantId, cachedAlias, cryptoMode, failOpen, policySyncAutoEnabled);
         return storedTenantId;
     }
 
@@ -112,6 +126,12 @@ public class WrapperRuntimeConfigManager {
         if (normalizedTenantId == null) {
             return;
         }
+        String alias = trimToNull(aliasProvider.getInstanceId());
+        if (alias == null) {
+            log.warn("Wrapper enrollment ignored: alias is required");
+            return;
+        }
+        this.cachedAlias = alias;
         setTenantId(normalizedTenantId, false);
         String normalizedRuntimeVersion = trimToNull(runtimeVersion);
         if (normalizedRuntimeVersion != null) {
@@ -164,7 +184,7 @@ public class WrapperRuntimeConfigManager {
     }
 
     public boolean hasRuntimeEnrollment() {
-        return hasTenantId();
+        return hasTenantId() && trimToNull(cachedAlias) != null;
     }
 
     public boolean hasTenantId() {
@@ -173,6 +193,10 @@ public class WrapperRuntimeConfigManager {
 
     public String getCachedTenantId() {
         return cachedTenantId;
+    }
+
+    public String getCachedAlias() {
+        return cachedAlias;
     }
 
     public String getCachedRuntimeVersion() {
@@ -202,6 +226,7 @@ public class WrapperRuntimeConfigManager {
     public void clear() {
         String oldTenantId = this.cachedTenantId;
         this.cachedTenantId = null;
+        this.cachedAlias = null;
         this.cachedRuntimeVersion = null;
         this.cryptoMode = DEFAULT_CRYPTO_MODE;
         this.failOpen = false;
@@ -221,12 +246,19 @@ public class WrapperRuntimeConfigManager {
         if (cachedTenantId == null) {
             return;
         }
-        configStorage.saveConfig(
+        String alias = trimToNull(aliasProvider.getInstanceId());
+        if (alias == null) {
+            log.warn("Wrapper enrollment save skipped: alias is required");
+            return;
+        }
+        configStorage.saveEnrollment(
                 cachedTenantId,
-                hubUrl,
+                alias,
+                cachedRuntimeVersion,
+                runtimeHubUrl,
+                canonicalRefreshUrl(),
                 null,
-                Boolean.valueOf(failOpen),
-                cachedRuntimeVersion);
+                null);
     }
 
     private static String normalizeCryptoMode(String value) {

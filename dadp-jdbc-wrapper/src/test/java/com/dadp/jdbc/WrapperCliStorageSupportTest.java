@@ -34,7 +34,7 @@ class WrapperCliStorageSupportTest {
 
     @Test
     void schemaRegisterPayloadReusesExistingTenantIdFromProxyConfig() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "A01", "7", "http://hub:9004");
         assertEquals("7", WrapperCliStorageSupport.loadRuntimeVersion(tempDir.toString()));
 
         Map<String, Object> schemaCache = new LinkedHashMap<>();
@@ -63,11 +63,11 @@ class WrapperCliStorageSupportTest {
 
     @Test
     void refreshResponsePersistsProxyConfigAndPolicyMappings() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "A01", "7", "http://hub:9004");
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
-                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"local\",\"failOpen\":false,\"policySyncAutoEnabled\":true},"
+                + "\"wrapper\":{\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"local\",\"enabled\":false,\"failOpen\":false,\"policySyncAutoEnabled\":true},"
                 + "\"policyBindings\":[{"
                 + "\"schemaName\":\"public\","
                 + "\"tableName\":\"users\","
@@ -92,9 +92,11 @@ class WrapperCliStorageSupportTest {
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
         assertNotNull(config);
+        assertEquals("A01", config.getAlias());
         assertEquals("wtenant_existing", config.getTenantId());
         assertEquals("8", config.getRuntimeVersion());
         assertEquals("local", config.getCryptoMode());
+        assertEquals(Boolean.FALSE, config.getRuntime().getEnabled());
         assertEquals(Boolean.FALSE, config.getFailOpen());
         assertEquals(Boolean.TRUE, config.getPolicySyncAutoEnabled());
         assertEquals("http://dadp-hub:9004", config.getRuntime().getHubUrl());
@@ -114,8 +116,13 @@ class WrapperCliStorageSupportTest {
     }
 
     @Test
-    void refreshResponseRestoresMissingAliasFromHubWrapperIdentity() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+    void refreshResponseRejectsProxyConfigMissingAlias() throws Exception {
+        String proxyConfig = "{"
+                + "\"tenantId\":\"wtenant_existing\","
+                + "\"runtimeVersion\":\"7\","
+                + "\"runtime\":{\"hubUrl\":\"http://stored-hub:9004\"}"
+                + "}";
+        Files.write(tempDir.resolve("proxy-config.json"), proxyConfig.getBytes(StandardCharsets.UTF_8));
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
@@ -123,15 +130,13 @@ class WrapperCliStorageSupportTest {
                 + "\"policyBindings\":[]"
                 + "}";
 
-        WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
-
-        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
-        InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
-        assertNotNull(config);
-        assertEquals("A01", config.getAlias());
-        assertEquals("wtenant_existing", config.getTenantId());
-        assertEquals("8", config.getRuntimeVersion());
-        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineUrl());
+        try {
+            WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("alias is missing"));
+            return;
+        }
+        throw new AssertionError("expected alias-missing proxy-config.json to be rejected");
     }
 
     @Test
@@ -174,7 +179,7 @@ class WrapperCliStorageSupportTest {
 
     @Test
     void relativeRuntimeEngineEndpointDoesNotOverrideAbsoluteWrapperEngineUrl() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "A01", "7", "http://hub:9004");
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
@@ -196,7 +201,7 @@ class WrapperCliStorageSupportTest {
 
     @Test
     void refreshResponseUsesCliHubUrlWhenHubResponseOmitsHubUrl() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "A01", "7", "http://hub:9004");
 
         String response = "{"
                 + "\"runtimeVersion\":8,"
@@ -214,7 +219,27 @@ class WrapperCliStorageSupportTest {
     }
 
     @Test
-    void runtimeOptionSaveWritesTenantIdProvidedByRuntimeWhenFileLostIt() throws Exception {
+    void refreshResponsePreservesExistingAliasWhenHubResponseOmitsAlias() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "orders-db", "7", "http://stored-hub:9004");
+
+        String response = "{"
+                + "\"runtimeVersion\":8,"
+                + "\"wrapper\":{\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"remote\",\"failOpen\":false},"
+                + "\"policyBindings\":[]"
+                + "}";
+
+        WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response, "http://cli-hub:9004");
+
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
+        assertNotNull(config);
+        assertEquals("orders-db", config.getAlias());
+        assertEquals("wtenant_existing", config.getTenantId());
+        assertEquals("8", config.getRuntimeVersion());
+    }
+
+    @Test
+    void runtimeOptionSaveRejectsMissingEnrollmentIdentity() throws Exception {
         String proxyConfig = "{"
                 + "\"runtimeVersion\":\"4\","
                 + "\"hubUrl\":null,"
@@ -223,16 +248,14 @@ class WrapperCliStorageSupportTest {
         Files.write(tempDir.resolve("proxy-config.json"), proxyConfig.getBytes(StandardCharsets.UTF_8));
 
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
-        configStorage.saveRuntimeOptions("remote", Boolean.FALSE, Boolean.TRUE, "9", "http://dadp-engine:9003", "wtenant_runtime");
+        assertFalse(configStorage.saveRuntimeOptions("remote", Boolean.FALSE, Boolean.TRUE, "9", "http://dadp-engine:9003", "wtenant_runtime"));
 
         JsonNode json = new ObjectMapper().readTree(tempDir.resolve("proxy-config.json").toFile());
-        assertEquals("wtenant_runtime", json.path("tenantId").asText());
-        assertEquals("9", json.path("runtimeVersion").asText());
-        assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineUrl").asText());
-        assertEquals("remote", json.path("runtime").path("cryptoMode").asText());
-        assertTrue(json.path("runtime").path("policySyncAutoEnabled").asBoolean(false));
-        assertFalse(json.has("hubUrl"));
-        assertFalse(json.has("instanceId"));
+        assertFalse(json.has("tenantId"));
+        assertEquals("4", json.path("runtimeVersion").asText());
+        assertFalse(json.has("runtime"));
+        assertTrue(json.has("hubUrl"));
+        assertTrue(json.has("instanceId"));
         assertFalse(json.has("engine"));
     }
 }

@@ -64,6 +64,57 @@ class WrapperCliStorageCommandTest {
     }
 
     @Test
+    void commandRejectsInitialEnrollmentWithoutAlias() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int saveCode = WrapperCliStorageCommand.run(new String[] {
+                "save-enrollment",
+                "--storage-dir", tempDir.toString(),
+                "--tenant-id", "wtenant_cli",
+                "--runtime-version", "1"
+        }, new PrintStream(out), new PrintStream(err));
+
+        assertEquals(2, saveCode);
+        JsonNode result = new ObjectMapper().readTree(out.toString("UTF-8"));
+        assertEquals(false, result.path("saved").asBoolean(true));
+    }
+
+    @Test
+    void commandKeepsExistingAliasWhenEnrollmentAliasIsOmitted() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_cli", "orders-db", "1", "http://hub:9004");
+
+        int saveCode = WrapperCliStorageCommand.run(new String[] {
+                "save-enrollment",
+                "--storage-dir", tempDir.toString(),
+                "--tenant-id", "wtenant_cli",
+                "--runtime-version", "2",
+                "--runtime-hub-url", "http://hub:9004"
+        }, new PrintStream(new ByteArrayOutputStream()), new PrintStream(new ByteArrayOutputStream()));
+
+        assertEquals(0, saveCode);
+        JsonNode stored = new ObjectMapper().readTree(tempDir.resolve("proxy-config.json").toFile());
+        assertEquals("orders-db", stored.path("alias").asText());
+        assertEquals("2", stored.path("runtimeVersion").asText());
+    }
+
+    @Test
+    void commandPersistedEnrollmentContainsAlias() throws Exception {
+        int saveCode = WrapperCliStorageCommand.run(new String[] {
+                "save-enrollment",
+                "--storage-dir", tempDir.toString(),
+                "--tenant-id", "wtenant_cli",
+                "--alias", "orders-db",
+                "--runtime-version", "1",
+                "--runtime-hub-url", "http://dadp-hub:9004"
+        }, new PrintStream(new ByteArrayOutputStream()), new PrintStream(new ByteArrayOutputStream()));
+
+        assertEquals(0, saveCode);
+        JsonNode stored = new ObjectMapper().readTree(tempDir.resolve("proxy-config.json").toFile());
+        assertEquals("orders-db", stored.path("alias").asText());
+        assertEquals("wtenant_cli", stored.path("tenantId").asText());
+    }
+
+    @Test
     void commandAppliesRefreshResponseWithCliHubUrlFallback() throws Exception {
         WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_cli", "A01", "1", null);
         String response = "{"
@@ -89,7 +140,7 @@ class WrapperCliStorageCommandTest {
 
     @Test
     void commandBuildsSchemaRegisterPayloadWithoutCliDtoReimplementation() throws Exception {
-        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "1");
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "A01", "1", "http://hub:9004");
         Path schemasJson = tempDir.resolve("schemas.json");
         Files.write(schemasJson, ("{"
                 + "\"alias\":\"A01\","

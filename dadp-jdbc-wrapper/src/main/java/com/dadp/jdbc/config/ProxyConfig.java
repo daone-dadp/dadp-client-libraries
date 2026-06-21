@@ -73,7 +73,7 @@ public class ProxyConfig {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
         RuntimeStorage runtimeStorage = discoverRuntimeStorage();
         InstanceConfigStorage.ConfigData storedConfig = runtimeStorage != null ? runtimeStorage.configData : null;
-        String aliasProp = storedConfig != null ? firstNonBlank(storedConfig.getAlias(), runtimeStorage.aliasFromPath) : null;
+        String aliasProp = storedConfig != null ? trimToNull(storedConfig.getAlias()) : null;
         this.alias = aliasProp;
         this.aliasConfigured = aliasProp != null;
         this.storageDir = runtimeStorage != null ? runtimeStorage.storageDir : null;
@@ -226,30 +226,28 @@ public class ProxyConfig {
     }
     
     /**
-     * tenantId 조회 (캐시된 값만 반환, 파일 읽기 없음)
-     * 
-     * 오케스트레이터에서만 공통 라이브러리(InstanceConfigStorage)를 직접 사용하고,
-     * 여기서는 오케스트레이터가 설정한 캐시된 값만 반환합니다.
-     * 
-     * @return tenantId, 없으면 null
+     * Returns the cached tenantId without reading runtime files.
+     *
+     * <p>Only the bootstrap orchestrator reads the shared runtime storage. This
+     * object returns the cached value set by the orchestrator.</p>
+     *
+     * @return cached tenantId, or null when not enrolled
      */
     public String getTenantId() {
-        // 캐시된 값만 반환 (파일 읽기 없음)
-        // 오케스트레이터에서 setTenantId()로 설정한 값만 사용
+        // Return only the cached value set by the orchestrator.
         return tenantId;
     }
     
     /**
-     * tenantId 저장 (캐시만 업데이트, 영구저장소는 WrapperRuntimeConfigManager에서 관리)
-     * 
-     * @param tenantId Hub가 발급한 고유 ID
-     * @deprecated tenantId는 WrapperRuntimeConfigManager에서 전역으로 관리되므로 이 메서드는 캐시만 업데이트합니다.
-     *             실제 저장은 WrapperRuntimeConfigManager.setTenantId()를 사용하세요.
+     * Updates the cached tenantId only. Persistent identity is owned by
+     * WrapperRuntimeConfigManager.
+     *
+     * @param tenantId Hub-issued wrapper tenant ID
+     * @deprecated Use WrapperRuntimeConfigManager for runtime identity.
      */
     @Deprecated
     public void setTenantId(String tenantId) {
-        // 캐시만 업데이트 (하위 호환성을 위해 유지)
-        // 실제 저장은 WrapperRuntimeConfigManager에서 관리
+        // Compatibility cache only; persistent storage is managed elsewhere.
         this.tenantId = tenantId;
     }
     
@@ -380,8 +378,10 @@ public class ProxyConfig {
             }
             InstanceConfigStorage storage = new InstanceConfigStorage(child.getAbsolutePath(), "proxy-config.json");
             InstanceConfigStorage.ConfigData configData = storage.loadConfig(null, null);
-            if (configData != null && trimToNull(configData.getTenantId()) != null) {
-                candidates.add(new RuntimeStorage(child.getAbsolutePath(), child.getName(), configData));
+            String tenantId = configData != null ? trimToNull(configData.getTenantId()) : null;
+            String alias = configData != null ? trimToNull(configData.getAlias()) : null;
+            if (tenantId != null && alias != null) {
+                candidates.add(new RuntimeStorage(child.getAbsolutePath(), alias, configData));
             }
         }
 
@@ -395,7 +395,7 @@ public class ProxyConfig {
                 if (names.length() > 0) {
                     names.append(", ");
                 }
-                names.append(candidate.aliasFromPath);
+                names.append(candidate.alias);
             }
             log.warn("Multiple wrapper runtime enrollments found under {}: {}. Use an isolated wrapper lib dir or keep one alias directory.",
                     root, names);
@@ -432,12 +432,12 @@ public class ProxyConfig {
 
     private static final class RuntimeStorage {
         private final String storageDir;
-        private final String aliasFromPath;
+        private final String alias;
         private final InstanceConfigStorage.ConfigData configData;
 
-        private RuntimeStorage(String storageDir, String aliasFromPath, InstanceConfigStorage.ConfigData configData) {
+        private RuntimeStorage(String storageDir, String alias, InstanceConfigStorage.ConfigData configData) {
             this.storageDir = storageDir;
-            this.aliasFromPath = aliasFromPath;
+            this.alias = alias;
             this.configData = configData;
         }
     }

@@ -17,7 +17,7 @@ public final class StoragePathResolver {
     }
 
     public static String resolveStorageDir() {
-        return resolveStorageDir(null);
+        throw new IllegalStateException("Wrapper alias is required to resolve runtime storage directory");
     }
 
     public static String resolveStorageDir(String alias) {
@@ -27,11 +27,13 @@ public final class StoragePathResolver {
     public static String resolveStorageDir(String alias, String wrapperLibDir) {
         String normalizedAlias = normalize(alias);
         String normalizedLibDir = normalize(wrapperLibDir);
+        if (normalizedAlias == null) {
+            throw new IllegalStateException("Wrapper alias is required to resolve runtime storage directory");
+        }
         if (normalizedLibDir == null) {
             throw new IllegalStateException("Wrapper library directory cannot be resolved");
         }
-        String storageName = normalizedAlias != null ? normalizedAlias : "shared";
-        return Paths.get(resolveWrapperStorageRoot(normalizedLibDir), storageName).toString();
+        return Paths.get(resolveWrapperStorageRoot(normalizedLibDir), normalizedAlias).toString();
     }
 
     public static String resolveWrapperStorageRoot() {

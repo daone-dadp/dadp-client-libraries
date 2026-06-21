@@ -1,6 +1,5 @@
 package com.dadp.jdbc.config;
 
-import com.dadp.common.sync.config.StoragePathResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -12,16 +11,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Proxy 설정 영구 저장소
- * 
- * @deprecated 이 클래스는 더 이상 사용되지 않습니다.
- *             공통 라이브러리의 {@link com.dadp.common.sync.config.InstanceConfigStorage}를 사용하세요.
- *             
- *             마이그레이션:
- *             - 기존: new ProxyConfigStorage()
- *             - 신규: new InstanceConfigStorage(storageDir, fileName)
- *             
- *             이 클래스는 하위 호환성을 위해 유지되지만, 새로운 코드에서는 사용하지 마세요.
+ * Legacy proxy configuration storage.
+ *
+ * @deprecated Use {@link com.dadp.common.sync.config.InstanceConfigStorage}.
  * 
  * @author DADP Development Team
  * @version 4.8.1
@@ -33,42 +25,30 @@ public class ProxyConfigStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfigStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = StoragePathResolver.resolveStorageDir();
     private static final String DEFAULT_STORAGE_FILE = "proxy-config.json";
     
     private final String storagePath;
     private final ObjectMapper objectMapper;
     
-    /**
-     * 기본 생성자 (사용자 홈 디렉토리 사용)
-     */
     public ProxyConfigStorage() {
-        this(DEFAULT_STORAGE_DIR, DEFAULT_STORAGE_FILE);
+        throw new IllegalStateException("ProxyConfigStorage requires an explicit alias storage directory");
     }
     
     /**
-     * 커스텀 저장 경로 지정
-     * 
-     * @param storageDir 저장 디렉토리
-     * @param fileName 파일명
+     * Creates storage with an explicit wrapper-managed directory.
+     *
+     * @param storageDir wrapper-managed storage directory
+     * @param fileName storage file name
      */
     public ProxyConfigStorage(String storageDir, String fileName) {
-        // 디렉토리 생성
         Path dirPath = Paths.get(storageDir);
         String finalStoragePath = null;
         try {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
-            // 기본 경로로 폴백
-            try {
-                Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
-                finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
-            } catch (IOException e2) {
-                log.error("Failed to create default storage directory: {}", DEFAULT_STORAGE_DIR, e2);
-                finalStoragePath = null; // 저장 불가
-            }
+            log.warn("Failed to create storage directory: {} (storage unavailable)", storageDir, e);
+            finalStoragePath = null;
         }
         
         this.storagePath = finalStoragePath;

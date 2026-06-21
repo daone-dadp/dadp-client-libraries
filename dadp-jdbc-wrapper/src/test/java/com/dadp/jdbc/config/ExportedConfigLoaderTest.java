@@ -128,6 +128,7 @@ class ExportedConfigLoaderTest {
                 new InstanceConfigStorage(storageDir.toString(), "instance-config.json");
         WrapperRuntimeConfigManager manager =
                 new WrapperRuntimeConfigManager(configStorage, "http://hub:9004", new InstanceIdProvider("wrapper-test"), null);
+        manager.setWrapperEnrollment("wtenant_wrapper_test", "6", true);
 
         assertEquals("remote", manager.getCryptoMode());
         assertEquals(false, manager.isFailOpen());

@@ -59,14 +59,13 @@ public class InstanceConfigStorage {
     }
     
     /**
-     * Saves legacy-compatible wrapper instance configuration.
+     * Saves runtime option compatibility fields without creating wrapper identity.
      *
-     * @param tenantId Hub-issued wrapper tenant ID
-     * @param hubUrl Hub URL. DADP 6 wrapper keeps hubUrl as a JDBC URL-only input; this value is accepted
-     *               for legacy callers but is not persisted as runtime configuration.
-     * @param instanceId legacy user-defined instance alias
-     * @param failOpen Fail-open mode. DADP 6 runtime refresh is the final source for this option.
-     * @return true when the configuration was saved
+     * <p>DADP 6 wrapper identity is valid only when {@code alias + tenantId}
+     * already exist in {@code proxy-config.json}. This compatibility method must
+     * never create or repair identity from a tenantId-only caller.</p>
+     *
+     * @return true when the existing enrollment was updated
      */
     public boolean saveConfig(String tenantId, String hubUrl, String instanceId, Boolean failOpen) {
         return saveConfig(tenantId, hubUrl, instanceId, failOpen, null);
@@ -88,21 +87,29 @@ public class InstanceConfigStorage {
         try {
             ObjectNode data = loadExistingObjectNode();
             data.put("timestamp", System.currentTimeMillis());
-            if (tenantId != null) {
-                data.put("tenantId", tenantId);
+            String existingTenantId = text(data.path("tenantId"));
+            String existingAlias = text(data.path("alias"));
+            if (existingTenantId == null || existingAlias == null) {
+                log.warn("Instance config save rejected: proxy-config.json must already contain tenantId and alias");
+                return false;
+            }
+            String normalizedTenantId = trimToNull(tenantId);
+            if (normalizedTenantId != null && !existingTenantId.equals(normalizedTenantId)) {
+                log.warn("Instance config save rejected: tenantId mismatch");
+                return false;
             }
             removeNonPersistentBootstrapFields(data);
             if (runtimeVersion != null) {
                 data.put("runtimeVersion", runtimeVersion);
             }
-            saveRuntimeConfig(data, null, null, null, failOpen, null);
+            saveRuntimeConfig(data, null, null, null, failOpen, null, null);
             
             // Persist the canonical JSON file used by CLI and wrapper runtime.
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
             
-            log.debug("Instance config saved: tenantId={}, hubUrl={}, instanceId={} -> {}",
-                    text(data.path("tenantId")), text(data.path("hubUrl")), text(data.path("instanceId")), storagePath);
+            log.debug("Instance config saved: tenantId={}, alias={} -> {}",
+                    text(data.path("tenantId")), text(data.path("alias")), storagePath);
             return true;
 
         } catch (IOException e) {
@@ -133,17 +140,30 @@ public class InstanceConfigStorage {
         try {
             ObjectNode data = loadExistingObjectNode();
             data.put("timestamp", System.currentTimeMillis());
-            if (tenantId != null && !tenantId.trim().isEmpty()) {
-                data.put("tenantId", tenantId.trim());
+            String normalizedTenantId = trimToNull(tenantId);
+            String currentTenantId = text(data.path("tenantId"));
+            String currentAlias = text(data.path("alias"));
+            String requestedAlias = trimToNull(alias);
+            String resolvedAlias = firstNonBlank(requestedAlias, currentAlias);
+            if (normalizedTenantId == null || resolvedAlias == null) {
+                log.warn("Wrapper enrollment save rejected: tenantId and alias are required for initial enrollment");
+                return false;
             }
-            if (alias != null && !alias.trim().isEmpty()) {
-                data.put("alias", alias.trim());
+            if (currentTenantId != null && !currentTenantId.equals(normalizedTenantId)) {
+                log.warn("Wrapper enrollment save rejected: tenantId mismatch");
+                return false;
             }
+            if (currentAlias != null && requestedAlias != null && !currentAlias.equals(requestedAlias)) {
+                log.warn("Wrapper enrollment save rejected: alias mismatch");
+                return false;
+            }
+            data.put("tenantId", normalizedTenantId);
+            data.put("alias", resolvedAlias);
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 data.put("runtimeVersion", runtimeVersion.trim());
             }
             String resolvedRuntimeHubUrl = firstNonBlank(runtimeHubUrl, extractRuntimeHubUrl(refreshUrl));
-            saveRuntimeConfig(data, resolvedRuntimeHubUrl, null, null, null, null);
+            saveRuntimeConfig(data, resolvedRuntimeHubUrl, null, null, null, null, null);
             removeNonPersistentBootstrapFields(data);
 
             File storageFile = new File(storagePath);
@@ -186,7 +206,7 @@ public class InstanceConfigStorage {
                                       String engineUrl,
                                       String tenantId) {
         return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled,
-                runtimeVersion, engineUrl, tenantId, null, null, null, null);
+                runtimeVersion, engineUrl, tenantId, null, null, null, null, null);
     }
 
     public boolean saveRuntimeOptions(String cryptoMode,
@@ -199,6 +219,22 @@ public class InstanceConfigStorage {
                                       String refreshUrl,
                                       String schemaSyncUrl,
                                       String engineEndpointUrl) {
+        return saveRuntimeOptions(cryptoMode, failOpen, policySyncAutoEnabled,
+                runtimeVersion, engineUrl, tenantId, runtimeHubUrl,
+                refreshUrl, schemaSyncUrl, engineEndpointUrl, null);
+    }
+
+    public boolean saveRuntimeOptions(String cryptoMode,
+                                      Boolean failOpen,
+                                      Boolean policySyncAutoEnabled,
+                                      String runtimeVersion,
+                                      String engineUrl,
+                                      String tenantId,
+                                      String runtimeHubUrl,
+                                      String refreshUrl,
+                                      String schemaSyncUrl,
+                                      String engineEndpointUrl,
+                                      Boolean enabled) {
         if (storagePath == null) {
             log.warn("Storage path not set, cannot save runtime options");
             return false;
@@ -208,8 +244,16 @@ public class InstanceConfigStorage {
             ObjectNode data = loadExistingObjectNode();
             data.put("timestamp", System.currentTimeMillis());
             removeNonPersistentBootstrapFields(data);
-            if (tenantId != null && !tenantId.trim().isEmpty()) {
-                data.put("tenantId", tenantId.trim());
+            String existingTenantId = text(data.path("tenantId"));
+            String existingAlias = text(data.path("alias"));
+            if (existingTenantId == null || existingAlias == null) {
+                log.warn("Runtime option save rejected: proxy-config.json must already contain tenantId and alias");
+                return false;
+            }
+            String normalizedTenantId = trimToNull(tenantId);
+            if (normalizedTenantId != null && !existingTenantId.equals(normalizedTenantId)) {
+                log.warn("Runtime option save rejected: tenantId mismatch");
+                return false;
             }
             if (runtimeVersion != null && !runtimeVersion.trim().isEmpty()) {
                 String normalizedRuntimeVersion = runtimeVersion.trim();
@@ -220,7 +264,7 @@ public class InstanceConfigStorage {
                 }
             }
             String resolvedRuntimeHubUrl = firstNonBlank(runtimeHubUrl, extractRuntimeHubUrl(refreshUrl));
-            saveRuntimeConfig(data, resolvedRuntimeHubUrl, engineUrl, cryptoMode, failOpen, policySyncAutoEnabled);
+            saveRuntimeConfig(data, resolvedRuntimeHubUrl, engineUrl, cryptoMode, failOpen, policySyncAutoEnabled, enabled);
 
             File storageFile = new File(storagePath);
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
@@ -359,12 +403,13 @@ public class InstanceConfigStorage {
                                    String engineUrl,
                                    String cryptoMode,
                                    Boolean failOpen,
-                                   Boolean policySyncAutoEnabled) {
+                                   Boolean policySyncAutoEnabled,
+                                   Boolean enabled) {
         String normalizedHubUrl = trimToNull(runtimeHubUrl);
         String normalizedEngineUrl = absoluteHttpUrl(engineUrl);
         String normalizedCryptoMode = trimToNull(cryptoMode);
         if (normalizedHubUrl == null && normalizedEngineUrl == null
-                && normalizedCryptoMode == null && failOpen == null && policySyncAutoEnabled == null) {
+                && normalizedCryptoMode == null && failOpen == null && policySyncAutoEnabled == null && enabled == null) {
             cleanupDerivedRuntimeFields(data);
             return;
         }
@@ -391,6 +436,9 @@ public class InstanceConfigStorage {
         }
         if (policySyncAutoEnabled != null) {
             runtime.put("policySyncAutoEnabled", policySyncAutoEnabled.booleanValue());
+        }
+        if (enabled != null) {
+            runtime.put("enabled", enabled.booleanValue());
         }
         cleanupDerivedRuntimeFields(data);
     }
@@ -646,6 +694,7 @@ public class InstanceConfigStorage {
         private String engineEndpointUrl;
         private String engineUrl;
         private String cryptoMode;
+        private Boolean enabled;
         private Boolean failOpen;
         private Boolean policySyncAutoEnabled;
 
@@ -695,6 +744,14 @@ public class InstanceConfigStorage {
 
         public void setCryptoMode(String cryptoMode) {
             this.cryptoMode = cryptoMode;
+        }
+
+        public Boolean getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Boolean enabled) {
+            this.enabled = enabled;
         }
 
         public Boolean getFailOpen() {

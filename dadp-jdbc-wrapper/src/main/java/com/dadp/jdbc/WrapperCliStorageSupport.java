@@ -118,10 +118,6 @@ public final class WrapperCliStorageSupport {
                 clientInstanceId);
     }
 
-    public static boolean saveEnrollment(String storageDir, String tenantId, String runtimeVersion) {
-        return saveEnrollment(storageDir, tenantId, null, runtimeVersion, null);
-    }
-
     public static boolean saveEnrollment(String storageDir,
                                          String tenantId,
                                          String alias,
@@ -166,12 +162,22 @@ public final class WrapperCliStorageSupport {
 
         String runtimeVersion = text(root.path("runtimeVersion"));
         JsonNode wrapper = root.path("wrapper");
-        String responseAlias = text(wrapper.path("alias"));
         String currentAlias = currentConfig != null ? trimToNull(currentConfig.getAlias()) : null;
+        if (currentAlias == null) {
+            throw new IllegalStateException("alias is missing in proxy-config.json");
+        }
+        String responseAlias = text(wrapper.path("alias"));
+        if (responseAlias != null && !currentAlias.equals(responseAlias)) {
+            throw new IllegalStateException("wrapper alias mismatch in Hub refresh response");
+        }
         String cryptoMode = firstNonNull(
                 text(root.path("runtime").path("cryptoMode")),
                 text(wrapper.path("cryptoMode")),
                 text(wrapper.path("options").path("cryptoMode")));
+        Boolean enabled = firstBoolean(
+                booleanValue(root.path("runtime").path("enabled")),
+                booleanValue(wrapper.path("enabled")),
+                booleanValue(wrapper.path("options").path("enabled")));
         Boolean failOpen = firstBoolean(
                 booleanValue(root.path("runtime").path("failOpen")),
                 booleanValue(wrapper.path("failOpen")),
@@ -184,15 +190,12 @@ public final class WrapperCliStorageSupport {
                 ? firstAbsoluteHttpUrl(currentConfig.getRuntime().getHubUrl())
                 : null;
         String runtimeHubUrl = firstAbsoluteHttpUrl(
-                runtimeHubUrlFallback,
-                currentRuntimeHubUrl,
                 text(wrapper.path("hubUrl")),
-                text(wrapper.path("options").path("hubUrl")));
+                text(wrapper.path("options").path("hubUrl")),
+                runtimeHubUrlFallback,
+                currentRuntimeHubUrl);
         if (runtimeHubUrl == null) {
-            throw new IllegalStateException("wrapper runtime hubUrl is missing. Run dadp --hub-url <hub-url> login and retry wrapper refresh.");
-        }
-        if (currentAlias == null && responseAlias != null) {
-            configStorage.saveEnrollment(tenantId, responseAlias, runtimeVersion, runtimeHubUrl, null, null, null);
+            throw new IllegalStateException("wrapper runtime hubUrl is missing. Run wrapper refresh with --wrapper-hub-url <runtime-hub-url>.");
         }
         String engineUrl = firstAbsoluteHttpUrl(
                 text(root.path("runtime").path("engineUrl")),
@@ -208,7 +211,8 @@ public final class WrapperCliStorageSupport {
                 runtimeHubUrl,
                 null,
                 null,
-                null);
+                null,
+                enabled);
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
@@ -270,7 +274,8 @@ public final class WrapperCliStorageSupport {
         }
         JsonNode root = OBJECT_MAPPER.readTree(proxyConfigPath.toFile());
         String tenantId = text(root.path("tenantId"));
-        if (tenantId == null) {
+        String alias = text(root.path("alias"));
+        if (tenantId == null || alias == null) {
             return;
         }
         Path storageDir = proxyConfigPath.getParent();
@@ -278,7 +283,7 @@ public final class WrapperCliStorageSupport {
                 storageDir != null ? storageDir.toString() : "",
                 proxyConfigPath.toString(),
                 tenantId,
-                text(root.path("alias")),
+                alias,
                 text(root.path("runtimeVersion"))));
     }
 

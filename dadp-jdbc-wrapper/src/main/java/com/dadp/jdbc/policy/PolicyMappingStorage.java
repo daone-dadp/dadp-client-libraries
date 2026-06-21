@@ -1,6 +1,5 @@
 package com.dadp.jdbc.policy;
 
-import com.dadp.common.sync.config.StoragePathResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
@@ -14,13 +13,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 정책 매핑 영구 저장소
- * 
- * Hub에서 받은 정책 매핑 정보(테이블.컬럼 → 정책명)를 파일에 저장하고,
- * Hub가 다운되어도 저장된 정보를 사용할 수 있도록 합니다.
- * 
- * @deprecated 이 클래스는 더 이상 사용되지 않습니다.
- *             대신 {@link com.dadp.common.sync.policy.PolicyMappingStorage}를 사용하세요.
+ * Legacy policy mapping storage.
+ *
+ * @deprecated Use {@link com.dadp.common.sync.policy.PolicyMappingStorage}.
  * 
  * @author DADP Development Team
  * @version 4.8.0
@@ -31,42 +26,30 @@ public class PolicyMappingStorage {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(PolicyMappingStorage.class);
     
-    private static final String DEFAULT_STORAGE_DIR = StoragePathResolver.resolveStorageDir();
     private static final String DEFAULT_STORAGE_FILE = "policy-mappings.json";
     
     private final String storagePath;
     private final ObjectMapper objectMapper;
     
-    /**
-     * 기본 생성자 (사용자 홈 디렉토리 사용)
-     */
     public PolicyMappingStorage() {
-        this(DEFAULT_STORAGE_DIR, DEFAULT_STORAGE_FILE);
+        throw new IllegalStateException("PolicyMappingStorage requires an explicit alias storage directory");
     }
     
     /**
-     * 커스텀 저장 경로 지정
-     * 
-     * @param storageDir 저장 디렉토리
-     * @param fileName 파일명
+     * Creates storage with an explicit wrapper-managed directory.
+     *
+     * @param storageDir wrapper-managed storage directory
+     * @param fileName storage file name
      */
     public PolicyMappingStorage(String storageDir, String fileName) {
-        // 디렉토리 생성
         Path dirPath = Paths.get(storageDir);
         String finalStoragePath = null;
         try {
             Files.createDirectories(dirPath);
             finalStoragePath = Paths.get(storageDir, fileName).toString();
         } catch (IOException e) {
-            log.warn("Failed to create storage directory: {} (using default path)", storageDir, e);
-            // 기본 경로로 폴백
-            try {
-                Files.createDirectories(Paths.get(DEFAULT_STORAGE_DIR));
-                finalStoragePath = Paths.get(DEFAULT_STORAGE_DIR, fileName).toString();
-            } catch (IOException e2) {
-                log.error("Failed to create default storage directory: {}", DEFAULT_STORAGE_DIR, e2);
-                finalStoragePath = null; // 저장 불가
-            }
+            log.warn("Failed to create storage directory: {} (storage unavailable)", storageDir, e);
+            finalStoragePath = null;
         }
         
         this.storagePath = finalStoragePath;
@@ -212,4 +195,3 @@ public class PolicyMappingStorage {
         }
     }
 }
-

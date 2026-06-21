@@ -22,12 +22,14 @@ class StoragePathResolverTest {
     }
 
     @Test
-    void sharedStorageDirIsResolvedFromWrapperLibDirWhenAliasIsMissing() {
-        String resolved = StoragePathResolver.resolveStorageDir(
-                "",
-                tempDir.resolve("lib").toString());
-
-        assertEquals(tempDir.resolve("lib").resolve("dadp").resolve("wrapper").resolve("shared").toString(), resolved);
+    void aliasIsRequiredForRuntimeStorageDir() {
+        try {
+            StoragePathResolver.resolveStorageDir("", tempDir.resolve("lib").toString());
+        } catch (IllegalStateException e) {
+            assertEquals("Wrapper alias is required to resolve runtime storage directory", e.getMessage());
+            return;
+        }
+        throw new AssertionError("Expected IllegalStateException");
     }
 
     @Test
