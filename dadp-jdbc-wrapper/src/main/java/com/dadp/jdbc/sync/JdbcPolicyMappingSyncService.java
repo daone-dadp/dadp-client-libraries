@@ -416,10 +416,12 @@ public class JdbcPolicyMappingSyncService {
 
 
     /**
-     * Hub PolicySnapshot wrapperConfig를 ProxyConfig에 반영합니다.
-     * wrapperConfig가 null이거나 enabled 필드가 없으면 아무것도 하지 않습니다.
+     * Applies wrapper runtime options included in the Hub policy snapshot.
      *
-     * @param snapshot 마지막으로 수신한 PolicySnapshot
+     * <p>The policy snapshot version is not the wrapper runtime version. Runtime version is
+     * owned by the wrapper refresh contract and must not be overwritten here.</p>
+     *
+     * @param snapshot last policy snapshot received from Hub
      */
     private void applyWrapperConfigFromSnapshot(MappingSyncService.PolicySnapshot snapshot) {
         if (snapshot == null) {
@@ -427,16 +429,13 @@ public class JdbcPolicyMappingSyncService {
         }
         MappingSyncService.WrapperConfig wrapperConfig = snapshot.getWrapperConfig();
         if (wrapperConfig == null) return;
-        String runtimeVersion = snapshot.getVersion() != null
-                ? String.valueOf(snapshot.getVersion())
-                : tenantIdManager.getCachedRuntimeVersion();
         if (configStorage != null) {
             try {
                 configStorage.saveRuntimeOptions(
                         wrapperConfig.getCryptoMode(),
                         wrapperConfig.getFailOpen(),
                         wrapperConfig.getPolicySyncAutoEnabled(),
-                        runtimeVersion,
+                        null,
                         null,
                         tenantIdManager.getCachedTenantId());
                 tenantIdManager.applyRefreshOptions(
@@ -444,7 +443,7 @@ public class JdbcPolicyMappingSyncService {
                         wrapperConfig.getCryptoMode(),
                         wrapperConfig.getFailOpen(),
                         wrapperConfig.getPolicySyncAutoEnabled(),
-                        runtimeVersion,
+                        null,
                         false);
             } catch (Exception e) {
                 log.warn("Failed to persist runtime wrapper options from Hub refresh: {}", e.getMessage());

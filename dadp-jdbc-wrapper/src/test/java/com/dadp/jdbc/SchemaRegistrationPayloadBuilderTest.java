@@ -56,6 +56,31 @@ class SchemaRegistrationPayloadBuilderTest {
         assertEquals(2, columns.size());
     }
 
+    @Test
+    void buildsSchemaCacheWithoutAliasForCollectOnlyFlow() throws Exception {
+        String actualUrl = "jdbc:mysql://192.168.0.33:3306/test_app_mysql_db?useSSL=false";
+
+        Map<String, Object> payload = SchemaRegistrationPayloadBuilder.buildSchemaCache(
+                null,
+                actualUrl,
+                connection("MySQL", "test_app_mysql_db", null),
+                schemas(),
+                null,
+                "6.0.0",
+                null
+        );
+
+        assertFalse(payload.containsKey("alias"), "schema collect must not require alias");
+        assertEquals("JDBC", payload.get("wrapperType"));
+
+        Map<?, ?> datasource = (Map<?, ?>) payload.get("datasource");
+        assertFalse(datasource.containsKey("datasourceKey"), "datasourceKey is assigned when alias is registered");
+        assertEquals("mysql", datasource.get("vendor"));
+        assertEquals("192.168.0.33", datasource.get("host"));
+        assertEquals(3306, datasource.get("port"));
+        assertEquals("test_app_mysql_db", datasource.get("databaseName"));
+    }
+
     private static List<SchemaMetadata> schemas() {
         SchemaMetadata id = schema("test_app_mysql_db", "test_app_mysql_db", "customers", "id", "BIGINT", false);
         SchemaMetadata email = schema("test_app_mysql_db", "test_app_mysql_db", "customers", "email", "VARCHAR", true);

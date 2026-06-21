@@ -67,7 +67,14 @@ public final class SchemaRegistrationPayloadBuilder {
                                                        String appName,
                                                        String wrapperVersion,
                                                        String clientInstanceId) throws SQLException {
-        throw new IllegalArgumentException("alias must be supplied separately in DADP 6 schema collect");
+        return buildSchemaCacheWithAlias(
+                null,
+                actualJdbcUrl,
+                connection,
+                schemas,
+                appName,
+                wrapperVersion,
+                clientInstanceId);
     }
 
     public static Map<String, Object> buildSchemaCacheWithAlias(String alias,
@@ -78,15 +85,12 @@ public final class SchemaRegistrationPayloadBuilder {
                                                                 String wrapperVersion,
                                                                 String clientInstanceId) throws SQLException {
         alias = trimToNull(alias);
-        if (alias == null) {
-            throw new IllegalArgumentException("alias is required");
-        }
 
         DatabaseMetaData metaData = connection.getMetaData();
         DatasourceDescriptor datasource = describeDatasource(actualJdbcUrl, connection, metaData, alias);
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("alias", alias);
+        putIfNotBlank(payload, "alias", alias);
         payload.put("wrapperType", "JDBC");
         putIfNotBlank(payload, "appName", appName);
         putIfNotBlank(payload, "wrapperVersion", wrapperVersion);

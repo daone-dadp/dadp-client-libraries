@@ -23,7 +23,7 @@ public final class WrapperSchemaCollectSupport {
                                                          String appName,
                                                          String wrapperVersion,
                                                          String clientInstanceId) throws Exception {
-        throw new IllegalArgumentException("alias must be supplied separately in DADP 6 schema collect");
+        return collectSchemaCache(null, dadpJdbcUrl, connection, appName, wrapperVersion, clientInstanceId);
     }
 
     public static Map<String, Object> collectSchemaCache(String alias,
@@ -33,13 +33,10 @@ public final class WrapperSchemaCollectSupport {
                                                          String wrapperVersion,
                                                          String clientInstanceId) throws Exception {
         alias = trimToNull(alias);
-        if (alias == null) {
-            throw new IllegalArgumentException("alias is required");
-        }
         DadpJdbcUrlSupport.validateNoDadpRuntimeParams(dadpJdbcUrl);
         String actualJdbcUrl = DadpJdbcUrlSupport.extractActualUrl(dadpJdbcUrl);
 
-        JdbcSchemaCollector collector = new JdbcSchemaCollector(alias);
+        JdbcSchemaCollector collector = new JdbcSchemaCollector(alias != null ? alias : "schema-collect");
         List<SchemaMetadata> schemas = collector.collectSchemas(connection);
         return SchemaRegistrationPayloadBuilder.buildSchemaCacheWithAlias(
                 alias,

@@ -22,6 +22,7 @@ public final class SchemaCollectCommand {
         DadpJdbcUrlSupport.validateNoDadpRuntimeParams(arguments.jdbcUrl);
         String actualJdbcUrl = DadpJdbcUrlSupport.extractActualUrl(arguments.jdbcUrl);
         String alias = arguments.alias;
+        String collectorAlias = alias != null ? alias : "schema-collect";
 
         Properties connectionProps = new Properties();
         if (arguments.dbUser != null) {
@@ -34,7 +35,7 @@ public final class SchemaCollectCommand {
         try (Connection connection = connectionProps.isEmpty()
                 ? DriverManager.getConnection(actualJdbcUrl)
                 : DriverManager.getConnection(actualJdbcUrl, connectionProps)) {
-            JdbcSchemaCollector collector = new JdbcSchemaCollector(alias);
+            JdbcSchemaCollector collector = new JdbcSchemaCollector(collectorAlias);
             List<SchemaMetadata> schemas = collector.collectSchemas(connection);
             Map<String, Object> schemaCache = SchemaRegistrationPayloadBuilder.buildSchemaCacheWithAlias(
                     alias,
@@ -117,9 +118,6 @@ public final class SchemaCollectCommand {
             if (trimToNull(parsed.jdbcUrl) == null) {
                 throw new IllegalArgumentException(usage());
             }
-            if (trimToNull(parsed.alias) == null) {
-                throw new IllegalArgumentException("missing required --alias\n" + usage());
-            }
             return parsed;
         }
 
@@ -132,7 +130,7 @@ public final class SchemaCollectCommand {
 
         private static String usage() {
             return "usage: java -cp <wrapper.jar:db-driver.jar> com.dadp.jdbc.SchemaCollectCommand "
-                    + "--alias <alias> --jdbc-url <jdbc:dadp:...> [--output schemas.json] "
+                    + "--jdbc-url <jdbc:dadp:...> [--alias <alias>] [--output schemas.json] "
                     + "[--db-user-env <ENV>] [--db-password-env <ENV>] "
                     + "[--app-name <name>] [--client-instance-id <id>]";
         }

@@ -86,13 +86,15 @@ Command entrypoint:
 
 ```bash
 java -cp "dadp-jdbc-wrapper.jar:${DB_DRIVER}" com.dadp.jdbc.SchemaCollectCommand \
-  --alias "{alias}" \
   --jdbc-url "jdbc:dadp:<db-url>" \
   --db-user-env <USER_ENV_NAME> \
   --db-password-env <PASSWORD_ENV_NAME>
 ```
 
-Default output is stdout. `--output` is optional and controlled by CLI.
+`--alias` is optional for collect-only diagnostics. Default output is stdout.
+`--output` is optional and controlled by CLI. Schema collect does not bind an
+alias, does not call Hub, and does not issue a wrapper tenant. Alias binding
+happens only during schema register or wrapper enroll.
 
 ## Schema Register
 

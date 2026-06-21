@@ -382,8 +382,6 @@ public class InstanceConfigStorage {
         }
         if (normalizedEngineUrl != null) {
             runtime.put("engineUrl", normalizedEngineUrl);
-        } else {
-            runtime.remove("engineUrl");
         }
         if (normalizedCryptoMode != null) {
             runtime.put("cryptoMode", normalizedCryptoMode);
