@@ -166,6 +166,8 @@ public final class WrapperCliStorageSupport {
 
         String runtimeVersion = text(root.path("runtimeVersion"));
         JsonNode wrapper = root.path("wrapper");
+        String responseAlias = text(wrapper.path("alias"));
+        String currentAlias = currentConfig != null ? trimToNull(currentConfig.getAlias()) : null;
         String cryptoMode = firstNonNull(
                 text(root.path("runtime").path("cryptoMode")),
                 text(wrapper.path("cryptoMode")),
@@ -188,6 +190,9 @@ public final class WrapperCliStorageSupport {
                 text(wrapper.path("options").path("hubUrl")));
         if (runtimeHubUrl == null) {
             throw new IllegalStateException("wrapper runtime hubUrl is missing. Run dadp --hub-url <hub-url> login and retry wrapper refresh.");
+        }
+        if (currentAlias == null && responseAlias != null) {
+            configStorage.saveEnrollment(tenantId, responseAlias, runtimeVersion, runtimeHubUrl, null, null, null);
         }
         String engineUrl = firstAbsoluteHttpUrl(
                 text(root.path("runtime").path("engineUrl")),

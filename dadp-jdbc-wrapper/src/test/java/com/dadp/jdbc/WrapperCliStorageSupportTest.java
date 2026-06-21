@@ -114,6 +114,27 @@ class WrapperCliStorageSupportTest {
     }
 
     @Test
+    void refreshResponseRestoresMissingAliasFromHubWrapperIdentity() throws Exception {
+        WrapperCliStorageSupport.saveEnrollment(tempDir.toString(), "wtenant_existing", "7");
+
+        String response = "{"
+                + "\"runtimeVersion\":8,"
+                + "\"wrapper\":{\"alias\":\"A01\",\"hubUrl\":\"http://dadp-hub:9004\",\"engineUrl\":\"http://dadp-engine:9003\",\"cryptoMode\":\"remote\",\"failOpen\":false,\"policySyncAutoEnabled\":false},"
+                + "\"policyBindings\":[]"
+                + "}";
+
+        WrapperCliStorageSupport.applyRefreshResponse(tempDir.toString(), response);
+
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage.ConfigData config = configStorage.loadConfig(null, null);
+        assertNotNull(config);
+        assertEquals("A01", config.getAlias());
+        assertEquals("wtenant_existing", config.getTenantId());
+        assertEquals("8", config.getRuntimeVersion());
+        assertEquals("http://dadp-engine:9003", config.getRuntime().getEngineUrl());
+    }
+
+    @Test
     void runtimeOptionSavePreservesCliFieldsAndDoesNotWriteNullBootstrapFields() throws Exception {
         String proxyConfig = "{"
                 + "\"alias\":\"dadp-test-app-standalone-mysql\","
