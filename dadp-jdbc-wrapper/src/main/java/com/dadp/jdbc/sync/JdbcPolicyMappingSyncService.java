@@ -175,17 +175,18 @@ public class JdbcPolicyMappingSyncService {
         
         
         setEnabled(true);
-        startPeriodicSync();
-        if (!tenantIdManager.isPolicySyncAutoEnabled()) {
-            log.info("Wrapper runtime refresh poll started with automatic policy sync disabled: tenantId={}, alias={}. Runtime options still hot-apply from Hub refresh.",
-                    tenantId, instanceId);
-        } else {
+        if (tenantIdManager.isPolicySyncAutoEnabled()) {
+            startPeriodicSync();
             log.info("Periodic runtime/policy refresh started: tenantId={} (first check immediately)", tenantId);
+        } else {
+            stopPeriodicSync();
+            log.info("Automatic policy sync disabled: tenantId={}, alias={}. CLI refresh will update local runtime files.",
+                    tenantId, instanceId);
         }
     }
     
     
-    private void startPeriodicSync() {
+    private synchronized void startPeriodicSync() {
         if (scheduler != null) {
             return; 
         }
@@ -214,6 +215,15 @@ public class JdbcPolicyMappingSyncService {
         }, 0, 30, TimeUnit.SECONDS);
 
         log.info("Periodic policy mapping sync scheduler registered: immediate first + 30s interval, alias={}", instanceId);
+    }
+
+    private synchronized void stopPeriodicSync() {
+        if (scheduler == null) {
+            return;
+        }
+        scheduler.shutdownNow();
+        scheduler = null;
+        log.info("Periodic policy mapping sync scheduler stopped: alias={}", instanceId);
     }
     
     
@@ -465,7 +475,8 @@ public class JdbcPolicyMappingSyncService {
                 setEnabled(true);
                 startPeriodicSync();
             } else {
-                log.info("Automatic policy sync disabled by Hub; keeping wrapper runtime refresh poll active for runtime option hot-apply");
+                stopPeriodicSync();
+                log.info("Automatic policy sync disabled by Hub; CLI refresh remains the only Hub refresh trigger");
             }
         }
         if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
@@ -501,17 +512,21 @@ public class JdbcPolicyMappingSyncService {
     
     
     public void shutdown() {
-        if (scheduler != null) {
-            scheduler.shutdown();
+        ScheduledExecutorService current;
+        synchronized (this) {
+            current = scheduler;
+            scheduler = null;
+        }
+        if (current != null) {
+            current.shutdown();
             try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
+                if (!current.awaitTermination(5, TimeUnit.SECONDS)) {
+                    current.shutdownNow();
                 }
             } catch (InterruptedException e) {
-                scheduler.shutdownNow();
+                current.shutdownNow();
                 Thread.currentThread().interrupt();
             }
-            scheduler = null;
         }
     }
 }

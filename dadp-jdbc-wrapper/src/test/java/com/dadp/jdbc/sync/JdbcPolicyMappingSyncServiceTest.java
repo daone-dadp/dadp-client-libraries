@@ -138,7 +138,7 @@ class JdbcPolicyMappingSyncServiceTest {
     }
 
     @Test
-    void runtimeRefreshPollStartsEvenWhenPolicySyncAutoIsDisabled() throws Exception {
+    void periodicHubRefreshDoesNotStartWhenPolicySyncAutoIsDisabled() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
@@ -169,7 +169,7 @@ class JdbcPolicyMappingSyncServiceTest {
 
         Field schedulerField = JdbcPolicyMappingSyncService.class.getDeclaredField("scheduler");
         schedulerField.setAccessible(true);
-        assertNotNull(schedulerField.get(service));
+        assertNull(schedulerField.get(service));
         assertTrue(service.isEnabled());
         verify(mappingSyncService, never()).checkMappingChange(any(), any());
         service.shutdown();
