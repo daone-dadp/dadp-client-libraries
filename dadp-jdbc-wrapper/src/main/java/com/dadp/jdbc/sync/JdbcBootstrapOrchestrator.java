@@ -345,6 +345,41 @@ public class JdbcBootstrapOrchestrator {
             return false;
         }
     }
+
+    /**
+     * Applies CLI-written runtime files to the live wrapper services.
+     *
+     * <p>This method intentionally reuses the same storage load sequence as
+     * bootstrap: runtime identity/options, policy mappings and log settings,
+     * endpoint data, then service wiring. The file watcher must enter through
+     * this method so runtime refresh cannot drift from startup behavior.</p>
+     *
+     * @param trigger refresh trigger label used for diagnostics
+     * @return true when a complete wrapper enrollment was loaded and applied
+     */
+    public synchronized boolean applyRuntimeFilesFromStorage(String trigger) {
+        String tenantId = tenantIdManager.loadFromStorage();
+        loadOtherDataFromPersistentStorage();
+
+        if (!tenantIdManager.hasRuntimeEnrollment()) {
+            log.warn("Wrapper runtime file apply skipped: enrollment is incomplete, trigger={}, alias={}",
+                    trigger, instanceIdProvider.getInstanceId());
+            initialized = false;
+            return false;
+        }
+
+        tenantId = tenantIdManager.getCachedTenantId();
+        initializeServicesWithTenantId(tenantId);
+        initializePolicyMappingSyncService(tenantId);
+        initialized = true;
+        if (policyMappingSyncService != null) {
+            policyMappingSyncService.setInitialized(true, tenantId);
+            policyMappingSyncService.reloadFromLocalStorage(trigger);
+        }
+        log.info("Wrapper runtime files applied through bootstrap loader: trigger={}, tenantId={}, alias={}",
+                trigger, tenantId, instanceIdProvider.getInstanceId());
+        return true;
+    }
     
     
     private void loadOtherDataFromPersistentStorage() {

@@ -275,17 +275,10 @@ public class DadpProxyConnection implements Connection {
                 return;
             }
             if (orchestrator != null) {
-                JdbcPolicyMappingSyncService syncService = orchestrator.getPolicyMappingSyncService();
-                if (syncService != null) {
-                    syncService.reloadFromLocalStorage("cli-refresh-file-change");
+                if (!orchestrator.applyRuntimeFilesFromStorage("cli-refresh-file-change")) {
+                    return;
                 }
-                this.directCryptoAdapter = orchestrator.getDirectCryptoAdapter();
-                this.notificationService = orchestrator.getNotificationService();
-                applyLocalCryptoFailureNotification(this.directCryptoAdapter);
-                applyCryptoMode(this.directCryptoAdapter);
-                applySingleTransportMode(this.directCryptoAdapter);
-                applyEngineTransport(this.directCryptoAdapter);
-                applyCryptoProfileRecorder(this.directCryptoAdapter);
+                activateRuntimeServicesFromOrchestrator("cli-refresh-file-change");
             }
             log.info("Wrapper runtime refresh applied from local storage: alias={}, tenantId={}",
                     config.getAlias(), orchestrator != null ? orchestrator.getCachedTenantId() : null);
@@ -681,28 +674,32 @@ public class DadpProxyConnection implements Connection {
     }
     
     /**
-     * 직접 암복호화 어댑터 조회 (권장)
-     * 
-     * @return DirectCryptoAdapter (Engine/Gateway 직접 연결)
+     * Returns the active crypto adapter used by this proxy connection.
+     *
+     * @return DirectCryptoAdapter connected to the current wrapper runtime path.
      */
     public DirectCryptoAdapter getDirectCryptoAdapter() {
-        // 먼저 오케스트레이터의 directCryptoAdapter 확인 (정책 매핑 동기화 후 업데이트되었을 수 있음)
+        // Prefer the orchestrator adapter because refresh can update shared runtime state.
         if (orchestrator != null) {
             DirectCryptoAdapter orchestratorAdapter = orchestrator.getDirectCryptoAdapter();
             if (orchestratorAdapter != null) {
-                // 오케스트레이터의 어댑터가 있으면 그것을 사용 (엔드포인트 정보가 설정되어 있을 수 있음)
+                // Keep this connection aligned with the orchestrator-owned adapter.
                 if (this.directCryptoAdapter != orchestratorAdapter) {
                     this.directCryptoAdapter = orchestratorAdapter;
                     this.notificationService = this.orchestrator.getNotificationService();
                     applyLocalCryptoFailureNotification(this.directCryptoAdapter);
-                    applyCryptoMode(this.directCryptoAdapter);
-                    applySingleTransportMode(this.directCryptoAdapter);
-                    applyEngineTransport(this.directCryptoAdapter);
-                    applyCryptoProfileRecorder(this.directCryptoAdapter);
                     log.debug("Using orchestrator's direct crypto adapter");
                 }
+                // A pooled JDBC connection can keep the same DirectCryptoAdapter instance
+                // while CLI refresh changes runtime options in the shared orchestrator.
+                // Reapply lightweight runtime settings before each adapter handoff so
+                // enabled/local/remote changes are effective without restarting Tomcat.
+                applyCryptoMode(this.directCryptoAdapter);
+                applySingleTransportMode(this.directCryptoAdapter);
+                applyEngineTransport(this.directCryptoAdapter);
+                applyCryptoProfileRecorder(this.directCryptoAdapter);
                 
-                // 어댑터가 있지만 엔드포인트 정보가 설정되지 않았을 수 있음 (지연 초기화)
+                // Lazily restore engine endpoint details if the adapter was created before enrollment.
                 if (this.directCryptoAdapter != null && !this.directCryptoAdapter.isEndpointAvailable()) {
                     try {
                         com.dadp.common.sync.config.EndpointStorage.EndpointData endpointData = null;
