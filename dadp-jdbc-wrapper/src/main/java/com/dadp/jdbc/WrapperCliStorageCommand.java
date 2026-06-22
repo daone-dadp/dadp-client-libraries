@@ -53,6 +53,7 @@ public final class WrapperCliStorageCommand {
                 output.put("tenantId", context.getTenantId());
                 output.put("alias", context.getAlias());
                 output.put("runtimeVersion", context.getRuntimeVersion());
+                output.put("runtimeHubUrl", context.getRuntimeHubUrl());
                 writeJson(out, output);
                 return 0;
             }

@@ -284,7 +284,8 @@ public final class WrapperCliStorageSupport {
                 proxyConfigPath.toString(),
                 tenantId,
                 alias,
-                text(root.path("runtimeVersion"))));
+                text(root.path("runtimeVersion")),
+                text(root.path("runtime").path("hubUrl"))));
     }
 
     private static Boolean useIv(JsonNode binding) {
@@ -488,17 +489,20 @@ public final class WrapperCliStorageSupport {
         private final String tenantId;
         private final String alias;
         private final String runtimeVersion;
+        private final String runtimeHubUrl;
 
         private RuntimeContext(String storageDir,
                                String proxyConfigPath,
                                String tenantId,
                                String alias,
-                               String runtimeVersion) {
+                               String runtimeVersion,
+                               String runtimeHubUrl) {
             this.storageDir = storageDir;
             this.proxyConfigPath = proxyConfigPath;
             this.tenantId = tenantId;
             this.alias = alias;
             this.runtimeVersion = runtimeVersion;
+            this.runtimeHubUrl = runtimeHubUrl;
         }
 
         public String getStorageDir() {
@@ -519,6 +523,10 @@ public final class WrapperCliStorageSupport {
 
         public String getRuntimeVersion() {
             return runtimeVersion;
+        }
+
+        public String getRuntimeHubUrl() {
+            return runtimeHubUrl;
         }
     }
 }

@@ -184,6 +184,7 @@ class WrapperCliStorageCommandTest {
         assertEquals("wtenant_existing", context.path("tenantId").asText());
         assertEquals("A01", context.path("alias").asText());
         assertEquals("7", context.path("runtimeVersion").asText());
+        assertEquals("http://hub:9004", context.path("runtimeHubUrl").asText());
         assertEquals(storageDir.toString(), context.path("storageDir").asText());
     }
 
