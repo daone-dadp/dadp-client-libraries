@@ -138,7 +138,7 @@ class JdbcPolicyMappingSyncServiceTest {
     }
 
     @Test
-    void periodicHubRefreshDoesNotStartWhenPolicySyncAutoIsDisabled() throws Exception {
+    void hubRefreshDoesNotStartAutomaticallyWhenPolicySyncAutoIsDisabled() throws Exception {
         EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
 
@@ -167,9 +167,41 @@ class JdbcPolicyMappingSyncServiceTest {
 
         service.setInitialized(true, "pi_manual_sync");
 
-        Field schedulerField = JdbcPolicyMappingSyncService.class.getDeclaredField("scheduler");
-        schedulerField.setAccessible(true);
-        assertNull(schedulerField.get(service));
+        assertTrue(service.isEnabled());
+        verify(mappingSyncService, never()).checkMappingChange(any(), any());
+        service.shutdown();
+    }
+
+    @Test
+    void hubRefreshDoesNotStartAutomaticallyWhenPolicySyncAutoIsEnabled() throws Exception {
+        EndpointStorage endpointStorage = new EndpointStorage(tempDir.toString(), "proxy-config.json");
+        InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
+
+        MappingSyncService mappingSyncService = mock(MappingSyncService.class);
+        EndpointSyncService endpointSyncService = mock(EndpointSyncService.class);
+        JdbcSchemaSyncService jdbcSchemaSyncService = mock(JdbcSchemaSyncService.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter directCryptoAdapter = mock(DirectCryptoAdapter.class);
+        ProxyConfig proxyConfig = mock(ProxyConfig.class);
+        SchemaStorage schemaStorage = mock(SchemaStorage.class);
+
+        when(proxyConfig.getAlias()).thenReturn("manual-only-wrapper");
+        when(proxyConfig.getHubUrl()).thenReturn("http://hub:9004");
+        when(proxyConfig.isAutoPolicyMappingSyncEnabled()).thenReturn(true);
+
+        JdbcPolicyMappingSyncService service = new JdbcPolicyMappingSyncService(
+                mappingSyncService,
+                endpointSyncService,
+                jdbcSchemaSyncService,
+                policyResolver,
+                directCryptoAdapter,
+                endpointStorage,
+                proxyConfig,
+                configStorage,
+                schemaStorage);
+
+        service.setInitialized(true, "pi_manual_only");
+
         assertTrue(service.isEnabled());
         verify(mappingSyncService, never()).checkMappingChange(any(), any());
         service.shutdown();

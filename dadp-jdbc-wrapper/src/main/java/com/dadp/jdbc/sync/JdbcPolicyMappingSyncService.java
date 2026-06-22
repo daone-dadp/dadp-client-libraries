@@ -17,16 +17,13 @@ import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Periodically synchronizes policy mappings and endpoint information for the
- * JDBC wrapper.
+ * Applies wrapper runtime data from Hub snapshots and local runtime files.
  *
- * <p>After the wrapper is initialized, this service checks Hub for mapping
- * updates and applies refreshed endpoint and log configuration data.</p>
+ * <p>The wrapper does not poll Hub by itself. The CLI owns Hub refresh calls
+ * and writes runtime files. The runtime watcher applies those files to a live
+ * JVM without an application restart.</p>
  */
 
 public class JdbcPolicyMappingSyncService {
@@ -53,9 +50,6 @@ public class JdbcPolicyMappingSyncService {
     
     private volatile boolean initialized = false;
     private final String instanceId;
-    
-    
-    private ScheduledExecutorService scheduler;
     
     public JdbcPolicyMappingSyncService(
             MappingSyncService mappingSyncService,
@@ -173,57 +167,9 @@ public class JdbcPolicyMappingSyncService {
             return;
         }
         
-        
         setEnabled(true);
-        if (tenantIdManager.isPolicySyncAutoEnabled()) {
-            startPeriodicSync();
-            log.info("Periodic runtime/policy refresh started: tenantId={} (first check immediately)", tenantId);
-        } else {
-            stopPeriodicSync();
-            log.info("Automatic policy sync disabled: tenantId={}, alias={}. CLI refresh will update local runtime files.",
-                    tenantId, instanceId);
-        }
-    }
-    
-    
-    private synchronized void startPeriodicSync() {
-        if (scheduler != null) {
-            return; 
-        }
-        
-        log.info("Periodic policy mapping sync starting: 30s interval, alias={}, tenantId={}, enabled={}, initialized={}",
-                instanceId, tenantIdManager.getCachedTenantId(), enabled.get(), initialized);
-        
-        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "jdbc-policy-mapping-sync-" + instanceId);
-            t.setDaemon(true);
-            return t;
-        });
-        
-        scheduler.scheduleWithFixedDelay(() -> {
-            try {
-                if (!enabled.get() || !initialized) {
-                    log.debug("Periodic policy mapping sync skipped: enabled={}, initialized={}", enabled.get(), initialized);
-                    return;
-                }
-                
-                refreshFromHub("auto");
-            } catch (Exception e) {
-                
-                log.warn("Exception during periodic policy mapping version check (will retry next cycle): {}", e.getMessage(), e);
-            }
-        }, 0, 30, TimeUnit.SECONDS);
-
-        log.info("Periodic policy mapping sync scheduler registered: immediate first + 30s interval, alias={}", instanceId);
-    }
-
-    private synchronized void stopPeriodicSync() {
-        if (scheduler == null) {
-            return;
-        }
-        scheduler.shutdownNow();
-        scheduler = null;
-        log.info("Periodic policy mapping sync scheduler stopped: alias={}", instanceId);
+        log.info("Wrapper runtime initialized: tenantId={}, alias={}. Hub refresh is manual via CLI only.",
+                tenantId, instanceId);
     }
     
     
@@ -254,11 +200,6 @@ public class JdbcPolicyMappingSyncService {
         log.info("MappingSyncService recreated: tenantId={}", tenantId);
     }
     
-    
-    private void checkMappingChange() {
-        refreshFromHub("auto");
-    }
-
     public void refreshNow() {
         refreshFromHub("manual");
     }
@@ -471,24 +412,19 @@ public class JdbcPolicyMappingSyncService {
             log.info("Wrapper crypto mode applied from Hub refresh: cryptoMode={}", cryptoMode);
         }
         if (wrapperConfig.getPolicySyncAutoEnabled() != null) {
-            if (wrapperConfig.getPolicySyncAutoEnabled().booleanValue()) {
-                setEnabled(true);
-                startPeriodicSync();
-            } else {
-                stopPeriodicSync();
-                log.info("Automatic policy sync disabled by Hub; CLI refresh remains the only Hub refresh trigger");
-            }
+            log.info("Wrapper policySyncAutoEnabled received as {}. Hub refresh remains manual via CLI only.",
+                    wrapperConfig.getPolicySyncAutoEnabled());
         }
         if (wrapperConfig.getEnabled() != null && !wrapperConfig.getEnabled()) {
             if (config != null && config.isEnabled()) {
                 config.setEnabled(false);
-                log.info("Wrapper DISABLED by Hub config (30s sync)");
+                log.info("Wrapper DISABLED by runtime config");
             }
         } else {
             if (config != null && !config.isEnabled()) {
                 config.setEnabled(true);
                 if (config.isRuntimeActive()) {
-                    log.info("Wrapper ENABLED by Hub config (30s sync)");
+                    log.info("Wrapper ENABLED by runtime config");
                 } else if (!config.isStartupReady()) {
                     log.warn("Wrapper enable requested by Hub but startup prerequisites are not met; keeping passthrough mode");
                 }
@@ -509,24 +445,7 @@ public class JdbcPolicyMappingSyncService {
     public boolean isEnabled() {
         return enabled.get();
     }
-    
-    
     public void shutdown() {
-        ScheduledExecutorService current;
-        synchronized (this) {
-            current = scheduler;
-            scheduler = null;
-        }
-        if (current != null) {
-            current.shutdown();
-            try {
-                if (!current.awaitTermination(5, TimeUnit.SECONDS)) {
-                    current.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                current.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
+        // No background Hub refresh scheduler is created by the wrapper.
     }
 }
