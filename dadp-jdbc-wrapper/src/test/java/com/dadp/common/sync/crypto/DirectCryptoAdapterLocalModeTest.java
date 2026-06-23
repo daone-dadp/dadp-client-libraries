@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -76,6 +77,17 @@ class DirectCryptoAdapterLocalModeTest {
             assertEquals(Boolean.TRUE, attributes.getUsePlain());
             assertEquals(Integer.valueOf(0), attributes.getPlainStart());
             assertEquals(Integer.valueOf(3), attributes.getPlainLength());
+
+            byte[] persistedAfterFirstPull = Files.readAllBytes(storageDir.resolve("policy-mappings.json"));
+            adapter.setCryptoMode("remote", hubUrl, false, 1000, "wtenant_local", false, "1hour");
+            adapter.setCryptoMode("local", hubUrl, false, 1000, "wtenant_local", false, "1hour");
+
+            String encryptedAfterReload = adapter.encrypt("01012345678", "PART1234");
+
+            assertTrue(encryptedAfterReload.startsWith("010::ENC::hub:PART1234:"));
+            assertEquals(2, keyCalls.get());
+            assertEquals(2, policyCalls.get());
+            assertArrayEquals(persistedAfterFirstPull, Files.readAllBytes(storageDir.resolve("policy-mappings.json")));
         } finally {
             server.stop(0);
         }

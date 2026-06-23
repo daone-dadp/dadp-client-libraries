@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
  * 통계 앱 사용 여부가 true이고 statsAggregatorUrl이 존재할 때만 전송한다.
  * 실패 시 DROP (Best-effort).
  */
-public class TelemetryStatsSender {
+public class TelemetryStatsSender implements AutoCloseable {
 
     private static final DadpLogger log = DadpLoggerFactory.getLogger(TelemetryStatsSender.class);
     private static final int DEFAULT_ENDPOINT_SNAPSHOT_REFRESH_MILLIS = 1000;
@@ -40,6 +40,7 @@ public class TelemetryStatsSender {
     private final ScheduledExecutorService scheduler;
     private final LinkedBlockingQueue<SqlEvent> buffer;
     private final Random random = new Random();
+    private volatile boolean closed;
 
     // 옵션 (기본값)
     private final int bufferMaxEvents;
@@ -110,6 +111,10 @@ public class TelemetryStatsSender {
      */
     public void sendSqlEvent(String sql, String sqlType, long durationMs, boolean errorFlag) {
         try {
+            if (closed) {
+                log.debug("Skipping stats event: telemetry sender is closed");
+                return;
+            }
             // tenantId(appId)가 없으면 통계 전송 불가 (X-DADP-Tenant-Id 헤더 필수)
             if (appId == null || appId.trim().isEmpty()) {
                 log.debug("Skipping stats event: tenantId not available (X-DADP-Tenant-Id header required)");
@@ -209,11 +214,18 @@ public class TelemetryStatsSender {
     }
 
     private void flushAsync() {
+        if (closed) {
+            return;
+        }
         scheduler.execute(this::flush);
     }
 
     private void flush() {
         try {
+            if (closed) {
+                buffer.clear();
+                return;
+            }
             // 버퍼가 비어있으면 엔드포인트 정보를 로드하지 않음
             if (buffer.isEmpty()) {
                 return;
@@ -353,6 +365,13 @@ public class TelemetryStatsSender {
             // DROP on failure
             log.warn("Stats flush failed (DROP): {}", e.toString());
         }
+    }
+
+    @Override
+    public void close() {
+        closed = true;
+        buffer.clear();
+        scheduler.shutdownNow();
     }
 
     private int estimateSize(SqlEvent ev) {

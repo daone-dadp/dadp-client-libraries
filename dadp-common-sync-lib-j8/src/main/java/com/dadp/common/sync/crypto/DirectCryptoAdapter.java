@@ -13,6 +13,7 @@ import com.dadp.wrapper.crypto.WrapperLocalCryptoService;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 직접 암복호화 어댑터 (공통 라이브러리)
@@ -299,11 +300,21 @@ public class DirectCryptoAdapter {
         String policyCode = policy.getPolicyCode().trim();
         PolicyResolver.PolicyAttributes existing = attributes.get(policyCode);
         Boolean useIv = existing != null ? existing.getUseIv() : null;
+        Boolean usePlain = policy.getUsePlain();
+        Integer plainStart = policy.getPlainStart();
+        Integer plainLength = policy.getPlainLength();
+        if (existing != null
+                && Objects.equals(existing.getUsePlain(), usePlain)
+                && Objects.equals(existing.getPlainStart(), plainStart)
+                && Objects.equals(existing.getPlainLength(), plainLength)) {
+            log.trace("Local runtime policy attributes unchanged: storageDir={}, policyCode={}", storageDir, policyCode);
+            return;
+        }
         attributes.put(policyCode, new PolicyResolver.PolicyAttributes(
                 useIv,
-                policy.getUsePlain(),
-                policy.getPlainStart(),
-                policy.getPlainLength()));
+                usePlain,
+                plainStart,
+                plainLength));
         boolean saved = storage.saveMappings(
                 mappings,
                 attributes,

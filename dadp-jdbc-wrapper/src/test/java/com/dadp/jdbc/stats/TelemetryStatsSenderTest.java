@@ -62,7 +62,7 @@ class TelemetryStatsSenderTest {
             assertTrue(requestBody.get().contains("\"operation\":\"SELECT\""));
             assertTrue(requestBody.get().contains("\"alias\":\"alias_test_wrapper\""));
         } finally {
-            shutdownScheduler(sender);
+            sender.close();
             server.stop(0);
         }
     }
@@ -81,7 +81,7 @@ class TelemetryStatsSenderTest {
 
             verify(storage, times(1)).loadEndpoints();
         } finally {
-            shutdownScheduler(sender);
+            sender.close();
         }
     }
 
@@ -114,9 +114,25 @@ class TelemetryStatsSenderTest {
             assertNotNull(requestBody.get());
             assertTrue(requestBody.get().contains("\"sqlNormalized\":\"SELECT 1\""));
         } finally {
-            shutdownScheduler(sender);
+            sender.close();
             server.stop(0);
         }
+    }
+
+    @Test
+    void closeShutsDownSchedulerAndDropsFurtherEvents() throws Exception {
+        EndpointStorage storage = mock(EndpointStorage.class);
+        EndpointStorage.EndpointData endpointData = createEndpointData("http://127.0.0.1:9010", false);
+        when(storage.loadEndpoints()).thenReturn(endpointData);
+
+        TelemetryStatsSender sender = new TelemetryStatsSender(storage, "pi_test_wrapper", "alias_test_wrapper");
+        ScheduledExecutorService scheduler = scheduler(sender);
+
+        sender.close();
+        sender.close();
+        sender.sendSqlEvent("SELECT 1", "SELECT", 10L, false);
+
+        assertTrue(scheduler.isShutdown());
     }
 
     private String readBody(InputStream inputStream) throws IOException {
@@ -135,11 +151,10 @@ class TelemetryStatsSenderTest {
         flush.invoke(sender);
     }
 
-    private void shutdownScheduler(TelemetryStatsSender sender) throws Exception {
+    private ScheduledExecutorService scheduler(TelemetryStatsSender sender) throws Exception {
         Field schedulerField = TelemetryStatsSender.class.getDeclaredField("scheduler");
         schedulerField.setAccessible(true);
-        ScheduledExecutorService scheduler = (ScheduledExecutorService) schedulerField.get(sender);
-        scheduler.shutdownNow();
+        return (ScheduledExecutorService) schedulerField.get(sender);
     }
 
     private EndpointStorage.EndpointData createEndpointData(String aggregatorUrl, boolean includeSqlNormalized) {

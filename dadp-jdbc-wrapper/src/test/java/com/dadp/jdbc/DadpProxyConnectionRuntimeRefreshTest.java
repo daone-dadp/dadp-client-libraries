@@ -8,7 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
+import com.dadp.common.sync.config.EndpointStorage;
 import com.dadp.jdbc.config.ProxyConfig;
+import com.dadp.jdbc.stats.TelemetryStatsSender;
 import com.dadp.jdbc.sync.JdbcBootstrapOrchestrator;
 import java.lang.reflect.Field;
 import java.sql.Connection;
@@ -64,6 +66,24 @@ class DadpProxyConnectionRuntimeRefreshTest {
                 eq("wtenant_test"),
                 eq(false),
                 eq("1hour"));
+    }
+
+    @Test
+    void closeShutsDownTelemetryStatsSender() throws Exception {
+        Connection actualConnection = mock(Connection.class);
+        DadpProxyConnection connection = new DadpProxyConnection(
+                actualConnection,
+                "jdbc:postgresql://localhost/test");
+
+        EndpointStorage storage = mock(EndpointStorage.class);
+        when(storage.loadEndpoints()).thenReturn(new EndpointStorage.EndpointData());
+        TelemetryStatsSender sender = spy(new TelemetryStatsSender(storage, "wtenant_test", "alias_test"));
+        setField(connection, "telemetryStatsSender", sender);
+
+        connection.close();
+
+        verify(sender, times(1)).close();
+        verify(actualConnection, times(1)).close();
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

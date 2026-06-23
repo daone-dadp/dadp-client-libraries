@@ -203,6 +203,7 @@ public class DadpProxyConnection implements Connection {
         
         // TelemetryStatsSender 초기화 (오케스트레이터에서 가져온 endpointStorage 사용)
         EndpointStorage endpointStorage = this.orchestrator.getEndpointStorage();
+        closeTelemetryStatsSender();
         this.telemetryStatsSender = new TelemetryStatsSender(endpointStorage, tenantId, config.getAlias());
 
         this.cryptoProfileRecorder = config.isCryptoProfileEnabled()
@@ -829,11 +830,15 @@ public class DadpProxyConnection implements Connection {
     @Override
     public void close() throws SQLException {
         if (!closed) {
-            actualConnection.close();
-            closed = true;
-            WrapperRuntimeRefreshWatcher.unregister(runtimeRefreshTarget);
-            // TRACE 레벨로 변경: 연결 풀에서 여러 Connection이 종료될 때 로그 스팸 방지
-            log.trace("DADP Proxy Connection closed");
+            try {
+                closeTelemetryStatsSender();
+            } finally {
+                actualConnection.close();
+                closed = true;
+                WrapperRuntimeRefreshWatcher.unregister(runtimeRefreshTarget);
+                // TRACE 레벨로 변경: 연결 풀에서 여러 Connection이 종료될 때 로그 스팸 방지
+                log.trace("DADP Proxy Connection closed");
+            }
         }
     }
     
@@ -1110,8 +1115,22 @@ public class DadpProxyConnection implements Connection {
      * SQL 실행 이벤트를 통계 앱으로 전송 (Best-effort).
      */
     void sendSqlTelemetry(String sql, String sqlType, long durationMs, boolean errorFlag) {
-        if (telemetryStatsSender != null) {
-            telemetryStatsSender.sendSqlEvent(sql, sqlType, durationMs, errorFlag);
+        TelemetryStatsSender sender = telemetryStatsSender;
+        if (sender != null) {
+            sender.sendSqlEvent(sql, sqlType, durationMs, errorFlag);
+        }
+    }
+
+    private void closeTelemetryStatsSender() {
+        TelemetryStatsSender sender = telemetryStatsSender;
+        if (sender == null) {
+            return;
+        }
+        telemetryStatsSender = null;
+        try {
+            sender.close();
+        } catch (RuntimeException e) {
+            log.debug("Telemetry stats sender close failed: {}", e.getMessage());
         }
     }
 }
