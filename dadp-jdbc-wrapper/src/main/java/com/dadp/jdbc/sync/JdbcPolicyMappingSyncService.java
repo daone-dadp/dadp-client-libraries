@@ -210,6 +210,7 @@ public class JdbcPolicyMappingSyncService {
             policyResolver.reloadFromStorage();
             Long loadedVersion = policyResolver.getCurrentVersion();
             updateSchemaPolicyNames();
+            clearLocalRuntimeRefreshCache(trigger);
 
             EndpointStorage.EndpointData endpointData = endpointStorage.loadEndpoints();
             if (endpointData != null && directCryptoAdapter != null) {
@@ -256,6 +257,7 @@ public class JdbcPolicyMappingSyncService {
             Long currentVersion = policyResolver.getCurrentVersion();
             int loadedCount = mappingSyncService.syncPolicyMappingsAndUpdateVersion(currentVersion);
             updateSchemaPolicyNames();
+            clearLocalRuntimeRefreshCache(trigger);
             applySnapshotAfterPolicyRefresh(mappingSyncService.getLastSnapshot(), loadedCount);
             log.info("Policy mapping refresh completed: trigger={}, tenantId={}, mappings={}", trigger, tenantId, loadedCount);
         } catch (Exception e) {
@@ -287,6 +289,13 @@ public class JdbcPolicyMappingSyncService {
             }
         } catch (Exception e) {
             log.warn("Schema policy name update failed: {}", e.getMessage());
+        }
+    }
+
+    private void clearLocalRuntimeRefreshCache(String trigger) {
+        if (directCryptoAdapter != null && directCryptoAdapter.isLocalCryptoMode()) {
+            directCryptoAdapter.clearLocalRuntimeRefreshCache();
+            log.info("Wrapper local crypto cache cleared after runtime refresh: trigger={}", trigger);
         }
     }
     

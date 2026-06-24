@@ -15,6 +15,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -244,6 +245,88 @@ class WrapperLocalCryptoServiceTest {
         } finally {
             service.close();
         }
+    }
+
+    @Test
+    void executionKeyTtlExpiresEvenWhenHubOmitsExpiresAt() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        byte[] key = new byte[32];
+        String keyData = Base64.getEncoder().encodeToString(key);
+        AtomicInteger keyCalls = new AtomicInteger();
+        server.createContext("/hub/api/v1/runtime/execution-keys/resolve", exchange -> {
+            keyCalls.incrementAndGet();
+            assertEquals("POST", exchange.getRequestMethod());
+            writeJson(exchange,
+                    "{\"data\":{\"policyCode\":\"ABCD1234\",\"policyVersion\":1,"
+                            + "\"keyAlias\":\"customer-key\",\"keyVersion\":1,\"providerType\":\"HUB\","
+                            + "\"providerVendor\":\"\",\"algorithm\":\"AES_256\","
+                            + "\"materialType\":\"RAW_AES_256\",\"materialEncoding\":\"base64\","
+                            + "\"executionKeyBase64\":\"" + keyData + "\",\"cacheTtlSeconds\":1}}");
+        });
+        server.createContext("/hub/api/v1/runtime/policies/ABCD1234", exchange -> writeJson(exchange,
+                "{\"policyCode\":\"ABCD1234\",\"name\":\"customer-policy\",\"version\":1,"
+                        + "\"status\":\"ACTIVE\",\"algorithm\":\"A256GCM\","
+                        + "\"metadata\":{\"partialEncryption\":false,\"plainStart\":0,\"plainLength\":0}}"));
+        server.setExecutor(Executors.newSingleThreadExecutor());
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            WrapperLocalCryptoService service = new WrapperLocalCryptoService(hubUrl, 1000,
+                    "wtenant_local");
+
+            service.encryptByPolicyCode("local-wrapper-value", "ABCD1234");
+            service.encryptByPolicyCode("local-wrapper-value", "ABCD1234");
+            assertEquals(1, keyCalls.get());
+
+            Thread.sleep(1200L);
+
+            service.encryptByPolicyCode("local-wrapper-value", "ABCD1234");
+            assertEquals(2, keyCalls.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void runtimeRefreshClearsPolicyNameCacheButKeepsPolicyCodeMetadata() {
+        String keyData = Base64.getEncoder().encodeToString(new byte[32]);
+        AtomicInteger nameCalls = new AtomicInteger();
+        RuntimeExecutionKeyClient executionKeyClient = new RuntimeExecutionKeyClient("http://localhost", 1000,
+                new HubTenantHeaderProvider("wtenant_test")) {
+            @Override
+            public RuntimeExecutionKeyMaterial resolveByPolicyName(String policyName) {
+                int call = nameCalls.incrementAndGet();
+                String policyCode = call == 1 ? "ABCD1234" : "WXYZ5678";
+                return new RuntimeExecutionKeyMaterial(policyCode, call,
+                        "customer-key", call, "HUB", "", "A256GCM",
+                        "RAW_AES_256", "base64", keyData, 300,
+                        System.currentTimeMillis() + 300000L);
+            }
+
+            @Override
+            public RuntimeExecutionKeyMaterial resolveByPolicyCode(String policyCode) {
+                return new RuntimeExecutionKeyMaterial(policyCode, 1,
+                        "customer-key", 1, "HUB", "", "A256GCM",
+                        "RAW_AES_256", "base64", keyData, 300,
+                        System.currentTimeMillis() + 300000L);
+            }
+        };
+
+        WrapperLocalCryptoService service = new WrapperLocalCryptoService(
+                executionKeyClient,
+                new LocalAesGcmCrypto());
+
+        String first = service.encrypt("local-wrapper-value", "customer-policy");
+        assertTrue(first.startsWith("hub:ABCD1234:"));
+        assertEquals(1, service.cacheSizeForTests());
+
+        service.clearRuntimeRefreshCache();
+
+        assertEquals(1, service.cacheSizeForTests());
+        String second = service.encrypt("local-wrapper-value", "customer-policy");
+        assertTrue(second.startsWith("hub:WXYZ5678:"));
+        assertEquals(2, nameCalls.get());
     }
 
     private static void writeJson(HttpExchange exchange, String body) throws IOException {

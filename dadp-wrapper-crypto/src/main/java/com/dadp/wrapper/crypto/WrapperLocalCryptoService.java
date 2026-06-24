@@ -192,11 +192,15 @@ public class WrapperLocalCryptoService {
         String key = policyName.trim();
         PolicyMaterial cached = policiesByName.get(key);
         long now = System.currentTimeMillis();
-        if (cached != null && !cached.isExpired(now)) {
+        if (cached != null && cached.hasUsableExecutionKey(now)) {
             log.trace("Local policy cache hit by name: policyName={}, policyCode={}, algorithm={}, keyAlias={}, keyVersion={}",
                     cached.getPolicyName(), cached.getPolicyCode(), cached.getAlgorithm(),
                     cached.getKeyAlias(), cached.getKeyVersion());
             return cached;
+        }
+        if (cached != null) {
+            log.trace("Local policy metadata cache hit but execution key expired by name: policyName={}, policyCode={}",
+                    cached.getPolicyName(), cached.getPolicyCode());
         }
         log.trace("Local execution-key cache miss by name: policyName={}", key);
         PolicyMaterial loaded = executionKeyClient.resolveByPolicyName(key).toPolicyMaterial(key);
@@ -208,11 +212,15 @@ public class WrapperLocalCryptoService {
         String key = policyCode.trim();
         PolicyMaterial cached = policiesByCode.get(key);
         long now = System.currentTimeMillis();
-        if (cached != null && !cached.isExpired(now)) {
+        if (cached != null && cached.hasUsableExecutionKey(now)) {
             log.trace("Local policy cache hit by code: policyCode={}, policyName={}, algorithm={}, keyAlias={}, keyVersion={}",
                     cached.getPolicyCode(), cached.getPolicyName(), cached.getAlgorithm(),
                     cached.getKeyAlias(), cached.getKeyVersion());
             return cached;
+        }
+        if (cached != null) {
+            log.trace("Local policy metadata cache hit but execution key expired by code: policyCode={}, policyName={}",
+                    cached.getPolicyCode(), cached.getPolicyName());
         }
         log.trace("Local execution-key cache miss by code: policyCode={}", key);
         PolicyMaterial loaded = executionKeyClient.resolveByPolicyCode(key).toPolicyMaterial(null);
@@ -224,8 +232,13 @@ public class WrapperLocalCryptoService {
         String policyCode = LocalAesGcmCrypto.extractPolicyCode(encryptedData);
         if (policyCode != null && !policyCode.trim().isEmpty()) {
             PolicyMaterial byCode = policiesByCode.get(policyCode);
-            if (byCode != null && !byCode.isExpired(System.currentTimeMillis())) {
+            long now = System.currentTimeMillis();
+            if (byCode != null && byCode.hasUsableExecutionKey(now)) {
                 return byCode;
+            }
+            if (byCode != null) {
+                log.trace("Local policy metadata cache hit but execution key expired for ciphertext: policyCode={}, policyName={}",
+                        byCode.getPolicyCode(), byCode.getPolicyName());
             }
             return resolvePolicyByCode(policyCode);
         }
@@ -250,10 +263,20 @@ public class WrapperLocalCryptoService {
                 policy.getKeyAlias(), policy.getKeyVersion(),
                 policy.getExpiresAtMillis(),
                 policy.getUsePlain(), policy.getPlainStart(), policy.getPlainLength());
-        if (policy.getPolicyName() != null && !policy.getPolicyName().trim().isEmpty()) {
-            policiesByName.put(policy.getPolicyName(), policy);
+        PolicyMaterial previousByCode = policiesByCode.put(policy.getPolicyCode(), policy);
+        if (previousByCode != null && previousByCode != policy) {
+            previousByCode.close();
+            if (previousByCode.getPolicyName() != null) {
+                policiesByName.remove(previousByCode.getPolicyName(), previousByCode);
+            }
         }
-        policiesByCode.put(policy.getPolicyCode(), policy);
+        if (policy.getPolicyName() != null && !policy.getPolicyName().trim().isEmpty()) {
+            PolicyMaterial previousByName = policiesByName.put(policy.getPolicyName(), policy);
+            if (previousByName != null && previousByName != policy && previousByName != previousByCode) {
+                previousByName.close();
+                policiesByCode.remove(previousByName.getPolicyCode(), previousByName);
+            }
+        }
         if (cacheListener != null) {
             try {
                 cacheListener.onPolicyMaterialCached(policy);
@@ -262,6 +285,34 @@ public class WrapperLocalCryptoService {
                         policy.getPolicyCode(), e.getMessage());
             }
         }
+    }
+
+    public void clearKeyCache() {
+        for (PolicyMaterial policy : policiesByCode.values()) {
+            if (policy != null) {
+                policy.close();
+            }
+        }
+        for (PolicyMaterial policy : policiesByName.values()) {
+            if (policy != null && !policiesByCode.containsValue(policy)) {
+                policy.close();
+            }
+        }
+    }
+
+    public void clearRuntimeRefreshCache() {
+        clearKeyCache();
+        policiesByName.clear();
+    }
+
+    public void clearAllCaches() {
+        clearKeyCache();
+        policiesByName.clear();
+        policiesByCode.clear();
+    }
+
+    int cacheSizeForTests() {
+        return policiesByCode.size();
     }
 
     private static String safeExtractPolicyCode(String encryptedData) {
@@ -291,6 +342,7 @@ public class WrapperLocalCryptoService {
     }
 
     public void close() {
+        clearAllCaches();
         if (statsSender != null) {
             statsSender.close();
         }

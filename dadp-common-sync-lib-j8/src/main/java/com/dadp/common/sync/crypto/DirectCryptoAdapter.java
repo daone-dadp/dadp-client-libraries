@@ -217,11 +217,31 @@ public class DirectCryptoAdapter {
     }
 
     public void setLocalPolicyStorageDir(String storageDir) {
-        this.localPolicyStorageDir = trimToNull(storageDir);
+        String normalized = trimToNull(storageDir);
+        if (!equalsNullable(this.localPolicyStorageDir, normalized)) {
+            clearLocalRuntimeRefreshCache();
+        }
+        this.localPolicyStorageDir = normalized;
     }
 
     public void setLocalCryptoFailureListener(LocalCryptoFailureListener listener) {
         this.localCryptoFailureListener = listener;
+    }
+
+    public void clearLocalKeyCache() {
+        WrapperLocalCryptoService service = this.localCryptoService;
+        if (service != null) {
+            service.clearKeyCache();
+            log.debug("Wrapper local crypto key cache cleared");
+        }
+    }
+
+    public void clearLocalRuntimeRefreshCache() {
+        WrapperLocalCryptoService service = this.localCryptoService;
+        if (service != null) {
+            service.clearRuntimeRefreshCache();
+            log.debug("Wrapper local crypto runtime refresh cache cleared");
+        }
     }
 
     public boolean isLocalCryptoMode() {

@@ -176,6 +176,13 @@ public class RuntimeExecutionKeyClient {
     }
 
     private static RuntimeExecutionKeyMaterial parseMaterial(Map<String, Object> data) {
+        int cacheTtlSeconds = intValue(data.get("cacheTtlSeconds"), 0);
+        long expiresAtMillis = millisValue(data.get("expiresAt"));
+        if (expiresAtMillis <= 0L && cacheTtlSeconds > 0) {
+            long now = System.currentTimeMillis();
+            long ttlMillis = cacheTtlSeconds * 1000L;
+            expiresAtMillis = Long.MAX_VALUE - ttlMillis < now ? Long.MAX_VALUE : now + ttlMillis;
+        }
         return new RuntimeExecutionKeyMaterial(
                 stringValue(data.get("policyCode")),
                 intValue(data.get("policyVersion"), 1),
@@ -187,8 +194,8 @@ public class RuntimeExecutionKeyClient {
                 stringValue(data.get("materialType")),
                 stringValue(data.get("materialEncoding")),
                 stringValue(data.get("executionKeyBase64")),
-                intValue(data.get("cacheTtlSeconds"), 0),
-                millisValue(data.get("expiresAt")),
+                cacheTtlSeconds,
+                expiresAtMillis,
                 partialEnabled(data),
                 integerValue(firstPresent(data, "plainStart", "partialPlainStart")),
                 integerValue(firstPresent(data, "plainLength", "partialPlainLength")));

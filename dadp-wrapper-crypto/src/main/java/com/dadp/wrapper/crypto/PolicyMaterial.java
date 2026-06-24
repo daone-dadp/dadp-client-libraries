@@ -1,9 +1,11 @@
 package com.dadp.wrapper.crypto;
 
+import java.util.Arrays;
+
 /**
  * Policy metadata required by wrapper-side local crypto.
  */
-public final class PolicyMaterial {
+public final class PolicyMaterial implements AutoCloseable {
 
     private final String policyName;
     private final String policyCode;
@@ -11,11 +13,12 @@ public final class PolicyMaterial {
     private final String keyAlias;
     private final int keyVersion;
     private final String algorithm;
-    private final String executionKeyBase64;
+    private final char[] executionKeyBase64;
     private final long expiresAtMillis;
     private final Boolean usePlain;
     private final Integer plainStart;
     private final Integer plainLength;
+    private volatile boolean keyClosed;
 
     public PolicyMaterial(String policyName, String policyCode, String keyAlias, int keyVersion,
                           String algorithm, Boolean usePlain, Integer plainStart, Integer plainLength) {
@@ -41,7 +44,7 @@ public final class PolicyMaterial {
         this.keyAlias = keyAlias;
         this.keyVersion = keyVersion;
         this.algorithm = algorithm;
-        this.executionKeyBase64 = executionKeyBase64;
+        this.executionKeyBase64 = executionKeyBase64 != null ? executionKeyBase64.toCharArray() : null;
         this.expiresAtMillis = expiresAtMillis;
         this.usePlain = usePlain;
         this.plainStart = plainStart;
@@ -73,7 +76,10 @@ public final class PolicyMaterial {
     }
 
     public String getExecutionKeyBase64() {
-        return executionKeyBase64;
+        if (keyClosed || executionKeyBase64 == null) {
+            throw new IllegalStateException("policy execution key material is closed");
+        }
+        return new String(executionKeyBase64);
     }
 
     public long getExpiresAtMillis() {
@@ -82,6 +88,22 @@ public final class PolicyMaterial {
 
     public boolean isExpired(long nowMillis) {
         return expiresAtMillis > 0L && nowMillis >= expiresAtMillis;
+    }
+
+    public boolean hasUsableExecutionKey(long nowMillis) {
+        return !keyClosed
+                && executionKeyBase64 != null
+                && executionKeyBase64.length > 0
+                && expiresAtMillis > 0L
+                && nowMillis < expiresAtMillis;
+    }
+
+    @Override
+    public void close() {
+        if (executionKeyBase64 != null) {
+            Arrays.fill(executionKeyBase64, '\0');
+        }
+        keyClosed = true;
     }
 
     public Boolean getUsePlain() {
