@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Set;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
+import com.dadp.jdbc.notification.HubNotificationService;
 
 /**
  * DADP Proxy PreparedStatement
@@ -401,6 +402,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 if (!isFailOpenEnabled()) {
                     log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
                             e.getMessage());
+                    notifyColumnSizeFailure("executeUpdate", null, null, null, e.getMessage(), false);
                     throw e;
                 }
                 
@@ -438,15 +440,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
                         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                         String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
-                        String policyName = proxyConnection.getPolicyResolver().resolvePolicy(null, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
+                        String policyName = resolvePolicySafely(normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                         String errorMsg = "Encrypted data exceeds column size (original: " +
                                          (originalData != null ? originalData.length() : 0) + " chars)";
                         log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
                                  tableName, paramColumnName, policyName, errorMsg);
-                        
-                        // 암복호화 실패 알림은 엔진에서 전송하므로 Wrapper에서는 제거
+                        notifyColumnSizeFailure("executeUpdate", tableName, paramColumnName, policyName, errorMsg, true);
                     } else {
                         log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
+                        notifyColumnSizeFailure("executeUpdate", tableName, null, null,
+                                "Encrypted data exceeds column size: parameterIndex=" + paramIndex, true);
                     }
                 }
                 
@@ -662,6 +665,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         if (adapter == null) {
             log.warn("{}: Direct crypto adapter not initialized: {}.{} (policy: {})",
                     methodName, plan.tableName, plan.columnName, plan.policyName);
+            notifyCryptoAdapterUnavailable(methodName, plan.tableName, plan.columnName, plan.policyName);
             if (proxyConnection.getConfig().isFailOpen()) {
                 return new EncryptionResult(value, false);
             } else {
@@ -1954,6 +1958,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         if (!isFailOpenEnabled()) {
                             log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
                                     e.getMessage());
+                            notifyColumnSizeFailure("execute", null, null, null, e.getMessage(), false);
                             throw e;
                         }
                         
@@ -1990,14 +1995,16 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                                 String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
                                 String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
                                 String normalizedParamColumnName = proxyConnection.normalizeIdentifier(paramColumnName);
-                                String policyName = proxyConnection.getPolicyResolver().resolvePolicy(
-                                        null, normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
+                                String policyName = resolvePolicySafely(normalizedSchemaName, normalizedTableName, normalizedParamColumnName);
                                 String errorMsg = "Encrypted data exceeds column size (original: " +
                                                  (originalData != null ? originalData.length() : 0) + " chars)";
                                 log.warn("Encrypted data exceeds column size: {}.{} (policy: {}), retrying with plaintext - {}",
                                          tableName, paramColumnName, policyName, errorMsg);
+                                notifyColumnSizeFailure("execute", tableName, paramColumnName, policyName, errorMsg, true);
                             } else {
                                 log.warn("Encrypted data exceeds column size: parameterIndex={}, retrying with plaintext", paramIndex);
+                                notifyColumnSizeFailure("execute", tableName, null, null,
+                                        "Encrypted data exceeds column size: parameterIndex=" + paramIndex, true);
                             }
                         }
                         
@@ -2057,6 +2064,60 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         return proxyConnection != null
                 && proxyConnection.getConfig() != null
                 && proxyConnection.getConfig().isFailOpen();
+    }
+
+    private String resolvePolicySafely(String schemaName, String tableName, String columnName) {
+        try {
+            if (proxyConnection == null || proxyConnection.getPolicyResolver() == null) {
+                return null;
+            }
+            return proxyConnection.getPolicyResolver().resolvePolicy(null, schemaName, tableName, columnName);
+        } catch (Exception e) {
+            log.debug("Policy lookup for notification failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void notifyColumnSizeFailure(String operation,
+                                         String tableName,
+                                         String columnName,
+                                         String policyName,
+                                         String errorMessage,
+                                         boolean plaintextRetry) {
+        try {
+            HubNotificationService service = proxyConnection != null ? proxyConnection.getNotificationService() : null;
+            if (service != null) {
+                service.notifyColumnSizeFailure(
+                        operation,
+                        tableName,
+                        columnName,
+                        policyName,
+                        errorMessage,
+                        plaintextRetry,
+                        isFailOpenEnabled());
+            }
+        } catch (RuntimeException notifyError) {
+            log.debug("Column size failure notification skipped: {}", notifyError.getMessage());
+        }
+    }
+
+    private void notifyCryptoAdapterUnavailable(String operation,
+                                                String tableName,
+                                                String columnName,
+                                                String policyName) {
+        try {
+            HubNotificationService service = proxyConnection != null ? proxyConnection.getNotificationService() : null;
+            if (service != null) {
+                service.notifyCryptoAdapterUnavailable(
+                        operation,
+                        tableName,
+                        columnName,
+                        policyName,
+                        isFailOpenEnabled());
+            }
+        } catch (RuntimeException notifyError) {
+            log.debug("Crypto adapter unavailable notification skipped: {}", notifyError.getMessage());
+        }
     }
 
     private String extractSqlType(String sqlText) {

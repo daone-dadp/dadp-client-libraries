@@ -2,6 +2,8 @@ package com.dadp.jdbc;
 
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
+import com.dadp.jdbc.config.ProxyConfig;
+import com.dadp.jdbc.notification.HubNotificationService;
 import java.sql.*;
 import java.util.Properties;
 
@@ -71,11 +73,12 @@ public class DadpJdbcDriver implements Driver {
                 actualConnection = DriverManager.getConnection(actualUrl, info);
             } catch (SQLException e) {
                 // 연결 실패 시 변환된 URL 정보를 로그에 출력 (디버깅용)
-                if (e.getMessage() != null && e.getMessage().contains("too many")) {
+                if (isDatabaseConnectionLimitError(e)) {
                     log.warn("JDBC URL conversion error - original DADP URL: {}", url);
                     log.warn("Converted actual DB URL: {}", actualUrl);
                     log.warn("URL slash count: {}", countSlashes(actualUrl));
                     log.warn("Driver error message: {}", e.getMessage());
+                    notifyDatabaseConnectionFailure(actualUrl, e);
                 }
                 throw e;
             }
@@ -112,6 +115,37 @@ public class DadpJdbcDriver implements Driver {
         }
         
         return actualUrl;
+    }
+
+    private boolean isDatabaseConnectionLimitError(SQLException e) {
+        String message = e != null ? e.getMessage() : null;
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("too many clients")
+                || lower.contains("remaining connection slots")
+                || lower.contains("too many connections");
+    }
+
+    private void notifyDatabaseConnectionFailure(String actualUrl, SQLException e) {
+        try {
+            ProxyConfig.NotificationContext context = ProxyConfig.loadNotificationContext();
+            if (context == null) {
+                return;
+            }
+            HubNotificationService service = new HubNotificationService(
+                    context.getHubUrl(),
+                    context.getTenantId(),
+                    context.getAlias(),
+                    null);
+            service.notifyDatabaseConnectionFailure(
+                    "DB_CONNECTION_LIMIT",
+                    e != null ? e.getMessage() : null,
+                    actualUrl);
+        } catch (Exception notifyError) {
+            log.debug("DB connection failure notification skipped: {}", notifyError.getMessage());
+        }
     }
     
     /**

@@ -355,6 +355,29 @@ public class ProxyConfig {
         return discoverRuntimeStorage(false) != null;
     }
 
+    public static NotificationContext loadNotificationContext() {
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(false);
+        if (runtimeStorage == null || runtimeStorage.configData == null) {
+            return null;
+        }
+        InstanceConfigStorage.ConfigData configData = runtimeStorage.configData;
+        InstanceConfigStorage.RuntimeData runtime = configData.getRuntime();
+        String tenantId = trimToNull(configData.getTenantId());
+        String alias = trimToNull(configData.getAlias());
+        String hubUrl = firstNonBlank(
+                runtime != null ? absoluteHttpUrl(runtime.getHubUrl()) : null,
+                absoluteHttpUrl(configData.getHubUrl()));
+        if (tenantId == null || alias == null || hubUrl == null) {
+            return null;
+        }
+        return new NotificationContext(
+                hubUrl,
+                tenantId,
+                alias,
+                normalizeCryptoMode(configData.getCryptoMode()),
+                Boolean.TRUE.equals(configData.getFailOpen()));
+    }
+
     private static RuntimeStorage discoverRuntimeStorage() {
         return discoverRuntimeStorage(true);
     }
@@ -459,6 +482,46 @@ public class ProxyConfig {
             this.storageDir = storageDir;
             this.alias = alias;
             this.configData = configData;
+        }
+    }
+
+    public static final class NotificationContext {
+        private final String hubUrl;
+        private final String tenantId;
+        private final String alias;
+        private final String cryptoMode;
+        private final boolean failOpen;
+
+        private NotificationContext(String hubUrl,
+                                    String tenantId,
+                                    String alias,
+                                    String cryptoMode,
+                                    boolean failOpen) {
+            this.hubUrl = hubUrl;
+            this.tenantId = tenantId;
+            this.alias = alias;
+            this.cryptoMode = cryptoMode;
+            this.failOpen = failOpen;
+        }
+
+        public String getHubUrl() {
+            return hubUrl;
+        }
+
+        public String getTenantId() {
+            return tenantId;
+        }
+
+        public String getAlias() {
+            return alias;
+        }
+
+        public String getCryptoMode() {
+            return cryptoMode;
+        }
+
+        public boolean isFailOpen() {
+            return failOpen;
         }
     }
 

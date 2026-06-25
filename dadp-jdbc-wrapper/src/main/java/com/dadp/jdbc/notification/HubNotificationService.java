@@ -116,6 +116,84 @@ public class HubNotificationService {
                 toJson(metadata));
     }
 
+    public void notifyColumnSizeFailure(String operation,
+                                        String tableName,
+                                        String columnName,
+                                        String policyIdentifier,
+                                        String errorMessage,
+                                        boolean plaintextRetry,
+                                        boolean failOpen) {
+        if (!isAvailable()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("eventCode", "WRAPPER_COLUMN_SIZE_FAILURE");
+        metadata.put("operation", operation);
+        metadata.put("tableName", tableName);
+        metadata.put("columnName", columnName);
+        metadata.put("policyIdentifier", policyIdentifier);
+        metadata.put("plaintextRetry", plaintextRetry);
+        metadata.put("failOpen", failOpen);
+        metadata.put("alias", alias);
+        metadata.put("tenantId", tenantId);
+        metadata.put("error", truncate(errorMessage, 500));
+        sendNotification(
+                "CRYPTO_ERROR",
+                plaintextRetry ? "WARNING" : "ERROR",
+                plaintextRetry ? "Wrapper encrypted value stored as plaintext after column size failure"
+                        : "Wrapper blocked write after column size failure",
+                plaintextRetry ? "Encrypted value exceeded the DB column size and wrapper retried with plaintext because failOpen=true."
+                        : "Encrypted value exceeded the DB column size and wrapper blocked the write because failOpen=false.",
+                toJson(metadata));
+    }
+
+    public void notifyCryptoAdapterUnavailable(String operation,
+                                               String tableName,
+                                               String columnName,
+                                               String policyIdentifier,
+                                               boolean failOpen) {
+        if (!isAvailable()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("eventCode", "WRAPPER_CRYPTO_ADAPTER_UNAVAILABLE");
+        metadata.put("operation", operation);
+        metadata.put("tableName", tableName);
+        metadata.put("columnName", columnName);
+        metadata.put("policyIdentifier", policyIdentifier);
+        metadata.put("failOpen", failOpen);
+        metadata.put("alias", alias);
+        metadata.put("tenantId", tenantId);
+        sendNotification(
+                "CRYPTO_ERROR",
+                failOpen ? "WARNING" : "ERROR",
+                "Wrapper crypto adapter unavailable",
+                failOpen ? "Wrapper crypto adapter was unavailable and failOpen=true allowed plaintext processing."
+                        : "Wrapper crypto adapter was unavailable and failOpen=false blocked processing.",
+                toJson(metadata));
+    }
+
+    public void notifyDatabaseConnectionFailure(String failureType,
+                                                String errorMessage,
+                                                String databaseUrl) {
+        if (!isAvailable()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("eventCode", "WRAPPER_DATABASE_CONNECTION_FAILURE");
+        metadata.put("failureType", failureType);
+        metadata.put("alias", alias);
+        metadata.put("tenantId", tenantId);
+        metadata.put("databaseUrl", truncate(databaseUrl, 300));
+        metadata.put("error", truncate(errorMessage, 500));
+        sendNotification(
+                "SYSTEM_ERROR",
+                "ERROR",
+                "Wrapper database connection failure",
+                "Wrapper could not obtain a database connection while runtime notification context was available.",
+                toJson(metadata));
+    }
+
     /**
      * Hub에 알림 전송
      *
