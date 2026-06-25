@@ -21,7 +21,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +46,8 @@ class DadpProxyConnectionRuntimeRefreshTest {
     void reusesOrchestratorAdapterButReappliesRuntimeCryptoMode() throws Exception {
         DadpProxyConnection connection = new DadpProxyConnection(
                 mock(Connection.class),
-                "jdbc:postgresql://localhost/test");
+                "jdbc:postgresql://localhost/test",
+                Collections.emptyMap());
         DirectCryptoAdapter adapter = spy(new DirectCryptoAdapter(false));
         JdbcBootstrapOrchestrator orchestrator = mock(JdbcBootstrapOrchestrator.class);
         ProxyConfig config = mock(ProxyConfig.class);
@@ -95,7 +98,8 @@ class DadpProxyConnectionRuntimeRefreshTest {
         Connection actualConnection = mock(Connection.class);
         DadpProxyConnection connection = new DadpProxyConnection(
                 actualConnection,
-                "jdbc:postgresql://localhost/test");
+                "jdbc:postgresql://localhost/test",
+                Collections.emptyMap());
 
         EndpointStorage storage = mock(EndpointStorage.class);
         when(storage.loadEndpoints()).thenReturn(new EndpointStorage.EndpointData());
@@ -113,11 +117,29 @@ class DadpProxyConnectionRuntimeRefreshTest {
         Connection actualConnection = mock(Connection.class);
         DadpProxyConnection connection = new DadpProxyConnection(
                 actualConnection,
-                "jdbc:postgresql://localhost/test");
+                "jdbc:postgresql://localhost/test",
+                Collections.emptyMap());
 
         assertThrows(SQLException.class,
                 () -> connection.prepareStatement("insert into users(email) values (?)"));
         verify(actualConnection, never()).prepareStatement("insert into users(email) values (?)");
+    }
+
+    @Test
+    void startupWithRuntimeDisabledUsesExplicitPassthrough() throws Exception {
+        writeRuntimeProxyConfig("disabled-alias", "wtenant_disabled", false, false, "remote");
+        Connection actualConnection = mock(Connection.class);
+        PreparedStatement preparedStatement = mock(PreparedStatement.class);
+        when(actualConnection.prepareStatement("select 1")).thenReturn(preparedStatement);
+
+        DadpProxyConnection connection = new DadpProxyConnection(
+                actualConnection,
+                "jdbc:postgresql://localhost/test",
+                Collections.emptyMap());
+
+        connection.prepareStatement("select 1");
+
+        verify(actualConnection, times(1)).prepareStatement("select 1");
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {
@@ -140,5 +162,26 @@ class DadpProxyConnectionRuntimeRefreshTest {
                         throw new RuntimeException(e);
                     }
                 });
+    }
+
+    private static void writeRuntimeProxyConfig(String alias,
+                                                String tenantId,
+                                                boolean enabled,
+                                                boolean failOpen,
+                                                String cryptoMode) throws IOException {
+        Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
+        Files.createDirectories(storageDir);
+        String json = "{\n"
+                + "  \"tenantId\": \"" + tenantId + "\",\n"
+                + "  \"alias\": \"" + alias + "\",\n"
+                + "  \"runtimeVersion\": \"1\",\n"
+                + "  \"runtime\": {\n"
+                + "    \"hubUrl\": \"http://dadp-hub:9004\",\n"
+                + "    \"enabled\": " + enabled + ",\n"
+                + "    \"failOpen\": " + failOpen + ",\n"
+                + "    \"cryptoMode\": \"" + cryptoMode + "\"\n"
+                + "  }\n"
+                + "}\n";
+        Files.write(storageDir.resolve("proxy-config.json"), json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }

@@ -319,12 +319,12 @@ public class DadpProxyConnection implements Connection {
         if (isWrapperRuntimeAvailable()) {
             return true;
         }
-        if (initializeRuntimeForRefreshTrigger()) {
-            return true;
-        }
         if (isRuntimeDisabled()) {
             log.trace("DADP Wrapper disabled; {} uses passthrough mode", operation);
             return false;
+        }
+        if (initializeRuntimeForRefreshTrigger()) {
+            return true;
         }
         if (isEffectiveFailOpen()) {
             log.warn("DADP Wrapper runtime unavailable and failOpen=true; {} uses passthrough mode", operation);
