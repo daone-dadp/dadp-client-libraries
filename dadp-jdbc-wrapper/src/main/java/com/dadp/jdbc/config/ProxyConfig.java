@@ -90,14 +90,14 @@ public class ProxyConfig {
             emitMissingRequiredHubUrl();
         }
 
-        this.failOpen = false;
+        this.failOpen = Boolean.TRUE.equals(storedConfig != null ? storedConfig.getFailOpen() : null);
         this.enableLogging = false;
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
 
         this.singleTransportMode = normalizeSingleTransportMode(null);
         this.engineTransport = normalizeEngineTransport(null);
         this.engineBinaryPort = parsePort(null, 9104);
-        this.cryptoMode = normalizeCryptoMode(null);
+        this.cryptoMode = normalizeCryptoMode(storedConfig != null ? storedConfig.getCryptoMode() : null);
 
         this.cryptoLocalFallbackRemote = true;
         this.cryptoLocalTimeoutMs = parsePositiveInt(null, 30000, "crypto local timeout");
@@ -105,7 +105,8 @@ public class ProxyConfig {
         this.wrapperCryptoStatsAggregationLevel =
                 normalizeWrapperCryptoStatsAggregationLevel(null);
         this.sqlMappingDebugEnabled = false;
-        this.autoPolicyMappingSyncEnabled = false;
+        this.autoPolicyMappingSyncEnabled = Boolean.TRUE.equals(
+                storedConfig != null ? storedConfig.getPolicySyncAutoEnabled() : null);
         this.cryptoProfileEnabled = false;
         String defaultProfileDir = this.storageDir != null
                 ? this.storageDir
@@ -117,7 +118,8 @@ public class ProxyConfig {
         this.schemaAllowlist = null;
         this.schemaCollectionFailMode = DEFAULT_SCHEMA_COLLECTION_FAIL_MODE;
 
-        this.enabled = true;
+        this.enabled = runtime == null || runtime.getEnabled() == null
+                || runtime.getEnabled().booleanValue();
 
         // tenantId는 WrapperRuntimeConfigManager에서 전역으로 관리 (지연 로드, 오케스트레이터의 runBootstrapFlow()에서만 로드)
         // 생성자에서 파일을 읽지 않음
@@ -349,24 +351,38 @@ public class ProxyConfig {
         return cryptoProfilePath;
     }
 
+    public static boolean hasValidRuntimeStorage() {
+        return discoverRuntimeStorage(false) != null;
+    }
+
     private static RuntimeStorage discoverRuntimeStorage() {
+        return discoverRuntimeStorage(true);
+    }
+
+    private static RuntimeStorage discoverRuntimeStorage(boolean logWarnings) {
         String root;
         try {
             root = StoragePathResolver.resolveWrapperStorageRoot();
         } catch (Exception e) {
-            log.warn("Wrapper runtime storage root cannot be resolved: {}", e.getMessage());
+            if (logWarnings) {
+                log.warn("Wrapper runtime storage root cannot be resolved: {}", e.getMessage());
+            }
             return null;
         }
 
         File rootDir = new File(root);
         if (!rootDir.isDirectory()) {
-            log.warn("Wrapper runtime storage root not found: {}. Runtime remains in passthrough mode until CLI creates proxy-config.json.", root);
+            if (logWarnings) {
+                log.warn("Wrapper runtime storage root not found: {}. Runtime remains in passthrough mode until CLI creates proxy-config.json.", root);
+            }
             return null;
         }
 
         File[] children = rootDir.listFiles(File::isDirectory);
         if (children == null || children.length == 0) {
-            log.warn("No wrapper runtime enrollment directory found under {}. Run CLI wrapper schema register and refresh.", root);
+            if (logWarnings) {
+                log.warn("No wrapper runtime enrollment directory found under {}. Run CLI wrapper schema register and refresh.", root);
+            }
             return null;
         }
 
@@ -386,7 +402,9 @@ public class ProxyConfig {
         }
 
         if (candidates.isEmpty()) {
-            log.warn("No valid wrapper proxy-config.json found under {}. Runtime remains in passthrough mode.", root);
+            if (logWarnings) {
+                log.warn("No valid wrapper proxy-config.json found under {}. Runtime remains in passthrough mode.", root);
+            }
             return null;
         }
         if (candidates.size() > 1) {
@@ -397,8 +415,10 @@ public class ProxyConfig {
                 }
                 names.append(candidate.alias);
             }
-            log.warn("Multiple wrapper runtime enrollments found under {}: {}. Use an isolated wrapper lib dir or keep one alias directory.",
-                    root, names);
+            if (logWarnings) {
+                log.warn("Multiple wrapper runtime enrollments found under {}: {}. Use an isolated wrapper lib dir or keep one alias directory.",
+                        root, names);
+            }
             return null;
         }
         return candidates.get(0);

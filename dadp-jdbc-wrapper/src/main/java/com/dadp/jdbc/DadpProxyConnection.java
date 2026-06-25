@@ -44,6 +44,8 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
 public class DadpProxyConnection implements Connection {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DadpProxyConnection.class);
+    private static final long DEFAULT_RUNTIME_STARTUP_WAIT_MS = 5000L;
+    private static final long RUNTIME_STARTUP_WAIT_POLL_MS = 100L;
     
     private final Connection actualConnection;
     private volatile ProxyConfig config;
@@ -67,6 +69,7 @@ public class DadpProxyConnection implements Connection {
     private final Map<String, String> originalUrlParams;
     private final java.util.Properties originalConnectionProperties;
     private final WrapperRuntimeRefreshWatcher.RuntimeRefreshTarget runtimeRefreshTarget = this::reloadRuntimeFromStorage;
+    private volatile SQLException startupBlockReason;
     
     public DadpProxyConnection(Connection actualConnection, String originalUrl) {
         this(actualConnection, originalUrl, null);
@@ -84,29 +87,28 @@ public class DadpProxyConnection implements Connection {
         // JDBC URL 파라미터가 있으면 사용, 없으면 싱글톤 인스턴스 사용
         this.config = urlParams != null ? new ProxyConfig(urlParams) : ProxyConfig.getInstance();
 
-        // Wrapper 비활성화 모드: 암복호화 없이 순수 패스스루
+        if (!config.isRuntimeActive() && config.isEnabled()) {
+            waitForRuntimeStorage("startup");
+        }
+
+        // Wrapper 비활성화 모드 또는 명시적 failOpen: 암복호화 없이 순수 패스스루
         if (!config.isRuntimeActive()) {
-            if (!config.isStartupReady()) {
-                log.warn("DADP Wrapper startup prerequisites not met (passthrough mode) - no encryption/decryption will be performed");
-            } else {
+            if (!config.isEnabled()) {
                 log.info("DADP Wrapper DISABLED (passthrough mode) - no encryption/decryption will be performed");
+                initializePassthroughState(false);
+                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+                return;
             }
-            this.dbVendor = null;
-            this.currentDatabaseName = null;
-            this.cachedSchemaName = null;
-            this.orchestrator = null;
-            this.policyResolver = null;
-            this.mappingSyncService = null;
-            this.endpointSyncService = null;
-            this.directCryptoAdapter = null;
-            this.schemaSyncService = null;
-            this.telemetryStatsSender = null;
-            this.notificationService = null;
-            this.cryptoProfileRecorder = null;
-            this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(null);
-            this.wrapperRuntimeAvailable = false;
-            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
-            return;
+            if (config.isFailOpen()) {
+                log.warn("DADP Wrapper startup prerequisites not met and failOpen=true (passthrough mode) - no encryption/decryption will be performed");
+                initializePassthroughState(false);
+                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+                return;
+            } else {
+                blockStartup("DADP Wrapper startup prerequisites not met and failOpen=false; refusing SQL execution to prevent plaintext storage");
+                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+                return;
+            }
         }
 
         initializeConnectionMetadata();
@@ -126,16 +128,12 @@ public class DadpProxyConnection implements Connection {
         // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
-            log.warn("DADP Wrapper runtime is not initialized. Run CLI wrapper schema register and trigger manual refresh to enable encryption/decryption. Current connection uses passthrough mode.");
-            this.policyResolver = null;
-            this.mappingSyncService = null;
-            this.endpointSyncService = null;
-            this.directCryptoAdapter = null;
-            this.schemaSyncService = null;
-            this.telemetryStatsSender = null;
-            this.notificationService = null;
-            this.cryptoProfileRecorder = null;
-            this.wrapperRuntimeAvailable = false;
+            if (isEffectiveFailOpen()) {
+                log.warn("DADP Wrapper runtime is not initialized and failOpen=true. Current connection uses passthrough mode.");
+                initializePassthroughState(false);
+            } else {
+                blockStartup("DADP Wrapper runtime is not initialized and failOpen=false; refusing SQL execution to prevent plaintext storage");
+            }
             WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
@@ -148,6 +146,64 @@ public class DadpProxyConnection implements Connection {
         
         // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
         log.trace("DADP Proxy Connection created");
+    }
+
+    private void initializePassthroughState(boolean startupBlocked) {
+        this.dbVendor = null;
+        this.currentDatabaseName = null;
+        this.cachedSchemaName = null;
+        this.orchestrator = null;
+        this.policyResolver = null;
+        this.mappingSyncService = null;
+        this.endpointSyncService = null;
+        this.directCryptoAdapter = null;
+        this.schemaSyncService = null;
+        this.telemetryStatsSender = null;
+        this.notificationService = null;
+        this.cryptoProfileRecorder = null;
+        this.resolutionStrategy = JdbcVendorResolutionStrategies.forVendor(null);
+        this.wrapperRuntimeAvailable = false;
+        if (!startupBlocked) {
+            this.startupBlockReason = null;
+        }
+    }
+
+    private void blockStartup(String message) {
+        log.error(message);
+        initializePassthroughState(true);
+        this.startupBlockReason = new SQLException(message);
+    }
+
+    private void waitForRuntimeStorage(String reason) {
+        long timeoutMs = Long.getLong("dadp.wrapper.runtime.startup-wait-ms", DEFAULT_RUNTIME_STARTUP_WAIT_MS);
+        if (timeoutMs <= 0) {
+            return;
+        }
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        boolean logged = false;
+        while (System.nanoTime() < deadline) {
+            if (ProxyConfig.hasValidRuntimeStorage()) {
+                ProxyConfig refreshedConfig = originalUrlParams != null ? new ProxyConfig(originalUrlParams) : new ProxyConfig(null);
+                this.config = refreshedConfig;
+                if (refreshedConfig.isRuntimeActive() || !refreshedConfig.isEnabled()) {
+                    log.info("DADP Wrapper runtime storage became available during startup wait: reason={}, alias={}",
+                            reason, refreshedConfig.getAlias());
+                    return;
+                }
+            }
+            if (!logged) {
+                log.warn("DADP Wrapper runtime storage is not ready; waiting up to {}ms before applying failOpen/failClosed policy: reason={}",
+                        timeoutMs, reason);
+                logged = true;
+            }
+            try {
+                Thread.sleep(Math.min(RUNTIME_STARTUP_WAIT_POLL_MS, Math.max(1L, timeoutMs)));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        this.config = originalUrlParams != null ? new ProxyConfig(originalUrlParams) : new ProxyConfig(null);
     }
 
     private void initializeConnectionMetadata() {
@@ -243,6 +299,42 @@ public class DadpProxyConnection implements Connection {
         return wrapperRuntimeAvailable
                 && config.isStartupReady()
                 && (orchestrator == null || orchestrator.isRuntimeEnabled());
+    }
+
+    private boolean isEffectiveFailOpen() {
+        if (orchestrator != null) {
+            return orchestrator.isRuntimeFailOpen();
+        }
+        return config != null && config.isFailOpen();
+    }
+
+    private boolean isRuntimeDisabled() {
+        if (config != null && !config.isEnabled()) {
+            return true;
+        }
+        return orchestrator != null && !orchestrator.isRuntimeEnabled();
+    }
+
+    private boolean ensureRuntimeAvailableForSql(String operation) throws SQLException {
+        if (isWrapperRuntimeAvailable()) {
+            return true;
+        }
+        if (initializeRuntimeForRefreshTrigger()) {
+            return true;
+        }
+        if (isRuntimeDisabled()) {
+            log.trace("DADP Wrapper disabled; {} uses passthrough mode", operation);
+            return false;
+        }
+        if (isEffectiveFailOpen()) {
+            log.warn("DADP Wrapper runtime unavailable and failOpen=true; {} uses passthrough mode", operation);
+            return false;
+        }
+        SQLException reason = startupBlockReason;
+        if (reason != null) {
+            throw reason;
+        }
+        throw new SQLException("DADP Wrapper runtime unavailable and failOpen=false; refusing SQL execution to prevent plaintext storage");
     }
 
     private synchronized boolean initializeRuntimeForRefreshTrigger() {
@@ -768,7 +860,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement() throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("createStatement")) {
             return actualConnection.createStatement();
         }
         ensureMappingsLoaded();
@@ -778,7 +870,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql);
         }
         log.trace("PreparedStatement created: {}", sql);
@@ -894,7 +986,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("createStatement")) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency);
         }
         ensureMappingsLoaded();
@@ -904,7 +996,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency);
         }
         ensureMappingsLoaded();
@@ -959,7 +1051,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("createStatement")) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         ensureMappingsLoaded();
@@ -969,7 +1061,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         ensureMappingsLoaded();
@@ -984,7 +1076,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, autoGeneratedKeys);
         }
         ensureMappingsLoaded();
@@ -994,7 +1086,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int[] columnIndexes) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, columnIndexes);
         }
         ensureMappingsLoaded();
@@ -1004,7 +1096,7 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, String[] columnNames) throws SQLException {
-        if (!isWrapperRuntimeAvailable()) {
+        if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, columnNames);
         }
         ensureMappingsLoaded();

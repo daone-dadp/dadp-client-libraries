@@ -110,6 +110,23 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
+    void runtimeOptionsLoadFromProxyConfigBeforeBootstrap() throws Exception {
+        writeProxyConfig("stored-alias",
+                "wtenant_test",
+                "http://dadp-hub:9004",
+                false,
+                true,
+                "local");
+
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+        assertFalse(config.isEnabled());
+        assertFalse(config.isRuntimeActive());
+        assertTrue(config.isFailOpen());
+        assertTrue("local".equals(config.getCryptoMode()));
+    }
+
+    @Test
     void aliasCannotBeLoadedFromSystemProperty() {
         System.setProperty("dadp.proxy.alias", "system-prop-alias");
 
@@ -206,6 +223,15 @@ class ProxyConfigCryptoProfileTest {
     }
 
     private static void writeProxyConfig(String alias, String tenantId, String runtimeHubUrl) throws IOException {
+        writeProxyConfig(alias, tenantId, runtimeHubUrl, true, false, "remote");
+    }
+
+    private static void writeProxyConfig(String alias,
+                                         String tenantId,
+                                         String runtimeHubUrl,
+                                         boolean enabled,
+                                         boolean failOpen,
+                                         String cryptoMode) throws IOException {
         deleteRuntimeRoot();
         Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
         Files.createDirectories(storageDir);
@@ -214,7 +240,10 @@ class ProxyConfigCryptoProfileTest {
                 + "  \"alias\": \"" + alias + "\",\n"
                 + "  \"runtimeVersion\": \"1\",\n"
                 + "  \"runtime\": {\n"
-                + "    \"hubUrl\": \"" + runtimeHubUrl + "\"\n"
+                + "    \"hubUrl\": \"" + runtimeHubUrl + "\",\n"
+                + "    \"enabled\": " + enabled + ",\n"
+                + "    \"failOpen\": " + failOpen + ",\n"
+                + "    \"cryptoMode\": \"" + cryptoMode + "\"\n"
                 + "  }\n"
                 + "}\n";
         Files.write(storageDir.resolve("proxy-config.json"), json.getBytes(StandardCharsets.UTF_8));
