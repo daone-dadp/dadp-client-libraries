@@ -67,10 +67,9 @@ public class DadpJdbcDriver implements Driver {
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)
             log.trace("Actual DB URL: {}", actualUrl);
             
-            // 실제 Driver로 연결
             Connection actualConnection;
             try {
-                actualConnection = DriverManager.getConnection(actualUrl, info);
+                actualConnection = ActualJdbcDriverConnector.connect(actualUrl, info);
             } catch (SQLException e) {
                 // 연결 실패 시 변환된 URL 정보를 로그에 출력 (디버깅용)
                 if (isDatabaseConnectionLimitError(e)) {

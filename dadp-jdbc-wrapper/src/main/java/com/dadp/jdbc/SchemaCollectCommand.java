@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.io.File;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -32,9 +31,7 @@ public final class SchemaCollectCommand {
             connectionProps.setProperty("password", arguments.dbPassword);
         }
 
-        try (Connection connection = connectionProps.isEmpty()
-                ? DriverManager.getConnection(actualJdbcUrl)
-                : DriverManager.getConnection(actualJdbcUrl, connectionProps)) {
+        try (Connection connection = ActualJdbcDriverConnector.connect(actualJdbcUrl, connectionProps)) {
             JdbcSchemaCollector collector = new JdbcSchemaCollector(collectorAlias);
             List<SchemaMetadata> schemas = collector.collectSchemas(connection);
             Map<String, Object> schemaCache = SchemaRegistrationPayloadBuilder.buildSchemaCacheWithAlias(
