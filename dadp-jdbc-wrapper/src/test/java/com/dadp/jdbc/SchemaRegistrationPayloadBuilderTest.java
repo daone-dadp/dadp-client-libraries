@@ -28,7 +28,7 @@ class SchemaRegistrationPayloadBuilderTest {
                 connection("MySQL", "test_app_mysql_db", null),
                 schemas(),
                 "dadp-test-app-mysql",
-                "6.0.0",
+                "6.1.0",
                 "mysql-app-1",
                 null
         );
@@ -36,7 +36,7 @@ class SchemaRegistrationPayloadBuilderTest {
         assertEquals("dadp-test-app-standalone-mysql", payload.get("alias"));
         assertEquals("JDBC", payload.get("wrapperType"));
         assertEquals("dadp-test-app-mysql", payload.get("appName"));
-        assertEquals("6.0.0", payload.get("wrapperVersion"));
+        assertEquals("6.1.0", payload.get("wrapperVersion"));
         assertEquals("mysql-app-1", payload.get("clientInstanceId"));
         assertFalse(payload.containsKey("hubUrl"), "hubUrl must not be duplicated in Hub schema registration payload");
 
@@ -66,7 +66,7 @@ class SchemaRegistrationPayloadBuilderTest {
                 connection("MySQL", "test_app_mysql_db", null),
                 schemas(),
                 null,
-                "6.0.0",
+                "6.1.0",
                 null
         );
 

@@ -135,7 +135,7 @@ public final class SchemaCollectCommand {
         private static String detectWrapperVersion() {
             Package pkg = SchemaCollectCommand.class.getPackage();
             String version = pkg != null ? pkg.getImplementationVersion() : null;
-            return trimToNull(version) != null ? version : "6.0.0";
+            return trimToNull(version) != null ? version : "6.1.0";
         }
     }
 }

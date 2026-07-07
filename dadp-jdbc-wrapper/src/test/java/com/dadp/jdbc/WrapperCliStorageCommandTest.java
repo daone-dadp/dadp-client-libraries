@@ -155,7 +155,7 @@ class WrapperCliStorageCommandTest {
                 "--schemas-json", schemasJson.toString(),
                 "--storage-dir", tempDir.toString(),
                 "--app-name", "app",
-                "--wrapper-version", "6.0.0",
+                "--wrapper-version", "6.1.0",
                 "--client-instance-id", "cli-1",
                 "--output", output.toString()
         }, new PrintStream(new ByteArrayOutputStream()), new PrintStream(new ByteArrayOutputStream()));

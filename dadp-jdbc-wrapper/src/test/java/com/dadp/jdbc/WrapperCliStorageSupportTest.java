@@ -53,7 +53,7 @@ class WrapperCliStorageSupportTest {
                 schemasJson,
                 tempDir.toString(),
                 "app",
-                "6.0.0",
+                "6.1.0",
                 "client-1");
 
         assertEquals("wtenant_existing", payload.get("tenantId"));
