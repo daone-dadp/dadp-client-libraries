@@ -74,9 +74,14 @@ public final class WrapperCliStorageSupport {
     }
 
     public static RuntimeContext resolveRuntimeContext(String wrapperLibDir) throws IOException {
+        return resolveRuntimeContext(wrapperLibDir, null);
+    }
+
+    public static RuntimeContext resolveRuntimeContext(String wrapperLibDir, String expectedAlias) throws IOException {
         String storageRoot = StoragePathResolver.resolveWrapperStorageRoot(wrapperLibDir);
         Path root = Paths.get(storageRoot);
         List<RuntimeContext> contexts = new ArrayList<RuntimeContext>();
+        String normalizedAlias = trimToNull(expectedAlias);
 
         addRuntimeContextIfPresent(contexts, root.resolve(PROXY_CONFIG_FILE));
         if (Files.isDirectory(root)) {
@@ -86,8 +91,23 @@ public final class WrapperCliStorageSupport {
                 }
             }
         }
+        if (normalizedAlias != null) {
+            List<RuntimeContext> aliasContexts = new ArrayList<RuntimeContext>();
+            for (RuntimeContext context : contexts) {
+                if (normalizedAlias.equals(context.getAlias())
+                        || normalizedAlias.equals(Paths.get(context.getStorageDir()).getFileName().toString())) {
+                    aliasContexts.add(context);
+                }
+            }
+            contexts = aliasContexts;
+        }
 
         if (contexts.isEmpty()) {
+            if (normalizedAlias != null) {
+                throw new IllegalStateException("Wrapper enrollment for alias " + normalizedAlias
+                        + " is missing under " + storageRoot
+                        + ". Run wrapper schema register or wrapper enroll for that alias first.");
+            }
             throw new IllegalStateException("Wrapper enrollment is missing under " + storageRoot
                     + ". Run wrapper schema register or wrapper enroll first.");
         }

@@ -46,7 +46,7 @@ public final class WrapperCliStorageCommand {
             }
             if ("resolve-runtime-context".equals(command)) {
                 WrapperCliStorageSupport.RuntimeContext context =
-                        WrapperCliStorageSupport.resolveRuntimeContext(required(options, "wrapper-lib-dir"));
+                        WrapperCliStorageSupport.resolveRuntimeContext(required(options, "wrapper-lib-dir"), options.get("alias"));
                 Map<String, Object> output = new LinkedHashMap<String, Object>();
                 output.put("storageDir", context.getStorageDir());
                 output.put("proxyConfigPath", context.getProxyConfigPath());
@@ -172,7 +172,7 @@ public final class WrapperCliStorageCommand {
         out.println("Usage: java -cp dadp-jdbc-wrapper.jar com.dadp.jdbc.WrapperCliStorageCommand <command> [options]");
         out.println("Commands:");
         out.println("  resolve-storage-dir --wrapper-lib-dir <dir> --alias <alias>");
-        out.println("  resolve-runtime-context --wrapper-lib-dir <dir>");
+        out.println("  resolve-runtime-context --wrapper-lib-dir <dir> [--alias <alias>]");
         out.println("  build-schema-register-payload --schemas-json <file> --storage-dir <dir> --app-name <name> --wrapper-version <version> --client-instance-id <id> [--output <file>]");
         out.println("  save-enrollment --storage-dir <dir> --tenant-id <tenantId> [--alias <alias>] [--runtime-version <version>] [--runtime-hub-url <url>]");
         out.println("  apply-refresh-response --storage-dir <dir> --response-file <file> [--runtime-hub-url <url>]");

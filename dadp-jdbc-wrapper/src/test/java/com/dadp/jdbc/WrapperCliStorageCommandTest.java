@@ -207,4 +207,31 @@ class WrapperCliStorageCommandTest {
         assertEquals(1, exitCode);
         assertTrue(err.toString("UTF-8").contains("Multiple wrapper runtime directories found"));
     }
+
+    @Test
+    void commandResolvesRuntimeContextByAliasWhenMultipleRuntimesExist() throws Exception {
+        Path libDir = tempDir.resolve("lib");
+        Path firstStorageDir = libDir.resolve("dadp").resolve("wrapper").resolve("A01");
+        Path secondStorageDir = libDir.resolve("dadp").resolve("wrapper").resolve("A02");
+        WrapperCliStorageSupport.saveEnrollment(
+                firstStorageDir.toString(),
+                "wtenant_one", "A01", "1", "http://hub:9004");
+        WrapperCliStorageSupport.saveEnrollment(
+                secondStorageDir.toString(),
+                "wtenant_two", "A02", "3", "http://hub:9004");
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int exitCode = WrapperCliStorageCommand.run(new String[] {
+                "resolve-runtime-context",
+                "--wrapper-lib-dir", libDir.toString(),
+                "--alias", "A02"
+        }, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()));
+
+        assertEquals(0, exitCode);
+        JsonNode context = new ObjectMapper().readTree(out.toString("UTF-8"));
+        assertEquals("wtenant_two", context.path("tenantId").asText());
+        assertEquals("A02", context.path("alias").asText());
+        assertEquals("3", context.path("runtimeVersion").asText());
+        assertEquals(secondStorageDir.toString(), context.path("storageDir").asText());
+    }
 }
