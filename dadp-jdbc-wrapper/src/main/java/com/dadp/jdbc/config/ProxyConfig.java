@@ -28,6 +28,7 @@ import java.util.List;
 public class ProxyConfig {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfig.class);
+    public static final String WRAPPER_ALIAS_PROPERTY = "dadp.wrapper.alias";
     
     private static final long DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS = 30000; // 30초
     private static final int DEFAULT_MAX_SCHEMAS = 100;
@@ -71,7 +72,7 @@ public class ProxyConfig {
      */
     public ProxyConfig(Map<String, String> urlParams) {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
-        RuntimeStorage runtimeStorage = discoverRuntimeStorage();
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveRuntimeAliasSelector(urlParams));
         InstanceConfigStorage.ConfigData storedConfig = runtimeStorage != null ? runtimeStorage.configData : null;
         String aliasProp = storedConfig != null ? trimToNull(storedConfig.getAlias()) : null;
         this.alias = aliasProp;
@@ -352,11 +353,11 @@ public class ProxyConfig {
     }
 
     public static boolean hasValidRuntimeStorage() {
-        return discoverRuntimeStorage(false) != null;
+        return discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false) != null;
     }
 
     public static NotificationContext loadNotificationContext() {
-        RuntimeStorage runtimeStorage = discoverRuntimeStorage(false);
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false);
         if (runtimeStorage == null || runtimeStorage.configData == null) {
             return null;
         }
@@ -379,10 +380,18 @@ public class ProxyConfig {
     }
 
     private static RuntimeStorage discoverRuntimeStorage() {
-        return discoverRuntimeStorage(true);
+        return discoverRuntimeStorage(null, true);
+    }
+
+    private static RuntimeStorage discoverRuntimeStorage(String selectedAlias) {
+        return discoverRuntimeStorage(selectedAlias, true);
     }
 
     private static RuntimeStorage discoverRuntimeStorage(boolean logWarnings) {
+        return discoverRuntimeStorage(null, logWarnings);
+    }
+
+    private static RuntimeStorage discoverRuntimeStorage(String selectedAlias, boolean logWarnings) {
         String root;
         try {
             root = StoragePathResolver.resolveWrapperStorageRoot();
@@ -430,6 +439,19 @@ public class ProxyConfig {
             }
             return null;
         }
+        String normalizedSelectedAlias = trimToNull(selectedAlias);
+        if (normalizedSelectedAlias != null) {
+            for (RuntimeStorage candidate : candidates) {
+                if (normalizedSelectedAlias.equals(candidate.alias)) {
+                    return candidate;
+                }
+            }
+            if (logWarnings) {
+                log.warn("Wrapper runtime alias {} was requested, but no matching enrollment exists under {}.",
+                        normalizedSelectedAlias, root);
+            }
+            return null;
+        }
         if (candidates.size() > 1) {
             StringBuilder names = new StringBuilder();
             for (RuntimeStorage candidate : candidates) {
@@ -445,6 +467,18 @@ public class ProxyConfig {
             return null;
         }
         return candidates.get(0);
+    }
+
+    private static String resolveRuntimeAliasSelector(Map<String, String> params) {
+        String dataSourceAlias = params != null ? trimToNull(params.get(WRAPPER_ALIAS_PROPERTY)) : null;
+        if (dataSourceAlias != null) {
+            return dataSourceAlias;
+        }
+        return resolveSystemRuntimeAliasSelector();
+    }
+
+    private static String resolveSystemRuntimeAliasSelector() {
+        return trimToNull(System.getProperty(WRAPPER_ALIAS_PROPERTY));
     }
 
     private static String buildRuntimeUrl(String runtimeHubUrl, String tenantId, String action) {

@@ -23,6 +23,7 @@ class ProxyConfigCryptoProfileTest {
     void clearSystemProperties() throws Exception {
         System.clearProperty("dadp.proxy.alias");
         System.clearProperty("dadp.proxy.hub-url");
+        System.clearProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY);
         System.clearProperty("dadp.wrapper.crypto-profile.enabled");
         System.clearProperty("dadp.wrapper.crypto-profile.path");
         deleteRuntimeRoot();
@@ -152,6 +153,45 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
+    void multipleRuntimeEnrollmentsRequireExplicitAliasSelection() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "http://dadp-hub:9004");
+        writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://dadp-hub:9004");
+
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+        assertFalse(config.isStartupReady());
+        assertFalse(config.isRuntimeActive());
+    }
+
+    @Test
+    void systemPropertySelectsRuntimeEnrollmentWhenMultipleAliasesExist() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "http://dadp-hub:9004");
+        writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://dadp-hub:9004");
+        System.setProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY, "alias-two");
+
+        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+        assertTrue(config.isStartupReady());
+        assertTrue(config.isRuntimeActive());
+        assertTrue("alias-two".equals(config.getAlias()));
+    }
+
+    @Test
+    void dataSourcePropertyOverridesSystemPropertyForRuntimeAliasSelection() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "http://dadp-hub:9004");
+        writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://dadp-hub:9004");
+        System.setProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY, "alias-two");
+        Map<String, String> urlParams = new HashMap<>();
+        urlParams.put(ProxyConfig.WRAPPER_ALIAS_PROPERTY, "alias-one");
+
+        ProxyConfig config = new ProxyConfig(urlParams);
+
+        assertTrue(config.isStartupReady());
+        assertTrue(config.isRuntimeActive());
+        assertTrue("alias-one".equals(config.getAlias()));
+    }
+
+    @Test
     void runtimeTransportCannotBeEnabledFromJdbcUrlParams() {
         Map<String, String> urlParams = new HashMap<>();
         urlParams.put("alias", "shared-db-group");
@@ -233,6 +273,21 @@ class ProxyConfigCryptoProfileTest {
                                          boolean failOpen,
                                          String cryptoMode) throws IOException {
         deleteRuntimeRoot();
+        writeProxyConfigWithoutClearing(alias, tenantId, runtimeHubUrl, enabled, failOpen, cryptoMode);
+    }
+
+    private static void writeProxyConfigWithoutClearing(String alias,
+                                                        String tenantId,
+                                                        String runtimeHubUrl) throws IOException {
+        writeProxyConfigWithoutClearing(alias, tenantId, runtimeHubUrl, true, false, "remote");
+    }
+
+    private static void writeProxyConfigWithoutClearing(String alias,
+                                                        String tenantId,
+                                                        String runtimeHubUrl,
+                                                        boolean enabled,
+                                                        boolean failOpen,
+                                                        String cryptoMode) throws IOException {
         Path storageDir = Paths.get(StoragePathResolver.resolveStorageDir(alias));
         Files.createDirectories(storageDir);
         String json = "{\n"

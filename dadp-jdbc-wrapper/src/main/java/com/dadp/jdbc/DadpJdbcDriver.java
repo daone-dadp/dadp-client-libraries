@@ -5,6 +5,8 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
 import com.dadp.jdbc.config.ProxyConfig;
 import com.dadp.jdbc.notification.HubNotificationService;
 import java.sql.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -60,7 +62,8 @@ public class DadpJdbcDriver implements Driver {
             log.trace("DADP JDBC Driver connection request: {}", url);
             
             DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
-            java.util.Map<String, String> proxyParams = java.util.Collections.emptyMap();
+            Map<String, String> proxyParams = extractWrapperProperties(info);
+            Properties nativeConnectionProperties = sanitizeNativeConnectionProperties(info);
             
             // DADP URL을 실제 DB URL로 변환 (Proxy 파라미터 제거)
             String actualUrl = extractActualUrl(url);
@@ -69,7 +72,7 @@ public class DadpJdbcDriver implements Driver {
             
             Connection actualConnection;
             try {
-                actualConnection = ActualJdbcDriverConnector.connect(actualUrl, info);
+                actualConnection = ActualJdbcDriverConnector.connect(actualUrl, nativeConnectionProperties);
             } catch (SQLException e) {
                 // 연결 실패 시 변환된 URL 정보를 로그에 출력 (디버깅용)
                 if (isDatabaseConnectionLimitError(e)) {
@@ -83,7 +86,7 @@ public class DadpJdbcDriver implements Driver {
             }
             
             // Proxy Connection으로 래핑 (Proxy 설정 + 접속 정보 전달)
-            return new DadpProxyConnection(actualConnection, url, proxyParams, info);
+            return new DadpProxyConnection(actualConnection, url, proxyParams, nativeConnectionProperties);
             
         } catch (SQLException e) {
             log.warn("DADP JDBC Driver connection failed: {}", e.getMessage(), e);
@@ -96,6 +99,26 @@ public class DadpJdbcDriver implements Driver {
      */
     private java.util.Map<String, String> extractProxyParams(String dadpUrl) {
         return DadpJdbcUrlSupport.extractProxyParams(dadpUrl);
+    }
+
+    private Map<String, String> extractWrapperProperties(Properties info) {
+        String alias = info != null ? trimToNull(info.getProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY)) : null;
+        if (alias == null) {
+            return java.util.Collections.emptyMap();
+        }
+        Map<String, String> wrapperProperties = new HashMap<>();
+        wrapperProperties.put(ProxyConfig.WRAPPER_ALIAS_PROPERTY, alias);
+        return wrapperProperties;
+    }
+
+    private Properties sanitizeNativeConnectionProperties(Properties info) {
+        if (info == null || info.isEmpty()) {
+            return info;
+        }
+        Properties sanitized = new Properties();
+        sanitized.putAll(info);
+        sanitized.remove(ProxyConfig.WRAPPER_ALIAS_PROPERTY);
+        return sanitized;
     }
     
     /**
@@ -125,6 +148,14 @@ public class DadpJdbcDriver implements Driver {
         return lower.contains("too many clients")
                 || lower.contains("remaining connection slots")
                 || lower.contains("too many connections");
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private void notifyDatabaseConnectionFailure(String actualUrl, SQLException e) {
