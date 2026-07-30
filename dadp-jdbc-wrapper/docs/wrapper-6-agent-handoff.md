@@ -208,9 +208,9 @@ IAM host:
 Verify public artifact:
 
 ```bash
-curl -fsSL https://dadp-artifacts.s3.ap-northeast-2.amazonaws.com/wrapper/v6.1.0/dadp-jdbc-wrapper-6.1.0-all.jar \
-  -o /tmp/dadp-jdbc-wrapper-6.1.0-all.jar
-sha256sum /tmp/dadp-jdbc-wrapper-6.1.0-all.jar
+curl -fsSL https://dadp-artifacts.s3.ap-northeast-2.amazonaws.com/wrapper/v6.1.3/dadp-jdbc-wrapper-6.1.3-all.jar \
+  -o /tmp/dadp-jdbc-wrapper-6.1.3-all.jar
+sha256sum /tmp/dadp-jdbc-wrapper-6.1.3-all.jar
 ```
 
 ## Git
