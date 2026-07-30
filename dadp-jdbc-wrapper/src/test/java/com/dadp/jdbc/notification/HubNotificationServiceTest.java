@@ -80,6 +80,7 @@ class HubNotificationServiceTest {
                     true);
 
             assertTrue(requestBody.get().contains("WRAPPER_COLUMN_SIZE_FAILURE"));
+            assertTrue(requestBody.get().contains("\"type\":\"DATABASE_ERROR\""));
             assertTrue(requestBody.get().contains("\"level\":\"WARNING\""));
             assertTrue(requestBody.get().contains("plaintextRetry"));
             assertTrue(requestBody.get().contains("true"));
@@ -112,7 +113,7 @@ class HubNotificationServiceTest {
                     "jdbc:postgresql://db:5434/test");
 
             assertTrue(requestBody.get().contains("WRAPPER_DATABASE_CONNECTION_FAILURE"));
-            assertTrue(requestBody.get().contains("\"type\":\"SYSTEM_ERROR\""));
+            assertTrue(requestBody.get().contains("\"type\":\"DATABASE_ERROR\""));
             assertTrue(requestBody.get().contains("DB_CONNECTION_LIMIT"));
         } finally {
             server.stop(0);
@@ -183,7 +184,7 @@ class HubNotificationServiceTest {
                     false);
 
             assertTrue(requestBody.get().contains("WRAPPER_DATABASE_WRITE_FAILURE"));
-            assertTrue(requestBody.get().contains("\"type\":\"SYSTEM_ERROR\""));
+            assertTrue(requestBody.get().contains("\"type\":\"DATABASE_ERROR\""));
             assertTrue(requestBody.get().contains("DB_TYPE_MISMATCH"));
             assertTrue(requestBody.get().contains("22P02"));
         } finally {

@@ -138,7 +138,7 @@ public class HubNotificationService {
         metadata.put("tenantId", tenantId);
         metadata.put("error", truncate(errorMessage, 500));
         sendNotification(
-                "CRYPTO_ERROR",
+                "DATABASE_ERROR",
                 plaintextRetry ? "WARNING" : "ERROR",
                 plaintextRetry ? "Wrapper encrypted value stored as plaintext after column size failure"
                         : "Wrapper blocked write after column size failure",
@@ -229,7 +229,7 @@ public class HubNotificationService {
         metadata.put("tenantId", tenantId);
         metadata.put("error", truncate(errorMessage, 500));
         sendNotification(
-                "SYSTEM_ERROR",
+                "DATABASE_ERROR",
                 "ERROR",
                 "Wrapper protected DB write failed",
                 "A DB write involving wrapper-protected data failed after wrapper processing.",
@@ -250,7 +250,7 @@ public class HubNotificationService {
         metadata.put("databaseUrl", truncate(databaseUrl, 300));
         metadata.put("error", truncate(errorMessage, 500));
         sendNotification(
-                "SYSTEM_ERROR",
+                "DATABASE_ERROR",
                 "ERROR",
                 "Wrapper database connection failure",
                 "Wrapper could not obtain a database connection while runtime notification context was available.",
