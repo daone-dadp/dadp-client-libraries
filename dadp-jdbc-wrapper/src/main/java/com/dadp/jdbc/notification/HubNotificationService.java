@@ -173,6 +173,69 @@ public class HubNotificationService {
                 toJson(metadata));
     }
 
+    public void notifyCryptoOperationFailure(String operation,
+                                             String cryptoMode,
+                                             String tableName,
+                                             String columnName,
+                                             String policyIdentifier,
+                                             String errorMessage,
+                                             boolean failOpen) {
+        if (!isAvailable()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("eventCode", "WRAPPER_CRYPTO_OPERATION_FAILURE");
+        metadata.put("operation", operation);
+        metadata.put("cryptoMode", cryptoMode);
+        metadata.put("tableName", tableName);
+        metadata.put("columnName", columnName);
+        metadata.put("policyIdentifier", policyIdentifier);
+        metadata.put("failOpen", failOpen);
+        metadata.put("alias", alias);
+        metadata.put("tenantId", tenantId);
+        metadata.put("error", truncate(errorMessage, 500));
+        sendNotification(
+                "CRYPTO_ERROR",
+                failOpen ? "WARNING" : "ERROR",
+                "Wrapper crypto operation failure",
+                failOpen ? "Wrapper crypto operation failed and failOpen=true allowed plaintext processing."
+                        : "Wrapper crypto operation failed and failOpen=false blocked processing.",
+                toJson(metadata));
+    }
+
+    public void notifyDatabaseWriteFailure(String operation,
+                                           String failureType,
+                                           String tableName,
+                                           String columnName,
+                                           String policyIdentifier,
+                                           String sqlState,
+                                           Integer errorCode,
+                                           String errorMessage,
+                                           boolean failOpen) {
+        if (!isAvailable()) {
+            return;
+        }
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("eventCode", "WRAPPER_DATABASE_WRITE_FAILURE");
+        metadata.put("operation", operation);
+        metadata.put("failureType", failureType);
+        metadata.put("tableName", tableName);
+        metadata.put("columnName", columnName);
+        metadata.put("policyIdentifier", policyIdentifier);
+        metadata.put("sqlState", sqlState);
+        metadata.put("errorCode", errorCode);
+        metadata.put("failOpen", failOpen);
+        metadata.put("alias", alias);
+        metadata.put("tenantId", tenantId);
+        metadata.put("error", truncate(errorMessage, 500));
+        sendNotification(
+                "SYSTEM_ERROR",
+                "ERROR",
+                "Wrapper protected DB write failed",
+                "A DB write involving wrapper-protected data failed after wrapper processing.",
+                toJson(metadata));
+    }
+
     public void notifyDatabaseConnectionFailure(String failureType,
                                                 String errorMessage,
                                                 String databaseUrl) {

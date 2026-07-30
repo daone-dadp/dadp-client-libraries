@@ -119,6 +119,78 @@ class HubNotificationServiceTest {
         }
     }
 
+    @Test
+    void sendsCryptoOperationFailureNotification() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<String>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hub/api/v1/notifications/external", exchange -> {
+            requestBody.set(readBody(exchange));
+            byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HubNotificationService service = new HubNotificationService(hubUrl, "tenant-1", "alias-1", true);
+
+            service.notifyCryptoOperationFailure(
+                    "setString",
+                    "local",
+                    "customers",
+                    "email",
+                    "POLICY01",
+                    "execution key missing",
+                    false);
+
+            assertTrue(requestBody.get().contains("WRAPPER_CRYPTO_OPERATION_FAILURE"));
+            assertTrue(requestBody.get().contains("\"type\":\"CRYPTO_ERROR\""));
+            assertTrue(requestBody.get().contains("\"level\":\"ERROR\""));
+            assertTrue(requestBody.get().contains("execution key missing"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsDatabaseWriteFailureNotification() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<String>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hub/api/v1/notifications/external", exchange -> {
+            requestBody.set(readBody(exchange));
+            byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            String hubUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HubNotificationService service = new HubNotificationService(hubUrl, "tenant-1", "alias-1", true);
+
+            service.notifyDatabaseWriteFailure(
+                    "executeUpdate",
+                    "DB_TYPE_MISMATCH",
+                    "customers",
+                    "amount",
+                    "POLICY01",
+                    "22P02",
+                    0,
+                    "invalid input syntax for type numeric",
+                    false);
+
+            assertTrue(requestBody.get().contains("WRAPPER_DATABASE_WRITE_FAILURE"));
+            assertTrue(requestBody.get().contains("\"type\":\"SYSTEM_ERROR\""));
+            assertTrue(requestBody.get().contains("DB_TYPE_MISMATCH"));
+            assertTrue(requestBody.get().contains("22P02"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static String readBody(HttpExchange exchange) throws IOException {
         InputStream inputStream = exchange.getRequestBody();
         byte[] buffer = new byte[1024];

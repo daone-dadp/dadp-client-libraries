@@ -396,8 +396,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         } catch (SQLException e) {
             error = true;
             // Data truncation 에러 감지 (암호화된 데이터가 컬럼 크기 초과)
-            if (e.getErrorCode() == 1406 || 
-                (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
+            if (isColumnSizeFailure(e)) {
 
                 if (!isFailOpenEnabled()) {
                     log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
@@ -410,6 +409,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 if (originalDataMap.isEmpty()) {
                     // 원본 데이터가 없으면 원래 예외 발생
                     log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
+                    notifyDatabaseWriteFailureIfProtected("executeUpdate", e);
                     throw e;
                 }
                 
@@ -461,10 +461,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 } catch (SQLException retryException) {
                     // 재시도에서도 실패하면 원래 예외 발생
                     log.error("Retry with plaintext still failed: {}", retryException.getMessage());
+                    notifyDatabaseWriteFailure("executeUpdate.plaintextRetry", retryException);
                     throw e; // 원래 예외 발생
                 }
             } else {
                 // 다른 SQLException은 그대로 발생
+                notifyDatabaseWriteFailureIfProtected("executeUpdate", e);
                 throw e;
             }
         } finally {
@@ -651,6 +653,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             } catch (Exception e) {
                 log.warn("{} search encryption failed, using plaintext: {}.{} - {}",
                         methodName, plan.tableName, plan.columnName, e.getMessage());
+                notifyCryptoOperationFailure(methodName + ".search", plan.tableName, plan.columnName,
+                        plan.policyName, e);
                 return new EncryptionResult(value, true);
             }
         }
@@ -666,7 +670,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             log.warn("{}: Direct crypto adapter not initialized: {}.{} (policy: {})",
                     methodName, plan.tableName, plan.columnName, plan.policyName);
             notifyCryptoAdapterUnavailable(methodName, plan.tableName, plan.columnName, plan.policyName);
-            if (proxyConnection.getConfig().isFailOpen()) {
+            if (isFailOpenEnabled()) {
                 return new EncryptionResult(value, false);
             } else {
                 // SQLException을 RuntimeException으로 감싸서 throw (호출자가 처리)
@@ -689,10 +693,10 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("{} encryption failed: {}.{} (policy: {}), saving as plaintext - {}",
                      methodName, plan.tableName, plan.columnName, plan.policyName, errorMsg);
-            
-            // 암복호화 실패 알림은 엔진에서 전송하므로 Wrapper에서는 제거
-            
-            if (proxyConnection.getConfig().isFailOpen()) {
+
+            notifyCryptoOperationFailure(methodName, plan.tableName, plan.columnName, plan.policyName, e);
+
+            if (isFailOpenEnabled()) {
                 return new EncryptionResult(value, false);
             } else {
                 // SQLException을 RuntimeException으로 감싸서 throw (호출자가 처리)
@@ -1193,7 +1197,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
             
             // 암호화 대상이 아니거나 암호화 실패 시 원본 데이터 그대로 저장
-            actualPreparedStatement.setString(parameterIndex, result.value);
+            setStringWithProtectedBindNotification(parameterIndex, result.value, "setString.bind");
         } catch (RuntimeException e) {
             if (e.getCause() instanceof SQLException) {
                 throw (SQLException) e.getCause();
@@ -1288,12 +1292,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) {
                     log.trace("setObject(type) -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
-                    actualPreparedStatement.setString(parameterIndex, result.value);
+                    setStringWithProtectedBindNotification(parameterIndex, result.value, "setObject(type).bind");
                 } else {
                     // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
                     log.trace("setObject(type) set: parameterIndex={}, targetSqlType={}, encryptedValue={}", parameterIndex, targetSqlType,
                              result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
-                    actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType);
+                    setObjectWithProtectedBindNotification(parameterIndex, result.value, targetSqlType, "setObject(type).bind");
                 }
                 return;
             } catch (RuntimeException e) {
@@ -1345,7 +1349,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // String이면 setString 사용 (타입 안전성)
                 log.trace("setObject -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
                          result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
-                actualPreparedStatement.setString(parameterIndex, result.value);
+                setStringWithProtectedBindNotification(parameterIndex, result.value, "setObject.bind");
                 return;
             } catch (RuntimeException e) {
                 if (e.getCause() instanceof SQLException) {
@@ -1479,7 +1483,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
             
             // 암호화 대상이 아니거나 암호화 실패 시 원본 데이터 그대로 저장
-            actualPreparedStatement.setNString(parameterIndex, result.value);
+            setNStringWithProtectedBindNotification(parameterIndex, result.value, "setNString.bind");
         } catch (RuntimeException e) {
             if (e.getCause() instanceof SQLException) {
                 throw (SQLException) e.getCause();
@@ -1792,7 +1796,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public int[] executeBatch() throws SQLException {
-        return actualPreparedStatement.executeBatch();
+        try {
+            return actualPreparedStatement.executeBatch();
+        } catch (SQLException e) {
+            notifyDatabaseWriteFailureIfProtected("executeBatch", e);
+            throw e;
+        }
     }
     
     @Override
@@ -1891,7 +1900,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public long[] executeLargeBatch() throws SQLException {
-        return actualPreparedStatement.executeLargeBatch();
+        try {
+            return actualPreparedStatement.executeLargeBatch();
+        } catch (SQLException e) {
+            notifyDatabaseWriteFailureIfProtected("executeLargeBatch", e);
+            throw e;
+        }
     }
     
     @Override
@@ -1952,8 +1966,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                     return actualPreparedStatement.execute();
                 } catch (SQLException e) {
                     // Data truncation 에러 처리 (executeUpdate()와 동일한 로직)
-                    if (e.getErrorCode() == 1406 || 
-                        (e.getMessage() != null && e.getMessage().contains("Data too long"))) {
+                    if (isColumnSizeFailure(e)) {
 
                         if (!isFailOpenEnabled()) {
                             log.error("Encrypted data exceeds column size and failOpen=false; aborting write to prevent plaintext storage: {}",
@@ -1965,6 +1978,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         // 원본 데이터가 저장된 파라미터가 있는지 확인
                         if (originalDataMap.isEmpty()) {
                             log.warn("Data truncation error but no original data available for retry: {}", e.getMessage());
+                            notifyDatabaseWriteFailureIfProtected("execute", e);
                             throw e;
                         }
                         
@@ -2016,10 +2030,12 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                         } catch (SQLException retryException) {
                             // 재시도에서도 실패하면 원래 예외 발생
                             log.error("Retry with plaintext still failed: {}", retryException.getMessage());
+                            notifyDatabaseWriteFailure("execute.plaintextRetry", retryException);
                             throw e; // 원래 예외 발생
                         }
                     } else {
                         // 다른 SQLException은 그대로 발생
+                        notifyDatabaseWriteFailureIfProtected("execute", e);
                         throw e;
                     }
                 }
@@ -2078,6 +2094,36 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
     }
 
+    private void setStringWithProtectedBindNotification(int parameterIndex, String value, String operation) throws SQLException {
+        try {
+            actualPreparedStatement.setString(parameterIndex, value);
+        } catch (SQLException e) {
+            notifyDatabaseWriteFailureIfProtected(operation, e);
+            throw e;
+        }
+    }
+
+    private void setNStringWithProtectedBindNotification(int parameterIndex, String value, String operation) throws SQLException {
+        try {
+            actualPreparedStatement.setNString(parameterIndex, value);
+        } catch (SQLException e) {
+            notifyDatabaseWriteFailureIfProtected(operation, e);
+            throw e;
+        }
+    }
+
+    private void setObjectWithProtectedBindNotification(int parameterIndex,
+                                                        Object value,
+                                                        int targetSqlType,
+                                                        String operation) throws SQLException {
+        try {
+            actualPreparedStatement.setObject(parameterIndex, value, targetSqlType);
+        } catch (SQLException e) {
+            notifyDatabaseWriteFailureIfProtected(operation, e);
+            throw e;
+        }
+    }
+
     private void notifyColumnSizeFailure(String operation,
                                          String tableName,
                                          String columnName,
@@ -2117,6 +2163,164 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             }
         } catch (RuntimeException notifyError) {
             log.debug("Crypto adapter unavailable notification skipped: {}", notifyError.getMessage());
+        }
+    }
+
+    private void notifyCryptoOperationFailure(String operation,
+                                              String tableName,
+                                              String columnName,
+                                              String policyName,
+                                              Exception failure) {
+        try {
+            HubNotificationService service = proxyConnection != null ? proxyConnection.getNotificationService() : null;
+            if (service != null) {
+                service.notifyCryptoOperationFailure(
+                        operation,
+                        proxyConnection.getConfig() != null ? proxyConnection.getConfig().getCryptoMode() : null,
+                        tableName,
+                        columnName,
+                        policyName,
+                        failure != null ? failure.getMessage() : null,
+                        isFailOpenEnabled());
+            }
+        } catch (RuntimeException notifyError) {
+            log.debug("Crypto operation failure notification skipped: {}", notifyError.getMessage());
+        }
+    }
+
+    private void notifyDatabaseWriteFailureIfProtected(String operation, SQLException failure) {
+        if (!isProtectedWriteContext()) {
+            return;
+        }
+        notifyDatabaseWriteFailure(operation, failure);
+    }
+
+    private void notifyDatabaseWriteFailure(String operation, SQLException failure) {
+        try {
+            HubNotificationService service = proxyConnection != null ? proxyConnection.getNotificationService() : null;
+            if (service == null) {
+                return;
+            }
+            ProtectedWriteContext context = resolveProtectedWriteContext();
+            service.notifyDatabaseWriteFailure(
+                    operation,
+                    classifyDatabaseWriteFailure(failure),
+                    context.tableName,
+                    context.columnName,
+                    context.policyName,
+                    failure != null ? failure.getSQLState() : null,
+                    failure != null ? Integer.valueOf(failure.getErrorCode()) : null,
+                    failure != null ? failure.getMessage() : null,
+                    isFailOpenEnabled());
+        } catch (RuntimeException notifyError) {
+            log.debug("Database write failure notification skipped: {}", notifyError.getMessage());
+        }
+    }
+
+    private boolean isProtectedWriteContext() {
+        if (sqlParseResult == null) {
+            return !originalDataMap.isEmpty();
+        }
+        String sqlType = sqlParseResult.getSqlType();
+        if (!"INSERT".equals(sqlType) && !"UPDATE".equals(sqlType)) {
+            return false;
+        }
+        if (!originalDataMap.isEmpty()) {
+            return true;
+        }
+        return statementClassification == StatementClassification.ENCRYPTED_WRITE
+                || statementClassification == StatementClassification.MIXED;
+    }
+
+    private ProtectedWriteContext resolveProtectedWriteContext() {
+        String tableName = sqlParseResult != null ? sqlParseResult.getTableName() : null;
+        String columnName = null;
+        String policyName = null;
+
+        Integer parameterIndex = null;
+        for (Integer index : originalDataMap.keySet()) {
+            parameterIndex = index;
+            break;
+        }
+        if (parameterIndex != null) {
+            columnName = statementStructure.getParameterColumnName(parameterIndex);
+        }
+        if (columnName == null && statementStructure.parameterColumnsByIndex != null) {
+            for (int i = 1; i < statementStructure.parameterColumnsByIndex.length; i++) {
+                String candidate = statementStructure.parameterColumnsByIndex[i];
+                if (candidate != null) {
+                    columnName = candidate;
+                    break;
+                }
+            }
+        }
+        if (tableName != null && columnName != null) {
+            String schemaName = resolveSchemaNameForLookup();
+            policyName = resolvePolicySafely(
+                    proxyConnection.normalizeIdentifier(schemaName),
+                    proxyConnection.normalizeIdentifier(tableName),
+                    proxyConnection.normalizeIdentifier(columnName));
+        }
+        return new ProtectedWriteContext(tableName, columnName, policyName);
+    }
+
+    private String classifyDatabaseWriteFailure(SQLException failure) {
+        if (isColumnSizeFailure(failure)) {
+            return "COLUMN_SIZE";
+        }
+        if (isTypeMismatchFailure(failure)) {
+            return "DB_TYPE_MISMATCH";
+        }
+        return "DB_WRITE_FAILURE";
+    }
+
+    private boolean isColumnSizeFailure(SQLException failure) {
+        if (failure == null) {
+            return false;
+        }
+        String sqlState = failure.getSQLState();
+        String message = lowerMessage(failure);
+        return failure.getErrorCode() == 1406
+                || failure.getErrorCode() == 12899
+                || "22001".equals(sqlState)
+                || message.contains("data too long")
+                || message.contains("value too long")
+                || message.contains("too long for type")
+                || message.contains("string data right truncation")
+                || message.contains("ora-12899");
+    }
+
+    private boolean isTypeMismatchFailure(SQLException failure) {
+        if (failure == null) {
+            return false;
+        }
+        String sqlState = failure.getSQLState();
+        String message = lowerMessage(failure);
+        return "22P02".equals(sqlState)
+                || "22018".equals(sqlState)
+                || message.contains("invalid input syntax for type")
+                || message.contains("incorrect integer value")
+                || message.contains("incorrect decimal value")
+                || message.contains("cannot convert")
+                || message.contains("conversion failed")
+                || message.contains("invalid number")
+                || message.contains("ora-01722");
+    }
+
+    private String lowerMessage(SQLException failure) {
+        String message = failure != null ? failure.getMessage() : null;
+        return message != null ? message.toLowerCase(Locale.ROOT) : "";
+    }
+
+    private static class ProtectedWriteContext {
+        final String tableName;
+        final String columnName;
+        final String policyName;
+
+        ProtectedWriteContext(String tableName, String columnName, String policyName) {
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.policyName = policyName;
         }
     }
 

@@ -3,6 +3,7 @@ package com.dadp.jdbc;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -11,6 +12,8 @@ import static org.mockito.Mockito.when;
 
 import com.dadp.common.sync.crypto.DirectCryptoAdapter;
 import com.dadp.common.sync.policy.PolicyResolver;
+import com.dadp.jdbc.config.ProxyConfig;
+import com.dadp.jdbc.notification.HubNotificationService;
 import com.dadp.jdbc.policy.SqlParser;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -310,6 +313,185 @@ class DadpProxyHotPathCacheTest {
         verify(actualPreparedStatement).setString(1, "enc-alice-that-is-too-long");
         verify(actualPreparedStatement, never()).setString(1, "alice@example.com");
         verify(actualPreparedStatement, times(1)).execute();
+    }
+
+    @Test
+    void preparedStatementNotifiesCryptoOperationFailure() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        HubNotificationService notificationService = mock(HubNotificationService.class);
+        ProxyConfig config = mock(ProxyConfig.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getNotificationService()).thenReturn(notificationService);
+        when(proxyConnection.getConfig()).thenReturn(config);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(config.isFailOpen()).thenReturn(false);
+        when(config.getCryptoMode()).thenReturn("local");
+        when(policyResolver.getCurrentVersion()).thenReturn(15L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email"))
+                .thenThrow(new RuntimeException("execution key missing"));
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        assertThrows(SQLException.class, () -> proxyPreparedStatement.setString(1, "alice@example.com"));
+
+        verify(notificationService).notifyCryptoOperationFailure(
+                eq("setString"),
+                eq("local"),
+                eq("users"),
+                eq("email"),
+                eq("policy-email"),
+                eq("execution key missing"),
+                eq(false));
+    }
+
+    @Test
+    void preparedStatementNotifiesTypeMismatchDatabaseWriteFailure() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        HubNotificationService notificationService = mock(HubNotificationService.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getNotificationService()).thenReturn(notificationService);
+        when(proxyConnection.getDbVendor()).thenReturn("postgresql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        SQLException dbFailure = new SQLException("invalid input syntax for type numeric", "22P02", 0);
+        when(policyResolver.getCurrentVersion()).thenReturn(16L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "amount")).thenReturn("policy-amount");
+        when(adapter.encrypt("12345", "policy-amount")).thenReturn("hub:POLICY:abcdef");
+        when(actualPreparedStatement.executeUpdate()).thenThrow(dbFailure);
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (amount) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "12345");
+        assertThrows(SQLException.class, proxyPreparedStatement::executeUpdate);
+
+        verify(notificationService).notifyDatabaseWriteFailure(
+                eq("executeUpdate"),
+                eq("DB_TYPE_MISMATCH"),
+                eq("users"),
+                eq("amount"),
+                eq("policy-amount"),
+                eq("22P02"),
+                eq(0),
+                eq("invalid input syntax for type numeric"),
+                eq(false));
+    }
+
+    @Test
+    void preparedStatementNotifiesTypeMismatchBindFailure() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        HubNotificationService notificationService = mock(HubNotificationService.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getNotificationService()).thenReturn(notificationService);
+        when(proxyConnection.getDbVendor()).thenReturn("postgresql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        SQLException bindFailure = new SQLException("invalid input syntax for type numeric", "22P02", 0);
+        when(policyResolver.getCurrentVersion()).thenReturn(18L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "amount")).thenReturn("policy-amount");
+        when(adapter.encrypt("12345", "policy-amount")).thenReturn("hub:POLICY:abcdef");
+        org.mockito.Mockito.doThrow(bindFailure)
+                .when(actualPreparedStatement)
+                .setObject(1, "hub:POLICY:abcdef", Types.NUMERIC);
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (amount) VALUES (?)",
+                proxyConnection);
+
+        assertThrows(SQLException.class, () -> proxyPreparedStatement.setObject(1, "12345", Types.NUMERIC));
+
+        verify(notificationService).notifyDatabaseWriteFailure(
+                eq("setObject(type).bind"),
+                eq("DB_TYPE_MISMATCH"),
+                eq("users"),
+                eq("amount"),
+                eq("policy-amount"),
+                eq("22P02"),
+                eq(0),
+                eq("invalid input syntax for type numeric"),
+                eq(false));
+    }
+
+    @Test
+    void preparedStatementNotifiesPostgresColumnSizeFailure() throws Exception {
+        PreparedStatement actualPreparedStatement = mock(PreparedStatement.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        HubNotificationService notificationService = mock(HubNotificationService.class);
+
+        when(proxyConnection.getAlias()).thenReturn("ds_test");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getNotificationService()).thenReturn(notificationService);
+        when(proxyConnection.getDbVendor()).thenReturn("postgresql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(17L);
+        when(policyResolver.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("alice@example.com", "policy-email")).thenReturn("hub:POLICY:too-long-value");
+        when(actualPreparedStatement.executeUpdate())
+                .thenThrow(new SQLException("value too long for type character varying(20)", "22001", 0));
+
+        DadpProxyPreparedStatement proxyPreparedStatement = new DadpProxyPreparedStatement(
+                actualPreparedStatement,
+                "INSERT INTO users (email) VALUES (?)",
+                proxyConnection);
+
+        proxyPreparedStatement.setString(1, "alice@example.com");
+        assertThrows(SQLException.class, proxyPreparedStatement::executeUpdate);
+
+        verify(notificationService).notifyColumnSizeFailure(
+                eq("executeUpdate"),
+                eq(null),
+                eq(null),
+                eq(null),
+                eq("value too long for type character varying(20)"),
+                eq(false),
+                eq(false));
     }
 
     @Test
