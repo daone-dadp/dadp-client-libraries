@@ -242,12 +242,17 @@ public class DadpProxyResultSet implements ResultSet {
         String columnLabel = metaData.getColumnLabel(columnIndex);
         String metadataSchemaName = metaData.getSchemaName(columnIndex);
         String metadataTableName = metaData.getTableName(columnIndex);
-        String tableName = sqlParseResult.getTableName();
+        SqlParser.SourceColumn parsedSourceColumn = sqlParseResult.getSourceColumn(columnIndex);
+        String tableName = parsedSourceColumn != null && parsedSourceColumn.isResolved()
+                ? parsedSourceColumn.getTableName()
+                : sqlParseResult.getTableName();
 
         log.trace("Decryption check: tableName={}, columnName={}, columnLabel={}, columnIndex={}",
                 tableName, rawColumnName, columnLabel, columnIndex);
 
-        String columnName = resolveParsedColumnName(rawColumnName, columnLabel);
+        String columnName = parsedSourceColumn != null && parsedSourceColumn.isResolved()
+                ? parsedSourceColumn.getColumnName()
+                : resolveParsedColumnName(rawColumnName, columnLabel);
         if (tableName == null || columnName == null) {
             ParsedDecryptPlanEntry emptyPlan = new ParsedDecryptPlanEntry(tableName, columnName, null, currentPolicyVersion);
             parsedCacheByIndex.put(columnIndex, emptyPlan);
@@ -256,7 +261,9 @@ public class DadpProxyResultSet implements ResultSet {
             return emptyPlan;
         }
 
-        String schemaName = resolveParsedSchemaName();
+        String schemaName = parsedSourceColumn != null && parsedSourceColumn.getSchemaName() != null
+                ? parsedSourceColumn.getSchemaName()
+                : resolveParsedSchemaName();
         String normalizedSchemaName = proxyConnection.normalizeIdentifier(schemaName);
         String normalizedTableName = proxyConnection.normalizeIdentifier(tableName);
         String normalizedColumnName = proxyConnection.normalizeIdentifier(columnName);

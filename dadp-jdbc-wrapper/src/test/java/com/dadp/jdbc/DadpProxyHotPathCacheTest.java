@@ -84,6 +84,71 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void resultSetParsedPathUsesSelectLineageForScalarSubqueryWithSwappedOutputAliases() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        String sql = "select a.employee_id, a.email, a.phone_number, "
+                + "(select x.email from employees x where x.employee_id = a.manager_id) AS phone_number, "
+                + "(select x.phone_number from employees x where x.employee_id = a.manager_id) AS email "
+                + "from employees a "
+                + "inner join jobs b on a.job_id = b.job_id "
+                + "inner join departments c on a.department_id = c.department_id "
+                + "left outer join employees d on a.manager_id = d.employee_id "
+                + "left outer join (select * from employees) e on a.manager_id = e.employee_id";
+
+        when(actualResultSet.getString(2)).thenReturn("enc-employee-email");
+        when(actualResultSet.getString(3)).thenReturn("enc-employee-phone");
+        when(actualResultSet.getString(4)).thenReturn("enc-manager-email");
+        when(actualResultSet.getString(5)).thenReturn("enc-manager-phone");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(5);
+        when(metaData.getColumnName(1)).thenReturn("employee_id");
+        when(metaData.getColumnLabel(1)).thenReturn("employee_id");
+        when(metaData.getColumnName(2)).thenReturn("email");
+        when(metaData.getColumnLabel(2)).thenReturn("email");
+        when(metaData.getColumnName(3)).thenReturn("phone_number");
+        when(metaData.getColumnLabel(3)).thenReturn("phone_number");
+        when(metaData.getColumnName(4)).thenReturn("phone_number");
+        when(metaData.getColumnLabel(4)).thenReturn("phone_number");
+        when(metaData.getColumnName(5)).thenReturn("email");
+        when(metaData.getColumnLabel(5)).thenReturn("email");
+        when(metaData.getSchemaName(org.mockito.ArgumentMatchers.anyInt())).thenReturn(null);
+        when(metaData.getTableName(org.mockito.ArgumentMatchers.anyInt())).thenReturn("");
+
+        when(proxyConnection.getAlias()).thenReturn("hr_alias");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+
+        when(policyResolver.getCurrentVersion()).thenReturn(41L);
+        when(policyResolver.resolvePolicy(null, "testdb", "employees", "email")).thenReturn("policy-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "employees", "phone_number")).thenReturn("policy-phone");
+        when(adapter.decrypt("enc-employee-email", "policy-email")).thenReturn("employee@example.com");
+        when(adapter.decrypt("enc-employee-phone", "policy-phone")).thenReturn("01010001000");
+        when(adapter.decrypt("enc-manager-email", "policy-email")).thenReturn("manager@example.com");
+        when(adapter.decrypt("enc-manager-phone", "policy-phone")).thenReturn("01020002000");
+
+        DadpProxyResultSet proxyResultSet = new DadpProxyResultSet(actualResultSet, sql, proxyConnection);
+
+        assertEquals("employee@example.com", proxyResultSet.getString(2));
+        assertEquals("01010001000", proxyResultSet.getString(3));
+        assertEquals("manager@example.com", proxyResultSet.getString(4));
+        assertEquals("01020002000", proxyResultSet.getString(5));
+
+        verify(adapter).decrypt("enc-manager-email", "policy-email");
+        verify(adapter).decrypt("enc-manager-phone", "policy-phone");
+    }
+
+    @Test
     void resultSetDecryptFailureReturnsOriginalValue() throws Exception {
         ResultSet actualResultSet = mock(ResultSet.class);
         ResultSetMetaData metaData = mock(ResultSetMetaData.class);

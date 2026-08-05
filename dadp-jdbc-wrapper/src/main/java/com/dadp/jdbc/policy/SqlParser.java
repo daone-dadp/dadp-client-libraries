@@ -1,5 +1,10 @@
 package com.dadp.jdbc.policy;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import com.dadp.jdbc.logging.DadpLogger;
@@ -41,6 +46,8 @@ public class SqlParser {
         "SELECT\\s+(.*?)\\s+FROM\\s+(?:([\\w]+)\\.)?([\\w]+)(?:\\s+\\S+)?",
         Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
+
+    private static final int MAX_SELECT_LINEAGE_DEPTH = 16;
     
 /**
  * SQL 파싱 결과
@@ -52,7 +59,8 @@ public static class SqlParseResult {
     private String[] columns;
     private String sqlType; // INSERT, UPDATE, SELECT
     // alias -> 원본 컬럼명 매핑 (Hibernate 지원용)
-    private java.util.Map<String, String> aliasToColumnMap = new java.util.HashMap<>();
+    private Map<String, String> aliasToColumnMap = new HashMap<>();
+    private Map<Integer, SourceColumn> sourceColumnByIndex = new HashMap<>();
     
     public String getDatabaseName() {
         return databaseName;
@@ -122,6 +130,89 @@ public static class SqlParseResult {
      */
     public boolean hasAliasMapping() {
         return !aliasToColumnMap.isEmpty();
+    }
+
+    public void addSourceColumn(int columnIndex, SourceColumn sourceColumn) {
+        if (columnIndex > 0 && sourceColumn != null && sourceColumn.isResolved()) {
+            sourceColumnByIndex.put(columnIndex, sourceColumn);
+        }
+    }
+
+    public SourceColumn getSourceColumn(int columnIndex) {
+        return sourceColumnByIndex.get(columnIndex);
+    }
+}
+
+public static class SourceColumn {
+    private final String schemaName;
+    private final String tableName;
+    private final String columnName;
+
+    SourceColumn(String schemaName, String tableName, String columnName) {
+        this.schemaName = trimToNull(schemaName);
+        this.tableName = trimToNull(tableName);
+        this.columnName = trimToNull(columnName);
+    }
+
+    public String getSchemaName() {
+        return schemaName;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getColumnName() {
+        return columnName;
+    }
+
+    public boolean isResolved() {
+        return tableName != null && columnName != null;
+    }
+}
+
+private static class TableSource {
+    final String schemaName;
+    final String tableName;
+
+    TableSource(String schemaName, String tableName) {
+        this.schemaName = trimToNull(schemaName);
+        this.tableName = trimToNull(tableName);
+    }
+}
+
+private static class FromContext {
+    final Map<String, TableSource> aliases = new HashMap<>();
+    TableSource defaultSource;
+
+    void add(String alias, TableSource source) {
+        if (source == null || source.tableName == null) {
+            return;
+        }
+        if (defaultSource == null) {
+            defaultSource = source;
+        }
+        aliases.put(source.tableName.toLowerCase(Locale.ROOT), source);
+        if (alias != null) {
+            aliases.put(alias.toLowerCase(Locale.ROOT), source);
+        }
+    }
+
+    TableSource resolve(String alias) {
+        if (alias == null) {
+            return defaultSource;
+        }
+        return aliases.get(alias.toLowerCase(Locale.ROOT));
+    }
+}
+
+private static class Projection {
+    final String expression;
+    final String alias;
+
+    Projection(String expression, String alias) {
+        this.expression = expression;
+        this.alias = alias;
     }
 }
     
@@ -267,6 +358,11 @@ public static class SqlParseResult {
  * SELECT ... FROM schema.table [alias] 또는 SELECT ... FROM table [alias] 형식 지원
  */
 private SqlParseResult parseSelect(String sql) {
+    SqlParseResult parsed = parseSelectWithLineage(sql, 0);
+    if (parsed != null) {
+        return parsed;
+    }
+
     Matcher matcher = SELECT_PATTERN.matcher(sql);
     if (matcher.find()) {
         SqlParseResult result = new SqlParseResult();
@@ -331,5 +427,442 @@ private SqlParseResult parseSelect(String sql) {
     }
     return null;
 }
+
+private SqlParseResult parseSelectWithLineage(String sql, int depth) {
+    if (depth > MAX_SELECT_LINEAGE_DEPTH || sql == null) {
+        return null;
+    }
+
+    String text = stripOuterParentheses(sql.trim());
+    if (!startsWithKeyword(text, "SELECT")) {
+        return null;
+    }
+
+    int fromIndex = findTopLevelKeyword(text, "FROM", 6);
+    if (fromIndex < 0) {
+        return null;
+    }
+
+    int fromClauseStart = fromIndex + 4;
+    int fromClauseEnd = findFirstTopLevelKeyword(text, fromClauseStart,
+            "WHERE", "GROUP BY", "HAVING", "ORDER BY", "LIMIT", "OFFSET", "FETCH", "UNION");
+    if (fromClauseEnd < 0) {
+        fromClauseEnd = text.length();
+    }
+
+    String selectClause = text.substring(6, fromIndex).trim();
+    String fromClause = text.substring(fromClauseStart, fromClauseEnd).trim();
+    FromContext fromContext = parseFromContext(fromClause, depth);
+
+    SqlParseResult result = new SqlParseResult();
+    result.setSqlType("SELECT");
+    if (fromContext.defaultSource != null) {
+        result.setSchemaName(fromContext.defaultSource.schemaName);
+        result.setTableName(fromContext.defaultSource.tableName);
+    }
+
+    List<String> selectItems = splitTopLevel(selectClause, ',');
+    List<String> columns = new ArrayList<>();
+    for (int i = 0; i < selectItems.size(); i++) {
+        Projection projection = splitProjectionAlias(selectItems.get(i));
+        SourceColumn sourceColumn = resolveProjectionSource(projection.expression, fromContext, depth + 1);
+        String columnName = sourceColumn != null ? sourceColumn.getColumnName() : legacyColumnName(projection.expression);
+        columns.add(columnName);
+        if (projection.alias != null && columnName != null) {
+            result.addAliasMapping(projection.alias, columnName);
+        }
+        if (sourceColumn != null && sourceColumn.isResolved()) {
+            result.addSourceColumn(i + 1, sourceColumn);
+        }
+    }
+    result.setColumns(columns.toArray(new String[0]));
+    return result;
 }
 
+private FromContext parseFromContext(String fromClause, int depth) {
+    FromContext context = new FromContext();
+    int index = 0;
+    while (index < fromClause.length()) {
+        index = skipWhitespace(fromClause, index);
+        if (startsWithKeywordAt(fromClause, index, "INNER")
+                || startsWithKeywordAt(fromClause, index, "LEFT")
+                || startsWithKeywordAt(fromClause, index, "RIGHT")
+                || startsWithKeywordAt(fromClause, index, "FULL")
+                || startsWithKeywordAt(fromClause, index, "OUTER")
+                || startsWithKeywordAt(fromClause, index, "CROSS")) {
+            index = skipJoinPrefix(fromClause, index);
+        }
+        if (startsWithKeywordAt(fromClause, index, "JOIN")) {
+            index += 4;
+            index = skipWhitespace(fromClause, index);
+        }
+        if (startsWithKeywordAt(fromClause, index, "ON")) {
+            int nextJoin = findNextJoinBoundary(fromClause, index + 2);
+            if (nextJoin < 0) {
+                break;
+            }
+            index = nextJoin;
+            continue;
+        }
+
+        ParsedTableRef tableRef = parseTableRef(fromClause, index, depth);
+        if (tableRef == null) {
+            int nextJoin = findNextJoinBoundary(fromClause, index + 1);
+            if (nextJoin < 0) {
+                break;
+            }
+            index = nextJoin;
+            continue;
+        }
+        context.add(tableRef.alias, tableRef.source);
+        index = tableRef.nextIndex;
+
+        int nextJoin = findNextJoinBoundary(fromClause, index);
+        if (nextJoin < 0) {
+            break;
+        }
+        index = nextJoin;
+    }
+    return context;
+}
+
+private static class ParsedTableRef {
+    final TableSource source;
+    final String alias;
+    final int nextIndex;
+
+    ParsedTableRef(TableSource source, String alias, int nextIndex) {
+        this.source = source;
+        this.alias = alias;
+        this.nextIndex = nextIndex;
+    }
+}
+
+private ParsedTableRef parseTableRef(String fromClause, int start, int depth) {
+    int index = skipWhitespace(fromClause, start);
+    if (index >= fromClause.length()) {
+        return null;
+    }
+
+    TableSource source;
+    if (fromClause.charAt(index) == '(') {
+        int close = findMatchingParen(fromClause, index);
+        if (close < 0) {
+            return null;
+        }
+        String inner = fromClause.substring(index + 1, close);
+        source = resolveDerivedTableSource(inner, depth + 1);
+        index = close + 1;
+    } else {
+        String tableToken = readIdentifierPath(fromClause, index);
+        if (tableToken == null) {
+            return null;
+        }
+        source = tableSourceFromToken(tableToken);
+        index += tableToken.length();
+    }
+
+    index = skipWhitespace(fromClause, index);
+    if (startsWithKeywordAt(fromClause, index, "AS")) {
+        index += 2;
+        index = skipWhitespace(fromClause, index);
+    }
+
+    String alias = null;
+    String aliasToken = readIdentifier(fromClause, index);
+    if (aliasToken != null && !isJoinBoundaryKeyword(aliasToken)) {
+        alias = cleanIdentifier(aliasToken);
+        index += aliasToken.length();
+    }
+    return new ParsedTableRef(source, alias, index);
+}
+
+private TableSource resolveDerivedTableSource(String innerSql, int depth) {
+    SqlParseResult inner = parseSelectWithLineage(innerSql, depth);
+    if (inner == null || inner.getTableName() == null) {
+        return null;
+    }
+    return new TableSource(inner.getSchemaName(), inner.getTableName());
+}
+
+private SourceColumn resolveProjectionSource(String expression, FromContext fromContext, int depth) {
+    if (depth > MAX_SELECT_LINEAGE_DEPTH || expression == null) {
+        return null;
+    }
+    String expr = stripOuterParentheses(expression.trim());
+    if (startsWithKeyword(expr, "SELECT")) {
+        SqlParseResult inner = parseSelectWithLineage(expr, depth);
+        if (inner == null || inner.getColumns() == null || inner.getColumns().length != 1) {
+            return null;
+        }
+        return inner.getSourceColumn(1);
+    }
+    if (!isSimpleColumnReference(expr)) {
+        return null;
+    }
+
+    String qualifier = null;
+    String columnName = expr;
+    int dotIndex = expr.lastIndexOf('.');
+    if (dotIndex > 0) {
+        qualifier = cleanIdentifier(expr.substring(0, dotIndex));
+        columnName = expr.substring(dotIndex + 1);
+    }
+    columnName = cleanIdentifier(columnName);
+    TableSource source = fromContext.resolve(qualifier);
+    if (source == null) {
+        return null;
+    }
+    return new SourceColumn(source.schemaName, source.tableName, columnName);
+}
+
+private Projection splitProjectionAlias(String selectItem) {
+    String item = selectItem.trim();
+    int asIndex = findLastTopLevelKeyword(item, "AS");
+    if (asIndex >= 0) {
+        String alias = cleanIdentifier(item.substring(asIndex + 2).trim());
+        return new Projection(item.substring(0, asIndex).trim(), alias);
+    }
+    return new Projection(item, null);
+}
+
+private String legacyColumnName(String expression) {
+    String expr = stripOuterParentheses(expression.trim());
+    int dotIndex = expr.lastIndexOf('.');
+    if (dotIndex > 0) {
+        return cleanIdentifier(expr.substring(dotIndex + 1));
+    }
+    return cleanIdentifier(expr);
+}
+
+private TableSource tableSourceFromToken(String token) {
+    String cleaned = cleanIdentifier(token);
+    int dotIndex = cleaned.lastIndexOf('.');
+    if (dotIndex > 0) {
+        return new TableSource(cleaned.substring(0, dotIndex), cleaned.substring(dotIndex + 1));
+    }
+    return new TableSource(null, cleaned);
+}
+
+private List<String> splitTopLevel(String value, char delimiter) {
+    List<String> parts = new ArrayList<>();
+    int depth = 0;
+    int start = 0;
+    char quote = 0;
+    for (int i = 0; i < value.length(); i++) {
+        char c = value.charAt(i);
+        if (quote != 0) {
+            if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (c == '\'' || c == '"' || c == '`') {
+            quote = c;
+        } else if (c == '(') {
+            depth++;
+        } else if (c == ')') {
+            depth = Math.max(0, depth - 1);
+        } else if (c == delimiter && depth == 0) {
+            parts.add(value.substring(start, i).trim());
+            start = i + 1;
+        }
+    }
+    parts.add(value.substring(start).trim());
+    return parts;
+}
+
+private int findTopLevelKeyword(String value, String keyword, int fromIndex) {
+    int depth = 0;
+    char quote = 0;
+    for (int i = Math.max(0, fromIndex); i <= value.length() - keyword.length(); i++) {
+        char c = value.charAt(i);
+        if (quote != 0) {
+            if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (c == '\'' || c == '"' || c == '`') {
+            quote = c;
+        } else if (c == '(') {
+            depth++;
+        } else if (c == ')') {
+            depth = Math.max(0, depth - 1);
+        } else if (depth == 0 && startsWithKeywordAt(value, i, keyword)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+private int findFirstTopLevelKeyword(String value, int fromIndex, String... keywords) {
+    int found = -1;
+    for (String keyword : keywords) {
+        int index = findTopLevelKeyword(value, keyword, fromIndex);
+        if (index >= 0 && (found < 0 || index < found)) {
+            found = index;
+        }
+    }
+    return found;
+}
+
+private int findLastTopLevelKeyword(String value, String keyword) {
+    int found = -1;
+    int index = 0;
+    while (index >= 0 && index < value.length()) {
+        int next = findTopLevelKeyword(value, keyword, index);
+        if (next < 0) {
+            break;
+        }
+        found = next;
+        index = next + keyword.length();
+    }
+    return found;
+}
+
+private int findNextJoinBoundary(String value, int fromIndex) {
+    return findFirstTopLevelKeyword(value, fromIndex, "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", ",");
+}
+
+private int skipJoinPrefix(String value, int index) {
+    while (index < value.length()) {
+        index = skipWhitespace(value, index);
+        String token = readIdentifier(value, index);
+        if (token == null) {
+            return index;
+        }
+        String upper = token.toUpperCase(Locale.ROOT);
+        if ("JOIN".equals(upper)) {
+            return index + token.length();
+        }
+        if (!"INNER".equals(upper) && !"LEFT".equals(upper) && !"RIGHT".equals(upper)
+                && !"FULL".equals(upper) && !"OUTER".equals(upper) && !"CROSS".equals(upper)) {
+            return index;
+        }
+        index += token.length();
+    }
+    return index;
+}
+
+private int findMatchingParen(String value, int openIndex) {
+    int depth = 0;
+    char quote = 0;
+    for (int i = openIndex; i < value.length(); i++) {
+        char c = value.charAt(i);
+        if (quote != 0) {
+            if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (c == '\'' || c == '"' || c == '`') {
+            quote = c;
+        } else if (c == '(') {
+            depth++;
+        } else if (c == ')') {
+            depth--;
+            if (depth == 0) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+private String stripOuterParentheses(String value) {
+    String text = value.trim();
+    while (text.startsWith("(") && text.endsWith(")")) {
+        int close = findMatchingParen(text, 0);
+        if (close != text.length() - 1) {
+            break;
+        }
+        text = text.substring(1, text.length() - 1).trim();
+    }
+    return text;
+}
+
+private boolean startsWithKeyword(String value, String keyword) {
+    return startsWithKeywordAt(value, 0, keyword);
+}
+
+private boolean startsWithKeywordAt(String value, int index, String keyword) {
+    if (index < 0 || index + keyword.length() > value.length()) {
+        return false;
+    }
+    if (!value.regionMatches(true, index, keyword, 0, keyword.length())) {
+        return false;
+    }
+    boolean beforeOk = index == 0 || !isIdentifierPart(value.charAt(index - 1));
+    int after = index + keyword.length();
+    boolean afterOk = after >= value.length() || !isIdentifierPart(value.charAt(after));
+    return beforeOk && afterOk;
+}
+
+private int skipWhitespace(String value, int index) {
+    while (index < value.length() && Character.isWhitespace(value.charAt(index))) {
+        index++;
+    }
+    if (index < value.length() && value.charAt(index) == ',') {
+        return skipWhitespace(value, index + 1);
+    }
+    return index;
+}
+
+private String readIdentifierPath(String value, int index) {
+    int start = index;
+    while (index < value.length()) {
+        char c = value.charAt(index);
+        if (isIdentifierPart(c) || c == '.' || c == '"' || c == '`' || c == '[' || c == ']') {
+            index++;
+        } else {
+            break;
+        }
+    }
+    return index > start ? value.substring(start, index) : null;
+}
+
+private String readIdentifier(String value, int index) {
+    int start = index;
+    while (index < value.length() && isIdentifierPart(value.charAt(index))) {
+        index++;
+    }
+    return index > start ? value.substring(start, index) : null;
+}
+
+private boolean isSimpleColumnReference(String value) {
+    return value.matches("[`\"\\[]?[A-Za-z_][A-Za-z0-9_$]*[`\"\\]]?(\\.[`\"\\[]?[A-Za-z_][A-Za-z0-9_$]*[`\"\\]]?){0,2}");
+}
+
+private boolean isJoinBoundaryKeyword(String token) {
+    String upper = token.toUpperCase(Locale.ROOT);
+    return "ON".equals(upper) || "INNER".equals(upper) || "LEFT".equals(upper)
+            || "RIGHT".equals(upper) || "FULL".equals(upper) || "OUTER".equals(upper)
+            || "CROSS".equals(upper) || "JOIN".equals(upper) || "WHERE".equals(upper);
+}
+
+private boolean isIdentifierPart(char c) {
+    return Character.isLetterOrDigit(c) || c == '_' || c == '$';
+}
+
+private static String cleanIdentifier(String value) {
+    String text = trimToNull(value);
+    if (text == null) {
+        return null;
+    }
+    if ((text.startsWith("\"") && text.endsWith("\""))
+            || (text.startsWith("`") && text.endsWith("`"))
+            || (text.startsWith("[") && text.endsWith("]"))) {
+        return text.substring(1, text.length() - 1);
+    }
+    return text;
+}
+
+private static String trimToNull(String value) {
+    if (value == null) {
+        return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+}
+}
