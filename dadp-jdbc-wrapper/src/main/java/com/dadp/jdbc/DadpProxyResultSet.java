@@ -27,6 +27,7 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
 public class DadpProxyResultSet implements ResultSet {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DadpProxyResultSet.class);
+    private static final int AMBIGUOUS_COLUMN_INDEX = -1;
     
     private final ResultSet actualResultSet;
     private final String sql;
@@ -320,24 +321,41 @@ public class DadpProxyResultSet implements ResultSet {
 
         Integer cached = parsedLabelToIndex.get(columnLabel);
         if (cached != null) {
+            if (cached == AMBIGUOUS_COLUMN_INDEX) {
+                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "parsed-cache-ambiguous");
+                return null;
+            }
             WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, cached, "parsed-cache");
             return cached;
         }
 
         cached = parsedLabelToIndex.get(columnLabel.toLowerCase());
         if (cached != null) {
+            if (cached == AMBIGUOUS_COLUMN_INDEX) {
+                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "parsed-cache-lowercase-ambiguous");
+                return null;
+            }
             WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, cached, "parsed-cache-lowercase");
             return cached;
         }
 
         int columnCount = actualResultSet.getMetaData().getColumnCount();
+        Integer matchedIndex = null;
         for (int i = 1; i <= columnCount; i++) {
             String label = actualResultSet.getMetaData().getColumnLabel(i);
             cacheParsedLabel(label, i);
             if (columnLabel.equals(label) || columnLabel.equalsIgnoreCase(label)) {
-                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, i, "metadata-scan");
-                return i;
+                if (matchedIndex != null && matchedIndex != i) {
+                    markParsedLabelAmbiguous(columnLabel);
+                    WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "metadata-scan-ambiguous");
+                    return null;
+                }
+                matchedIndex = i;
             }
+        }
+        if (matchedIndex != null) {
+            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, matchedIndex, "metadata-scan");
+            return matchedIndex;
         }
 
         try {
@@ -358,8 +376,30 @@ public class DadpProxyResultSet implements ResultSet {
         if (parsedLabelToIndex == null) {
             parsedLabelToIndex = new HashMap<>();
         }
-        parsedLabelToIndex.put(label, columnIndex);
-        parsedLabelToIndex.put(label.toLowerCase(), columnIndex);
+        cacheParsedLabelKey(label, columnIndex);
+        cacheParsedLabelKey(label.toLowerCase(), columnIndex);
+    }
+
+    private void cacheParsedLabelKey(String label, int columnIndex) {
+        Integer existing = parsedLabelToIndex.get(label);
+        if (existing != null && existing != columnIndex) {
+            parsedLabelToIndex.put(label, AMBIGUOUS_COLUMN_INDEX);
+            return;
+        }
+        if (existing == null) {
+            parsedLabelToIndex.put(label, columnIndex);
+        }
+    }
+
+    private void markParsedLabelAmbiguous(String label) {
+        if (label == null || label.trim().isEmpty()) {
+            return;
+        }
+        if (parsedLabelToIndex == null) {
+            parsedLabelToIndex = new HashMap<>();
+        }
+        parsedLabelToIndex.put(label, AMBIGUOUS_COLUMN_INDEX);
+        parsedLabelToIndex.put(label.toLowerCase(), AMBIGUOUS_COLUMN_INDEX);
     }
     
     @Override
@@ -593,19 +633,29 @@ public class DadpProxyResultSet implements ResultSet {
         if (sqlParseResult == null) {
             try {
                 Integer columnIndex = fallbackLabelToIndex != null ? fallbackLabelToIndex.get(columnLabel) : null;
+                if (columnIndex != null && columnIndex == AMBIGUOUS_COLUMN_INDEX) {
+                    WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "fallback-cache-ambiguous");
+                    return value;
+                }
                 if (columnIndex == null) {
                     ResultSetMetaData metaData = actualResultSet.getMetaData();
                     int columnCount = metaData.getColumnCount();
                     for (int i = 1; i <= columnCount; i++) {
                         if (columnLabel.equals(metaData.getColumnLabel(i))) {
-                            columnIndex = i;
                             if (fallbackLabelToIndex == null) {
                                 fallbackLabelToIndex = new HashMap<>();
                             }
-                            fallbackLabelToIndex.put(columnLabel, i);
-                            WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, i, "fallback-metadata-scan");
-                            break;
+                            if (columnIndex != null && columnIndex != i) {
+                                fallbackLabelToIndex.put(columnLabel, AMBIGUOUS_COLUMN_INDEX);
+                                WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, null, "fallback-metadata-scan-ambiguous");
+                                return value;
+                            }
+                            columnIndex = i;
                         }
+                    }
+                    if (columnIndex != null) {
+                        fallbackLabelToIndex.put(columnLabel, columnIndex);
+                        WrapperSqlMappingDebug.logLabelResolution(proxyConnection, columnLabel, columnIndex, "fallback-metadata-scan");
                     }
                 }
                 if (columnIndex != null) {
@@ -1596,6 +1646,13 @@ public class DadpProxyResultSet implements ResultSet {
         // String 타입인 경우 복호화 처리
         if (type == String.class) {
             String value = actualResultSet.getString(columnLabel);
+            if (value != null && sqlParseResult != null) {
+                Integer columnIndex = resolveParsedColumnIndex(columnLabel);
+                if (columnIndex != null) {
+                    return (T) decryptUsingParsedPlan(columnIndex, value);
+                }
+                return (T) value;
+            }
             return (T) decryptStringByLabel(columnLabel, value);
         }
         return actualResultSet.getObject(columnLabel, type);

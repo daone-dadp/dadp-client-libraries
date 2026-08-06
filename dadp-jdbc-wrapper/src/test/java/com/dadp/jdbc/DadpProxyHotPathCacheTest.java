@@ -149,6 +149,48 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void resultSetLabelAccessSkipsDecryptWhenColumnLabelIsAmbiguous() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+
+        String sql = "select a.employee_id, a.email, a.phone_number, "
+                + "(select x.email from employees x where x.employee_id = a.manager_id), "
+                + "(select x.phone_number from employees x where x.employee_id = a.manager_id) "
+                + "from employees a";
+
+        when(actualResultSet.getString("email")).thenReturn("enc-ambiguous-email", "enc-ambiguous-email-object");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(5);
+        when(metaData.getColumnLabel(1)).thenReturn("employee_id");
+        when(metaData.getColumnLabel(2)).thenReturn("email");
+        when(metaData.getColumnLabel(3)).thenReturn("phone_number");
+        when(metaData.getColumnLabel(4)).thenReturn("email");
+        when(metaData.getColumnLabel(5)).thenReturn("phone_number");
+
+        when(proxyConnection.getAlias()).thenReturn("hr_alias");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+        when(policyResolver.getCurrentVersion()).thenReturn(41L);
+
+        DadpProxyResultSet proxyResultSet = new DadpProxyResultSet(actualResultSet, sql, proxyConnection);
+
+        assertEquals("enc-ambiguous-email", proxyResultSet.getString("email"));
+        assertEquals("enc-ambiguous-email-object", proxyResultSet.getObject("email", String.class));
+
+        verify(adapter, never()).decrypt(eq("enc-ambiguous-email"), anyString());
+        verify(adapter, never()).decrypt(eq("enc-ambiguous-email-object"), anyString());
+    }
+
+    @Test
     void resultSetDecryptFailureReturnsOriginalValue() throws Exception {
         ResultSet actualResultSet = mock(ResultSet.class);
         ResultSetMetaData metaData = mock(ResultSetMetaData.class);
