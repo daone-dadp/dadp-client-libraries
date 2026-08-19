@@ -591,16 +591,9 @@ public class ProxyConfig {
     }
 
     private static String normalizeCryptoMode(String mode) {
-        if (mode == null || mode.trim().isEmpty()) {
-            return "remote";
+        if (mode != null && !mode.trim().isEmpty() && !"remote".equalsIgnoreCase(mode.trim())) {
+            log.warn("Wrapper crypto mode {} is not supported; using remote", mode);
         }
-
-        String normalized = mode.trim().toLowerCase();
-        if ("remote".equals(normalized) || "local".equals(normalized)) {
-            return normalized;
-        }
-
-        log.warn("Unsupported wrapper crypto mode: {} (falling back to remote)", mode);
         return "remote";
     }
 

@@ -95,7 +95,7 @@ class WrapperCliStorageSupportTest {
         assertEquals("A01", config.getAlias());
         assertEquals("wtenant_existing", config.getTenantId());
         assertEquals("8", config.getRuntimeVersion());
-        assertEquals("local", config.getCryptoMode());
+        assertEquals("remote", config.getCryptoMode());
         assertEquals(Boolean.FALSE, config.getRuntime().getEnabled());
         assertEquals(Boolean.FALSE, config.getFailOpen());
         assertEquals(Boolean.TRUE, config.getPolicySyncAutoEnabled());

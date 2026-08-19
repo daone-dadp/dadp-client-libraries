@@ -35,7 +35,7 @@ class WrapperRuntimeConfigManagerTest {
                 null);
 
         assertEquals("wtenant_local", manager.loadFromStorage());
-        assertEquals("local", manager.getCryptoMode());
+        assertEquals("remote", manager.getCryptoMode());
         assertEquals("http://dadp-hub:9004", manager.getRuntimeHubUrl());
     }
 
@@ -59,7 +59,7 @@ class WrapperRuntimeConfigManagerTest {
 
         JsonNode json = new ObjectMapper().readTree(storageDir.resolve("proxy-config.json").toFile());
         assertEquals("8", json.path("runtimeVersion").asText());
-        assertEquals("local", json.path("runtime").path("cryptoMode").asText());
+        assertEquals("remote", json.path("runtime").path("cryptoMode").asText());
         assertEquals("http://dadp-engine:9003", json.path("runtime").path("engineUrl").asText());
     }
 }

@@ -1,7 +1,8 @@
 # DADP Wrapper Crypto
 
-`dadp-wrapper-crypto` is the separate local crypto module used by the JDBC wrapper only
-when Hub `/refresh` returns `cryptoMode=local`.
+`dadp-wrapper-crypto` contains the preserved local crypto implementation. DADP 7.0 does
+not expose or activate this module at runtime; Wrapper configuration and execution are
+forced to `remote` until local crypto is approved again.
 
 It keeps the engine-compatible local crypto contract isolated and testable through
 `dadp-crypto-core`, while `dadp-jdbc-wrapper` remains responsible for JDBC interception,

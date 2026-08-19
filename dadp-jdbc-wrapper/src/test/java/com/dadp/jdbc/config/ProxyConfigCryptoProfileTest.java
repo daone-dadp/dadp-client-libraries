@@ -124,7 +124,7 @@ class ProxyConfigCryptoProfileTest {
         assertFalse(config.isEnabled());
         assertFalse(config.isRuntimeActive());
         assertTrue(config.isFailOpen());
-        assertTrue("local".equals(config.getCryptoMode()));
+        assertTrue("remote".equals(config.getCryptoMode()));
     }
 
     @Test

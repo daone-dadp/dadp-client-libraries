@@ -89,7 +89,7 @@ class MappingSyncServiceSnapshotTest {
 	            assertNotNull(service.getLastSnapshot());
             assertNotNull(service.getLastSnapshot().getWrapperConfig());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getEnabled());
-            assertEquals("local", service.getLastSnapshot().getWrapperConfig().getCryptoMode());
+            assertEquals("remote", service.getLastSnapshot().getWrapperConfig().getCryptoMode());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getPolicySyncAutoEnabled());
             assertEquals(Boolean.TRUE, service.getLastSnapshot().getWrapperConfig().getFailOpen());
             assertNotNull(service.getLastSnapshot().getLogConfig());

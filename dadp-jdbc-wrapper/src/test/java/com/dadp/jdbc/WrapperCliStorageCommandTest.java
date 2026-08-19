@@ -57,7 +57,7 @@ class WrapperCliStorageCommandTest {
         assertEquals(1, result.path("mappingCount").asInt());
 
         InstanceConfigStorage configStorage = new InstanceConfigStorage(tempDir.toString(), "proxy-config.json");
-        assertEquals("local", configStorage.loadConfig(null, null).getCryptoMode());
+        assertEquals("remote", configStorage.loadConfig(null, null).getCryptoMode());
         assertEquals("GMMAQB25", new PolicyMappingStorage(tempDir.toString(), "policy-mappings.json")
                 .loadMappings()
                 .get("public.users.email"));

@@ -14,7 +14,7 @@
 
     <groupId>io.github.daone-dadp</groupId>
     <artifactId>dadp-jdbc-wrapper</artifactId>
-    <version>6.1.5</version>
+    <version>7.0.0</version>
     <packaging>jar</packaging>
 
     <name>DADP JDBC Wrapper</name>

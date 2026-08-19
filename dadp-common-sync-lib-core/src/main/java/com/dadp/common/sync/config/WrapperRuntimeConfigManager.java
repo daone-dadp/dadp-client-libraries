@@ -263,11 +263,10 @@ public class WrapperRuntimeConfigManager {
 
     private static String normalizeCryptoMode(String value) {
         String normalized = trimToNull(value);
-        if (normalized == null) {
-            return DEFAULT_CRYPTO_MODE;
+        if (normalized != null && !DEFAULT_CRYPTO_MODE.equalsIgnoreCase(normalized)) {
+            log.warn("Wrapper crypto mode {} is not supported; using remote", value);
         }
-        normalized = normalized.toLowerCase();
-        return "local".equals(normalized) ? "local" : DEFAULT_CRYPTO_MODE;
+        return DEFAULT_CRYPTO_MODE;
     }
 
     private static String trimToNull(String value) {

@@ -265,7 +265,7 @@ public class MappingSyncService {
             }
             String cryptoMode = text(wrapper.path("cryptoMode"));
             if (cryptoMode != null && !cryptoMode.trim().isEmpty()) {
-                wrapperConfig.setCryptoMode(cryptoMode.trim());
+                wrapperConfig.setCryptoMode("remote");
                 hasWrapperConfig = true;
             }
             JsonNode failOpen = wrapper.path("failOpen");

@@ -407,7 +407,7 @@ public class InstanceConfigStorage {
                                    Boolean enabled) {
         String normalizedHubUrl = trimToNull(runtimeHubUrl);
         String normalizedEngineUrl = absoluteHttpUrl(engineUrl);
-        String normalizedCryptoMode = trimToNull(cryptoMode);
+        String normalizedCryptoMode = cryptoMode == null ? null : "remote";
         if (normalizedHubUrl == null && normalizedEngineUrl == null
                 && normalizedCryptoMode == null && failOpen == null && policySyncAutoEnabled == null && enabled == null) {
             cleanupDerivedRuntimeFields(data);

@@ -76,11 +76,6 @@
             <classifier>java8</classifier>
         </dependency>
 
-        <dependency>
-            <groupId>io.github.daone-dadp</groupId>
-            <artifactId>dadp-wrapper-crypto</artifactId>
-        </dependency>
-        
         <!-- Common Logging Library -->
         <dependency>
             <groupId>io.github.daone-dadp</groupId>
