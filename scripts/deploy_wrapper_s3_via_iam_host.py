@@ -74,6 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hub-url", default=DEFAULT_HUB_URL, help="Local Hub wrapper artifact API URL")
     parser.add_argument("--release-date", default=str(date.today()), help="Release date in YYYY-MM-DD")
     parser.add_argument("--skip-build", action="store_true", help="Skip local Maven build")
+    parser.add_argument("--direct-s3", action="store_true", help="Upload with the local AWS CLI instead of an IAM SSH host")
     parser.add_argument("--skip-upload", action="store_true", help="Skip SSH/SCP and remote aws upload")
     parser.add_argument("--skip-hub-verify", action="store_true", help="Skip local Hub API verification")
     return parser.parse_args()
@@ -177,6 +178,10 @@ def ssh_base_cmd(args: argparse.Namespace) -> list[str]:
         str(key_path),
         "-o",
         "StrictHostKeyChecking=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=15",
         f"{args.user}@{args.host}",
     ]
 
@@ -193,6 +198,10 @@ def scp_base_cmd(args: argparse.Namespace) -> list[str]:
         str(key_path),
         "-o",
         "StrictHostKeyChecking=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=15",
     ]
 
 
@@ -230,6 +239,25 @@ aws s3 cp '{remote_metadata}' 's3://{args.bucket}/metadata.json' --region '{args
     cmd = ssh_base_cmd(args) + [remote_script]
     print("+", " ".join(cmd[:-1] + ["<remote-upload-script>"]))
     run(cmd, check=True)
+
+
+def upload_direct_s3(args: argparse.Namespace, ctx: DeployContext, metadata_file: Path) -> None:
+    artifact_uri = f"s3://{args.bucket}/wrapper/v{ctx.wrapper_version}/{ctx.artifact_name}"
+    metadata_uri = f"s3://{args.bucket}/metadata.json"
+    artifact_cmd = [
+        "aws", "s3", "cp", str(ctx.artifact_path), artifact_uri,
+        "--region", args.region,
+        "--content-type", "application/java-archive",
+    ]
+    metadata_cmd = [
+        "aws", "s3", "cp", str(metadata_file), metadata_uri,
+        "--region", args.region,
+        "--content-type", "application/json; charset=utf-8",
+    ]
+    print("+", " ".join(artifact_cmd))
+    run(artifact_cmd, check=True)
+    print("+", " ".join(metadata_cmd))
+    run(metadata_cmd, check=True)
 
 
 def verify_public_artifact(args: argparse.Namespace, ctx: DeployContext) -> None:
@@ -307,7 +335,10 @@ def main() -> int:
         print(f"Prepared metadata file: {metadata_file}")
 
         if not args.skip_upload:
-            upload_via_remote_host(args, ctx, metadata_file)
+            if args.direct_s3:
+                upload_direct_s3(args, ctx, metadata_file)
+            else:
+                upload_via_remote_host(args, ctx, metadata_file)
 
     if not args.skip_upload:
         verify_public_artifact(args, ctx)
