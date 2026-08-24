@@ -242,13 +242,13 @@ public class JdbcPolicyMappingSyncService {
 
     private void refreshFromHub(String trigger) {
         if (!initialized) {
-            log.warn("Policy mapping refresh skipped: service not initialized, trigger={}. Run CLI wrapper schema collect and wrapper schema register first, then restart or initialize wrapper runtime.",
+            log.warn("Policy mapping refresh skipped: service not initialized, trigger={}. Run dadp wrapper enroll and dadp wrapper refresh first, then initialize Wrapper runtime.",
                     trigger);
             return;
         }
         String tenantId = tenantIdManager.getCachedTenantId();
         if (!tenantIdManager.hasRuntimeEnrollment()) {
-            log.warn("Policy mapping refresh skipped: wrapper enrollment is incomplete, trigger={}. Run CLI wrapper schema register or wrapper enroll first.",
+            log.warn("Policy mapping refresh skipped: wrapper enrollment is incomplete, trigger={}. Run dadp wrapper enroll first.",
                     trigger);
             return;
         }

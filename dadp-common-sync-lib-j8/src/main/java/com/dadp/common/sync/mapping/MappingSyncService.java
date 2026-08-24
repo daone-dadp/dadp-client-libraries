@@ -127,7 +127,7 @@ public class MappingSyncService {
                 return -1;
             }
             if (statusCode == 409) {
-                log.warn("Hub runtime wrapper refresh returned 409 for tenantId={}. Run CLI wrapper schema collect and wrapper schema register, then manual refresh.", tenantId);
+                log.warn("Hub runtime wrapper refresh returned 409 for tenantId={}. Verify the Alias and Agent enrollment, then run dadp wrapper refresh.", tenantId);
                 return -2;
             }
             if (statusCode == 400) {
@@ -377,11 +377,11 @@ public class MappingSyncService {
         try {
             int loadedCount = loadPolicySnapshotFromHub(currentVersion);
             if (loadedCount == -1) {
-                log.warn("Hub runtime refresh returned 404 for tenantId. Run CLI wrapper schema register and manual wrapper refresh.");
+                log.warn("Hub runtime refresh returned 404 for tenantId. Verify the Hub Agent record, then run dadp wrapper enroll and dadp wrapper refresh.");
                 return 0;
             }
             if (loadedCount == -2) {
-                log.warn("Hub runtime refresh returned 409 for tenantId. Run CLI wrapper schema collect and wrapper schema register and manual wrapper refresh.");
+                log.warn("Hub runtime refresh returned 409 for tenantId. Verify the Alias and Agent enrollment, then run dadp wrapper refresh.");
                 return 0;
             }
             if (loadedCount == -3) {

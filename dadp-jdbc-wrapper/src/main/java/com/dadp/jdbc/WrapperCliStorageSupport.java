@@ -106,19 +106,19 @@ public final class WrapperCliStorageSupport {
             if (normalizedAlias != null) {
                 throw new IllegalStateException("Wrapper enrollment for alias " + normalizedAlias
                         + " is missing under " + storageRoot
-                        + ". Run wrapper schema register or wrapper enroll for that alias first.");
+                        + ". Run dadp wrapper enroll for that alias first.");
             }
             throw new IllegalStateException("Wrapper enrollment is missing under " + storageRoot
-                    + ". Run wrapper schema register or wrapper enroll first.");
+                    + ". Run dadp wrapper enroll first.");
         }
         if (contexts.size() > 1) {
-            List<String> tenants = new ArrayList<String>();
+            List<String> aliases = new ArrayList<String>();
             for (RuntimeContext context : contexts) {
-                tenants.add(context.getTenantId());
+                aliases.add(context.getAlias());
             }
             throw new IllegalStateException("Multiple wrapper runtime directories found under "
-                    + storageRoot + ": " + tenants
-                    + ". Keep one active wrapper runtime per lib directory and remove stale entries.");
+                    + storageRoot + ": " + aliases
+                    + ". Select one with --alias <alias>.");
         }
         return contexts.get(0);
     }

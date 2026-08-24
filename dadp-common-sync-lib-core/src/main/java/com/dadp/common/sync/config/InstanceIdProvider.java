@@ -39,7 +39,8 @@ public class InstanceIdProvider {
     }
 
     private IllegalStateException missingRequiredAlias() {
-        String message = "DADP wrapper startup failed: missing required alias in proxy-config.json. Run CLI wrapper schema register.";
+        String message = "DADP wrapper startup failed: runtime enrollment alias is unavailable. "
+                + "Run dadp wrapper enroll, then dadp wrapper refresh.";
         System.err.println(message);
         return new IllegalStateException(message);
     }

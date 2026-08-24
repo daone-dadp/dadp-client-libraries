@@ -15,9 +15,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ProxyConfigCryptoProfileTest {
+
+    @BeforeEach
+    void resetStartupDiagnostics() {
+        ProxyConfig.resetStartupDiagnosticsForTests();
+    }
 
     @AfterEach
     void clearSystemProperties() throws Exception {
@@ -79,16 +85,22 @@ class ProxyConfigCryptoProfileTest {
     }
 
     @Test
-    void missingAliasAlwaysPrintsFailureMessageToStderr() {
+    void missingEnrollmentPrintsResolvedPathAndCurrentCommandsOnlyOnce() {
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
         PrintStream originalErr = System.err;
         try {
             System.setErr(new PrintStream(stderr, true));
 
             ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+            ProxyConfig duplicate = new ProxyConfig(Collections.emptyMap());
             String output = stderr.toString();
             assertFalse(config.isStartupReady());
-            assertTrue(output.contains("proxy-config.json"));
+            assertFalse(duplicate.isStartupReady());
+            assertTrue(output.contains(StoragePathResolver.resolveWrapperStorageRoot()));
+            assertTrue(output.contains("dadp wrapper enroll"));
+            assertTrue(output.contains("dadp wrapper refresh"));
+            assertFalse(output.contains("schema register"));
+            assertTrue(countOccurrences(output, "DADP wrapper startup incomplete") == 1);
         } finally {
             System.setErr(originalErr);
         }
@@ -156,11 +168,20 @@ class ProxyConfigCryptoProfileTest {
     void multipleRuntimeEnrollmentsRequireExplicitAliasSelection() throws Exception {
         writeProxyConfig("alias-one", "wtenant_one", "http://dadp-hub:9004");
         writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://dadp-hub:9004");
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(stderr, true));
 
-        ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+            ProxyConfig config = new ProxyConfig(Collections.emptyMap());
 
-        assertFalse(config.isStartupReady());
-        assertFalse(config.isRuntimeActive());
+            assertFalse(config.isStartupReady());
+            assertFalse(config.isRuntimeActive());
+            assertTrue(stderr.toString().contains("multiple runtime aliases [alias-one, alias-two]"));
+            assertTrue(stderr.toString().contains("-Ddadp.wrapper.alias=<alias>"));
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
@@ -174,6 +195,49 @@ class ProxyConfigCryptoProfileTest {
         assertTrue(config.isStartupReady());
         assertTrue(config.isRuntimeActive());
         assertTrue("alias-two".equals(config.getAlias()));
+    }
+
+    @Test
+    void unknownSelectedAliasReportsRequestedAndAvailableAliases() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "http://dadp-hub:9004");
+        writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://dadp-hub:9004");
+        System.setProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY, "alias-missing");
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(stderr, true));
+
+            ProxyConfig config = new ProxyConfig(Collections.emptyMap());
+
+            assertFalse(config.isStartupReady());
+            assertTrue(stderr.toString().contains("requested alias alias-missing"));
+            assertTrue(stderr.toString().contains("Available aliases: [alias-one, alias-two]"));
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    @Test
+    void missingRuntimeHubUrlReportsExactConfigPathOnlyOnce() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "");
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        try {
+            System.setErr(new PrintStream(stderr, true));
+
+            ProxyConfig first = new ProxyConfig(Collections.emptyMap());
+            ProxyConfig duplicate = new ProxyConfig(Collections.emptyMap());
+
+            assertFalse(first.isStartupReady());
+            assertFalse(duplicate.isStartupReady());
+            String output = stderr.toString();
+            assertTrue(output.contains(Paths.get(StoragePathResolver.resolveStorageDir("alias-one"),
+                    "proxy-config.json").toString()));
+            assertTrue(output.contains("dadp wrapper refresh"));
+            assertTrue(countOccurrences(output, "runtime.hubUrl is missing") == 1);
+        } finally {
+            System.setErr(originalErr);
+        }
     }
 
     @Test
@@ -318,5 +382,15 @@ class ProxyConfigCryptoProfileTest {
                         throw new RuntimeException(e);
                     }
                 });
+    }
+
+    private static int countOccurrences(String value, String token) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = value.indexOf(token, offset)) >= 0) {
+            count++;
+            offset += token.length();
+        }
+        return count;
     }
 }

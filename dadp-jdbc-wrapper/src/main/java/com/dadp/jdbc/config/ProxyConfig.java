@@ -11,7 +11,10 @@ import com.dadp.jdbc.logging.DadpLoggerFactory;
 import java.util.Map;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Proxy 설정 관리
@@ -29,6 +32,8 @@ public class ProxyConfig {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(ProxyConfig.class);
     public static final String WRAPPER_ALIAS_PROPERTY = "dadp.wrapper.alias";
+    private static final Set<String> emittedStartupDiagnostics =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     
     private static final long DEFAULT_SCHEMA_COLLECTION_TIMEOUT_MS = 30000; // 30초
     private static final int DEFAULT_MAX_SCHEMAS = 100;
@@ -72,7 +77,8 @@ public class ProxyConfig {
      */
     public ProxyConfig(Map<String, String> urlParams) {
         this.urlParams = urlParams;  // InstanceIdProvider용으로 저장
-        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveRuntimeAliasSelector(urlParams));
+        String selectedAlias = resolveRuntimeAliasSelector(urlParams);
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(selectedAlias, false);
         InstanceConfigStorage.ConfigData storedConfig = runtimeStorage != null ? runtimeStorage.configData : null;
         String aliasProp = storedConfig != null ? trimToNull(storedConfig.getAlias()) : null;
         this.alias = aliasProp;
@@ -85,10 +91,10 @@ public class ProxyConfig {
         this.refreshUrl = buildRuntimeUrl(this.hubUrl, storedTenantId, "refresh");
         this.hubUrlConfigured = this.hubUrl != null;
         if (!this.aliasConfigured) {
-            emitMissingRuntimeEnrollment();
+            emitMissingRuntimeEnrollment(selectedAlias);
         }
         if (this.aliasConfigured && !this.hubUrlConfigured) {
-            emitMissingRequiredHubUrl();
+            emitMissingRequiredHubUrl(this.storageDir);
         }
 
         this.failOpen = Boolean.TRUE.equals(storedConfig != null ? storedConfig.getFailOpen() : null);
@@ -204,28 +210,103 @@ public class ProxyConfig {
         return alias;
     }
 
-    private static void emitMissingRequiredAlias() {
-        String message = "DADP wrapper startup incomplete: proxy-config.json with alias is missing under <wrapper-lib-dir>/dadp/wrapper/<alias>. Run CLI wrapper schema register and wrapper refresh.";
-        System.err.println(message);
+    private static void emitMissingRequiredHubUrl(String storageDir) {
+        String configPath = storageDir == null
+                ? "proxy-config.json"
+                : new File(storageDir, "proxy-config.json").getAbsolutePath();
+        String message = "DADP wrapper startup incomplete: runtime.hubUrl is missing in " + configPath + ". "
+                + "Run dadp wrapper refresh --lib-dir <wrapper-lib-dir> [--alias <alias>].";
+        emitStartupDiagnostic("missing-hub-url:" + configPath, message);
+    }
+
+    private static void emitMissingRuntimeEnrollment(String selectedAlias) {
+        String root;
         try {
-            log.warn(message);
-        } catch (Exception ignored) {
-            // System.err emission is the mandatory fallback for startup failure.
+            root = StoragePathResolver.resolveWrapperStorageRoot();
+        } catch (Exception e) {
+            emitStartupDiagnostic("unresolved-root", "DADP wrapper startup incomplete: wrapper library directory "
+                    + "cannot be resolved. Load dadp-jdbc-wrapper.jar from the same application lib directory used by "
+                    + "dadp wrapper enroll and dadp wrapper refresh.");
+            return;
+        }
+
+        File rootDir = new File(root);
+        if (!rootDir.isDirectory()) {
+            emitStartupDiagnostic("missing-root:" + root, "DADP wrapper startup incomplete: runtime storage root "
+                    + root + " does not exist. Run dadp wrapper enroll --alias <alias> --lib-dir "
+                    + rootToLibDir(root) + ", then dadp wrapper refresh --lib-dir " + rootToLibDir(root)
+                    + " [--alias <alias>].");
+            return;
+        }
+
+        List<String> availableAliases = validRuntimeAliases(rootDir);
+        if (selectedAlias != null) {
+            emitStartupDiagnostic("missing-selected-alias:" + root + ":" + selectedAlias,
+                    "DADP wrapper startup incomplete: requested alias " + selectedAlias
+                            + " has no valid enrollment under " + root + ". Available aliases: "
+                            + displayAliases(availableAliases) + ". Run dadp wrapper enroll --alias "
+                            + selectedAlias + " --lib-dir " + rootToLibDir(root)
+                            + ", then dadp wrapper refresh --lib-dir " + rootToLibDir(root)
+                            + " --alias " + selectedAlias + ".");
+            return;
+        }
+        if (availableAliases.size() > 1) {
+            emitStartupDiagnostic("ambiguous-alias:" + root + ":" + availableAliases,
+                    "DADP wrapper startup incomplete: multiple runtime aliases " + availableAliases
+                            + " were found under " + root + ". Select one with -D"
+                            + WRAPPER_ALIAS_PROPERTY + "=<alias> or the DataSource property "
+                            + WRAPPER_ALIAS_PROPERTY + ".");
+            return;
+        }
+
+        emitStartupDiagnostic("invalid-enrollment:" + root, "DADP wrapper startup incomplete: no valid "
+                + "proxy-config.json containing both tenantId and alias was found under " + root
+                + ". Run dadp wrapper enroll --alias <alias> --lib-dir " + rootToLibDir(root)
+                + ", then dadp wrapper refresh --lib-dir " + rootToLibDir(root) + " [--alias <alias>].");
+    }
+
+    private static List<String> validRuntimeAliases(File rootDir) {
+        List<String> aliases = new ArrayList<>();
+        File[] children = rootDir.listFiles(File::isDirectory);
+        if (children == null) {
+            return aliases;
+        }
+        for (File child : children) {
+            File configFile = new File(child, "proxy-config.json");
+            if (!configFile.isFile()) {
+                continue;
+            }
+            InstanceConfigStorage storage = new InstanceConfigStorage(child.getAbsolutePath(), "proxy-config.json");
+            InstanceConfigStorage.ConfigData configData = storage.loadConfig(null, null);
+            String tenantId = configData != null ? trimToNull(configData.getTenantId()) : null;
+            String alias = configData != null ? trimToNull(configData.getAlias()) : null;
+            if (tenantId != null && alias != null) {
+                aliases.add(alias);
+            }
+        }
+        Collections.sort(aliases);
+        return aliases;
+    }
+
+    private static String displayAliases(List<String> aliases) {
+        return aliases.isEmpty() ? "none" : aliases.toString();
+    }
+
+    private static String rootToLibDir(String root) {
+        File wrapperDir = new File(root);
+        File dadpDir = wrapperDir.getParentFile();
+        File libDir = dadpDir != null ? dadpDir.getParentFile() : null;
+        return libDir != null ? libDir.getAbsolutePath() : "<wrapper-lib-dir>";
+    }
+
+    private static void emitStartupDiagnostic(String key, String message) {
+        if (emittedStartupDiagnostics.add(key)) {
+            System.err.println(message);
         }
     }
 
-    private static void emitMissingRequiredHubUrl() {
-        String message = "DADP wrapper runtime hubUrl is missing in proxy-config.json. Run CLI wrapper refresh so runtime.hubUrl is written.";
-        System.err.println(message);
-        try {
-            log.warn(message);
-        } catch (Exception ignored) {
-            // System.err emission is the mandatory fallback for startup failure.
-        }
-    }
-
-    private static void emitMissingRuntimeEnrollment() {
-        emitMissingRequiredAlias();
+    static void resetStartupDiagnosticsForTests() {
+        emittedStartupDiagnostics.clear();
     }
     
     /**
@@ -269,11 +350,11 @@ public class ProxyConfig {
     }
 
     public boolean isStartupReady() {
-        return aliasConfigured;
+        return aliasConfigured && hubUrlConfigured;
     }
 
     public boolean isRuntimeActive() {
-        return enabled && aliasConfigured;
+        return enabled && isStartupReady();
     }
 
     /**
@@ -353,7 +434,12 @@ public class ProxyConfig {
     }
 
     public static boolean hasValidRuntimeStorage() {
-        return discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false) != null;
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false);
+        if (runtimeStorage == null || runtimeStorage.configData == null) {
+            return false;
+        }
+        InstanceConfigStorage.RuntimeData runtime = runtimeStorage.configData.getRuntime();
+        return runtime != null && absoluteHttpUrl(runtime.getHubUrl()) != null;
     }
 
     public static NotificationContext loadNotificationContext() {
@@ -413,7 +499,7 @@ public class ProxyConfig {
         File[] children = rootDir.listFiles(File::isDirectory);
         if (children == null || children.length == 0) {
             if (logWarnings) {
-                log.warn("No wrapper runtime enrollment directory found under {}. Run CLI wrapper schema register and refresh.", root);
+                log.warn("No wrapper runtime enrollment directory found under {}. Run dadp wrapper enroll, then dadp wrapper refresh.", root);
             }
             return null;
         }
@@ -461,8 +547,8 @@ public class ProxyConfig {
                 names.append(candidate.alias);
             }
             if (logWarnings) {
-                log.warn("Multiple wrapper runtime enrollments found under {}: {}. Use an isolated wrapper lib dir or keep one alias directory.",
-                        root, names);
+                log.warn("Multiple wrapper runtime enrollments found under {}: {}. Select one with -D{}=<alias> or the DataSource property {}.",
+                        root, names, WRAPPER_ALIAS_PROPERTY, WRAPPER_ALIAS_PROPERTY);
             }
             return null;
         }

@@ -61,7 +61,7 @@ public class InstanceConfigStorage {
     /**
      * Saves runtime option compatibility fields without creating wrapper identity.
      *
-     * <p>DADP 6 wrapper identity is valid only when {@code alias + tenantId}
+     * <p>Wrapper identity is valid only when {@code alias + tenantId}
      * already exist in {@code proxy-config.json}. This compatibility method must
      * never create or repair identity from a tenantId-only caller.</p>
      *
@@ -72,7 +72,7 @@ public class InstanceConfigStorage {
     }
 
     /**
-     * Save Hub 6 runtime wrapper enrollment data issued by the CLI wrapper schema register flow.
+     * Saves Hub-issued runtime enrollment data without changing wrapper identity.
      */
     public boolean saveConfig(String tenantId,
                               String hubUrl,

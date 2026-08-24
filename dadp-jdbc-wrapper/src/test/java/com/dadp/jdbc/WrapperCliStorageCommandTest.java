@@ -206,6 +206,8 @@ class WrapperCliStorageCommandTest {
 
         assertEquals(1, exitCode);
         assertTrue(err.toString("UTF-8").contains("Multiple wrapper runtime directories found"));
+        assertTrue(err.toString("UTF-8").contains("[A01, A02]"));
+        assertTrue(err.toString("UTF-8").contains("--alias <alias>"));
     }
 
     @Test

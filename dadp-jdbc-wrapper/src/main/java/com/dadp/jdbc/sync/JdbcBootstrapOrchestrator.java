@@ -30,8 +30,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Coordinates the JDBC wrapper bootstrap flow for one wrapper instance.
  *
  * <p>This class loads persisted runtime state and initializes follow-up
- * synchronization services. DB schema collection is owned by the CLI/collector
- * flow in DADP 6.</p>
+ * synchronization services. DB schema collection is owned by Hub and is not
+ * part of the Wrapper runtime startup path.</p>
  */
 
 public class JdbcBootstrapOrchestrator {
@@ -245,7 +245,7 @@ public class JdbcBootstrapOrchestrator {
                 return true;
             }
             
-            log.warn("DADP 6.0 wrapper enrollment is still missing. Runtime remains in passthrough mode until wrapper schema register and manual refresh is completed.");
+            log.warn("Wrapper enrollment is still missing. Run dadp wrapper enroll and dadp wrapper refresh.");
             return false;
         }
         
@@ -263,7 +263,7 @@ public class JdbcBootstrapOrchestrator {
             storeMetadataFrom(connection);
             
             
-            log.info("Step 1: Runtime storage load (DB schema collection is disabled in wrapper 6.0 runtime)");
+            log.info("Step 1: Runtime storage load");
             
             
             log.info("Step 2: Loading data from persistent storage");
@@ -290,7 +290,7 @@ public class JdbcBootstrapOrchestrator {
             }
 
             
-            log.info("Step 3: Hub 6 runtime enrollment validation");
+            log.info("Step 3: Hub runtime enrollment validation");
             boolean runtimeEnrollmentAvailable = false;
 
             if (tenantIdManager.hasRuntimeEnrollment()) {
@@ -298,7 +298,7 @@ public class JdbcBootstrapOrchestrator {
                 runtimeEnrollmentAvailable = true;
                 log.info("Runtime enrollment loaded: tenantId={}, alias={}", tenantId, instanceId);
             } else {
-                log.warn("DADP 6.0 wrapper enrollment is missing. Run CLI wrapper schema register and manual refresh before wrapper runtime sync.");
+                log.warn("Wrapper enrollment is missing. Run dadp wrapper enroll, then dadp wrapper refresh before runtime sync.");
             }
             
             
@@ -827,6 +827,6 @@ public class JdbcBootstrapOrchestrator {
 
     
     public void forceReloadSchemas() {
-        log.warn("Schema force reload is disabled in wrapper 6.0 runtime. Use the collector/CLI wrapper schema register flow.");
+        log.warn("Schema force reload is not handled by Wrapper runtime. Collect the Alias schema from Hub.");
     }
 }
