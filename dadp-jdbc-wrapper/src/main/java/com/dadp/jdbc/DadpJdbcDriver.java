@@ -80,7 +80,7 @@ public class DadpJdbcDriver implements Driver {
                     log.warn("Converted actual DB URL: {}", actualUrl);
                     log.warn("URL slash count: {}", countSlashes(actualUrl));
                     log.warn("Driver error message: {}", e.getMessage());
-                    notifyDatabaseConnectionFailure(actualUrl, e);
+                    notifyDatabaseConnectionFailure(actualUrl, e, proxyParams);
                 }
                 throw e;
             }
@@ -158,9 +158,11 @@ public class DadpJdbcDriver implements Driver {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private void notifyDatabaseConnectionFailure(String actualUrl, SQLException e) {
+    private void notifyDatabaseConnectionFailure(String actualUrl,
+                                                 SQLException e,
+                                                 Map<String, String> runtimeProperties) {
         try {
-            ProxyConfig.NotificationContext context = ProxyConfig.loadNotificationContext();
+            ProxyConfig.NotificationContext context = ProxyConfig.loadNotificationContext(runtimeProperties);
             if (context == null) {
                 return;
             }

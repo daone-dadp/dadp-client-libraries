@@ -434,7 +434,11 @@ public class ProxyConfig {
     }
 
     public static boolean hasValidRuntimeStorage() {
-        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false);
+        return hasValidRuntimeStorage(null);
+    }
+
+    public static boolean hasValidRuntimeStorage(Map<String, String> runtimeProperties) {
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveRuntimeAliasSelector(runtimeProperties), false);
         if (runtimeStorage == null || runtimeStorage.configData == null) {
             return false;
         }
@@ -443,7 +447,11 @@ public class ProxyConfig {
     }
 
     public static NotificationContext loadNotificationContext() {
-        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveSystemRuntimeAliasSelector(), false);
+        return loadNotificationContext(null);
+    }
+
+    public static NotificationContext loadNotificationContext(Map<String, String> runtimeProperties) {
+        RuntimeStorage runtimeStorage = discoverRuntimeStorage(resolveRuntimeAliasSelector(runtimeProperties), false);
         if (runtimeStorage == null || runtimeStorage.configData == null) {
             return null;
         }

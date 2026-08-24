@@ -1,6 +1,7 @@
 package com.dadp.jdbc.config;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dadp.common.sync.config.StoragePathResolver;
@@ -253,6 +254,21 @@ class ProxyConfigCryptoProfileTest {
         assertTrue(config.isStartupReady());
         assertTrue(config.isRuntimeActive());
         assertTrue("alias-one".equals(config.getAlias()));
+    }
+
+    @Test
+    void dataSourcePropertySelectsRuntimeForStaticReadinessAndNotificationContext() throws Exception {
+        writeProxyConfig("alias-one", "wtenant_one", "http://hub-one:9004");
+        writeProxyConfigWithoutClearing("alias-two", "wtenant_two", "http://hub-two:9004");
+        Map<String, String> runtimeProperties = new HashMap<>();
+        runtimeProperties.put(ProxyConfig.WRAPPER_ALIAS_PROPERTY, "alias-two");
+
+        assertTrue(ProxyConfig.hasValidRuntimeStorage(runtimeProperties));
+        ProxyConfig.NotificationContext context = ProxyConfig.loadNotificationContext(runtimeProperties);
+        assertNotNull(context);
+        assertTrue("alias-two".equals(context.getAlias()));
+        assertTrue("wtenant_two".equals(context.getTenantId()));
+        assertTrue("http://hub-two:9004".equals(context.getHubUrl()));
     }
 
     @Test

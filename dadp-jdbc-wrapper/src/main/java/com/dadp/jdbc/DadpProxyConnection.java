@@ -182,7 +182,7 @@ public class DadpProxyConnection implements Connection {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         boolean logged = false;
         while (System.nanoTime() < deadline) {
-            if (ProxyConfig.hasValidRuntimeStorage()) {
+            if (ProxyConfig.hasValidRuntimeStorage(originalUrlParams)) {
                 ProxyConfig refreshedConfig = originalUrlParams != null ? new ProxyConfig(originalUrlParams) : new ProxyConfig(null);
                 this.config = refreshedConfig;
                 if (refreshedConfig.isRuntimeActive() || !refreshedConfig.isEnabled()) {
