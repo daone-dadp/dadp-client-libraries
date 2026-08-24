@@ -16,6 +16,8 @@ import com.dadp.common.sync.schema.SchemaStorage;
 import com.dadp.jdbc.logging.DadpLogger;
 import com.dadp.jdbc.logging.DadpLoggerFactory;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -29,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class JdbcPolicyMappingSyncService {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(JdbcPolicyMappingSyncService.class);
+    private static final Set<String> INITIALIZED_RUNTIME_LOG_KEYS = ConcurrentHashMap.newKeySet();
     
     private volatile MappingSyncService mappingSyncService;
     private volatile EndpointSyncService endpointSyncService;
@@ -158,7 +161,7 @@ public class JdbcPolicyMappingSyncService {
             tenantIdManager.setWrapperEnrollment(tenantId, null, false);
         }
         
-        log.info("JdbcPolicyMappingSyncService initialization notification: initialized={}, tenantId={}", initialized, tenantId);
+        log.debug("JdbcPolicyMappingSyncService initialization notification: initialized={}, tenantId={}", initialized, tenantId);
         
         
         
@@ -168,8 +171,11 @@ public class JdbcPolicyMappingSyncService {
         }
         
         setEnabled(true);
-        log.info("Wrapper runtime initialized: tenantId={}, alias={}. Hub refresh is manual via CLI only.",
-                tenantId, instanceId);
+        String runtimeLogKey = tenantId.trim() + "\u0000" + instanceId;
+        if (INITIALIZED_RUNTIME_LOG_KEYS.add(runtimeLogKey)) {
+            log.info("Wrapper runtime initialized: tenantId={}, alias={}. Hub refresh is manual via CLI only.",
+                    tenantId, instanceId);
+        }
     }
     
     
@@ -444,9 +450,9 @@ public class JdbcPolicyMappingSyncService {
     public void setEnabled(boolean enabled) {
         this.enabled.set(enabled);
         if (enabled) {
-            log.info("Wrapper policy mapping sync enabled");
+            log.debug("Wrapper policy mapping sync enabled");
         } else {
-            log.info("Wrapper policy mapping sync disabled");
+            log.debug("Wrapper policy mapping sync disabled");
         }
     }
     
