@@ -2,9 +2,11 @@ package com.dadp.jdbc.policy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import com.dadp.jdbc.logging.DadpLogger;
@@ -61,6 +63,9 @@ public static class SqlParseResult {
     // alias -> 원본 컬럼명 매핑 (Hibernate 지원용)
     private Map<String, String> aliasToColumnMap = new HashMap<>();
     private Map<Integer, SourceColumn> sourceColumnByIndex = new HashMap<>();
+    private Set<Integer> lineageTrackedColumnIndexes = new HashSet<>();
+    private Map<String, SourceColumn> outputSourceColumnByName = new HashMap<>();
+    private Set<String> ambiguousOutputNames = new HashSet<>();
     
     public String getDatabaseName() {
         return databaseName;
@@ -138,8 +143,37 @@ public static class SqlParseResult {
         }
     }
 
+    void markLineageTracked(int columnIndex) {
+        if (columnIndex > 0) {
+            lineageTrackedColumnIndexes.add(columnIndex);
+        }
+    }
+
+    public boolean isLineageTracked(int columnIndex) {
+        return lineageTrackedColumnIndexes.contains(columnIndex);
+    }
+
     public SourceColumn getSourceColumn(int columnIndex) {
         return sourceColumnByIndex.get(columnIndex);
+    }
+
+    void addOutputSourceColumn(String outputName, SourceColumn sourceColumn) {
+        String normalized = normalizeLookupName(outputName);
+        if (normalized == null || sourceColumn == null || !sourceColumn.isResolved()
+                || ambiguousOutputNames.contains(normalized)) {
+            return;
+        }
+        SourceColumn existing = outputSourceColumnByName.get(normalized);
+        if (existing != null && !sameSourceColumn(existing, sourceColumn)) {
+            outputSourceColumnByName.remove(normalized);
+            ambiguousOutputNames.add(normalized);
+            return;
+        }
+        outputSourceColumnByName.put(normalized, sourceColumn);
+    }
+
+    Map<String, SourceColumn> getOutputSourceColumns() {
+        return new HashMap<>(outputSourceColumnByName);
     }
 }
 
@@ -174,10 +208,34 @@ public static class SourceColumn {
 private static class TableSource {
     final String schemaName;
     final String tableName;
+    final String relationName;
+    final Map<String, SourceColumn> outputSourceColumns;
 
     TableSource(String schemaName, String tableName) {
         this.schemaName = trimToNull(schemaName);
         this.tableName = trimToNull(tableName);
+        this.relationName = this.tableName;
+        this.outputSourceColumns = null;
+    }
+
+    TableSource(String relationName, Map<String, SourceColumn> outputSourceColumns) {
+        this.schemaName = null;
+        this.tableName = null;
+        this.relationName = trimToNull(relationName);
+        this.outputSourceColumns = outputSourceColumns == null
+                ? new HashMap<String, SourceColumn>()
+                : new HashMap<>(outputSourceColumns);
+    }
+
+    SourceColumn resolveColumn(String columnName) {
+        String normalized = normalizeLookupName(columnName);
+        if (normalized == null) {
+            return null;
+        }
+        if (outputSourceColumns != null) {
+            return outputSourceColumns.get(normalized);
+        }
+        return new SourceColumn(schemaName, tableName, columnName);
     }
 }
 
@@ -186,13 +244,15 @@ private static class FromContext {
     TableSource defaultSource;
 
     void add(String alias, TableSource source) {
-        if (source == null || source.tableName == null) {
+        if (source == null) {
             return;
         }
         if (defaultSource == null) {
             defaultSource = source;
         }
-        aliases.put(source.tableName.toLowerCase(Locale.ROOT), source);
+        if (source.relationName != null) {
+            aliases.put(source.relationName.toLowerCase(Locale.ROOT), source);
+        }
         if (alias != null) {
             aliases.put(alias.toLowerCase(Locale.ROOT), source);
         }
@@ -227,8 +287,8 @@ private static class Projection {
             return null;
         }
         
-        String sqlUpper = sql.trim().toUpperCase();
-        SqlParseResult result = new SqlParseResult();
+        String sqlUpper = sql.trim().toUpperCase(Locale.ROOT);
+        SqlParseResult result = null;
         
         // INSERT 문 파싱
         if (sqlUpper.startsWith("INSERT")) {
@@ -239,7 +299,7 @@ private static class Projection {
             result = parseUpdate(sql);
         }
         // SELECT 문 파싱
-        else if (sqlUpper.startsWith("SELECT")) {
+        else if (sqlUpper.startsWith("SELECT") || sqlUpper.startsWith("WITH")) {
             result = parseSelect(sql);
         }
         
@@ -362,6 +422,9 @@ private SqlParseResult parseSelect(String sql) {
     if (parsed != null) {
         return parsed;
     }
+    if (!startsWithKeyword(sql.trim(), "SELECT")) {
+        return null;
+    }
 
     Matcher matcher = SELECT_PATTERN.matcher(sql);
     if (matcher.find()) {
@@ -429,11 +492,21 @@ private SqlParseResult parseSelect(String sql) {
 }
 
 private SqlParseResult parseSelectWithLineage(String sql, int depth) {
+    return parseSelectWithLineage(sql, depth, new HashMap<String, TableSource>());
+}
+
+private SqlParseResult parseSelectWithLineage(
+        String sql,
+        int depth,
+        Map<String, TableSource> availableRelations) {
     if (depth > MAX_SELECT_LINEAGE_DEPTH || sql == null) {
         return null;
     }
 
     String text = stripOuterParentheses(sql.trim());
+    if (startsWithKeyword(text, "WITH")) {
+        return parseWithLineage(text, depth, availableRelations);
+    }
     if (!startsWithKeyword(text, "SELECT")) {
         return null;
     }
@@ -452,7 +525,7 @@ private SqlParseResult parseSelectWithLineage(String sql, int depth) {
 
     String selectClause = text.substring(6, fromIndex).trim();
     String fromClause = text.substring(fromClauseStart, fromClauseEnd).trim();
-    FromContext fromContext = parseFromContext(fromClause, depth);
+    FromContext fromContext = parseFromContext(fromClause, depth, availableRelations);
 
     SqlParseResult result = new SqlParseResult();
     result.setSqlType("SELECT");
@@ -466,6 +539,9 @@ private SqlParseResult parseSelectWithLineage(String sql, int depth) {
     for (int i = 0; i < selectItems.size(); i++) {
         Projection projection = splitProjectionAlias(selectItems.get(i));
         SourceColumn sourceColumn = resolveProjectionSource(projection.expression, fromContext, depth + 1);
+        if (!isWildcardProjection(projection.expression)) {
+            result.markLineageTracked(i + 1);
+        }
         String columnName = sourceColumn != null ? sourceColumn.getColumnName() : legacyColumnName(projection.expression);
         columns.add(columnName);
         if (projection.alias != null && columnName != null) {
@@ -473,13 +549,118 @@ private SqlParseResult parseSelectWithLineage(String sql, int depth) {
         }
         if (sourceColumn != null && sourceColumn.isResolved()) {
             result.addSourceColumn(i + 1, sourceColumn);
+            String outputName = projection.alias != null
+                    ? projection.alias
+                    : sourceColumn.getColumnName();
+            result.addOutputSourceColumn(outputName, sourceColumn);
         }
     }
     result.setColumns(columns.toArray(new String[0]));
     return result;
 }
 
-private FromContext parseFromContext(String fromClause, int depth) {
+private SqlParseResult parseWithLineage(
+        String text,
+        int depth,
+        Map<String, TableSource> inheritedRelations) {
+    int index = skipSpacesOnly(text, 4);
+    if (startsWithKeywordAt(text, index, "RECURSIVE")) {
+        return null;
+    }
+
+    Map<String, TableSource> relations = new HashMap<>(inheritedRelations);
+    while (index < text.length()) {
+        index = skipSpacesOnly(text, index);
+        String cteToken = readIdentifier(text, index);
+        if (cteToken == null) {
+            return null;
+        }
+        String cteName = cleanIdentifier(cteToken);
+        index += cteToken.length();
+        index = skipSpacesOnly(text, index);
+
+        List<String> explicitColumnNames = null;
+        if (index < text.length() && text.charAt(index) == '(') {
+            int close = findMatchingParen(text, index);
+            if (close < 0) {
+                return null;
+            }
+            explicitColumnNames = parseIdentifierList(text.substring(index + 1, close));
+            if (explicitColumnNames == null) {
+                return null;
+            }
+            index = skipSpacesOnly(text, close + 1);
+        }
+
+        if (!startsWithKeywordAt(text, index, "AS")) {
+            return null;
+        }
+        index = skipSpacesOnly(text, index + 2);
+        if (index >= text.length() || text.charAt(index) != '(') {
+            return null;
+        }
+        int close = findMatchingParen(text, index);
+        if (close < 0) {
+            return null;
+        }
+
+        SqlParseResult cteResult = parseSelectWithLineage(
+                text.substring(index + 1, close), depth + 1, relations);
+        if (cteResult == null) {
+            return null;
+        }
+        Map<String, SourceColumn> outputs = explicitColumnNames == null
+                ? cteResult.getOutputSourceColumns()
+                : remapOutputsByPosition(cteResult, explicitColumnNames);
+        relations.put(cteName.toLowerCase(Locale.ROOT), new TableSource(cteName, outputs));
+
+        index = skipSpacesOnly(text, close + 1);
+        if (index < text.length() && text.charAt(index) == ',') {
+            index++;
+            continue;
+        }
+        break;
+    }
+
+    index = skipSpacesOnly(text, index);
+    if (!startsWithKeywordAt(text, index, "SELECT") && !startsWithKeywordAt(text, index, "WITH")) {
+        return null;
+    }
+    return parseSelectWithLineage(text.substring(index), depth + 1, relations);
+}
+
+private List<String> parseIdentifierList(String value) {
+    List<String> names = new ArrayList<>();
+    for (String part : splitTopLevel(value, ',')) {
+        String name = cleanIdentifier(part);
+        if (name == null || !isSimpleIdentifier(name)) {
+            return null;
+        }
+        names.add(name);
+    }
+    return names;
+}
+
+private Map<String, SourceColumn> remapOutputsByPosition(
+        SqlParseResult result,
+        List<String> outputNames) {
+    Map<String, SourceColumn> outputs = new HashMap<>();
+    if (result.getColumns() == null || result.getColumns().length != outputNames.size()) {
+        return outputs;
+    }
+    for (int i = 0; i < outputNames.size(); i++) {
+        SourceColumn sourceColumn = result.getSourceColumn(i + 1);
+        if (sourceColumn != null && sourceColumn.isResolved()) {
+            outputs.put(outputNames.get(i).toLowerCase(Locale.ROOT), sourceColumn);
+        }
+    }
+    return outputs;
+}
+
+private FromContext parseFromContext(
+        String fromClause,
+        int depth,
+        Map<String, TableSource> availableRelations) {
     FromContext context = new FromContext();
     int index = 0;
     while (index < fromClause.length()) {
@@ -505,7 +686,7 @@ private FromContext parseFromContext(String fromClause, int depth) {
             continue;
         }
 
-        ParsedTableRef tableRef = parseTableRef(fromClause, index, depth);
+        ParsedTableRef tableRef = parseTableRef(fromClause, index, depth, availableRelations);
         if (tableRef == null) {
             int nextJoin = findNextJoinBoundary(fromClause, index + 1);
             if (nextJoin < 0) {
@@ -538,7 +719,11 @@ private static class ParsedTableRef {
     }
 }
 
-private ParsedTableRef parseTableRef(String fromClause, int start, int depth) {
+private ParsedTableRef parseTableRef(
+        String fromClause,
+        int start,
+        int depth,
+        Map<String, TableSource> availableRelations) {
     int index = skipWhitespace(fromClause, start);
     if (index >= fromClause.length()) {
         return null;
@@ -551,14 +736,18 @@ private ParsedTableRef parseTableRef(String fromClause, int start, int depth) {
             return null;
         }
         String inner = fromClause.substring(index + 1, close);
-        source = resolveDerivedTableSource(inner, depth + 1);
+        source = resolveDerivedTableSource(inner, depth + 1, availableRelations);
         index = close + 1;
     } else {
         String tableToken = readIdentifierPath(fromClause, index);
         if (tableToken == null) {
             return null;
         }
-        source = tableSourceFromToken(tableToken);
+        String relationName = cleanIdentifier(tableToken);
+        source = availableRelations.get(relationName.toLowerCase(Locale.ROOT));
+        if (source == null) {
+            source = tableSourceFromToken(tableToken);
+        }
         index += tableToken.length();
     }
 
@@ -577,12 +766,15 @@ private ParsedTableRef parseTableRef(String fromClause, int start, int depth) {
     return new ParsedTableRef(source, alias, index);
 }
 
-private TableSource resolveDerivedTableSource(String innerSql, int depth) {
-    SqlParseResult inner = parseSelectWithLineage(innerSql, depth);
-    if (inner == null || inner.getTableName() == null) {
+private TableSource resolveDerivedTableSource(
+        String innerSql,
+        int depth,
+        Map<String, TableSource> availableRelations) {
+    SqlParseResult inner = parseSelectWithLineage(innerSql, depth, availableRelations);
+    if (inner == null) {
         return null;
     }
-    return new TableSource(inner.getSchemaName(), inner.getTableName());
+    return new TableSource(null, inner.getOutputSourceColumns());
 }
 
 private SourceColumn resolveProjectionSource(String expression, FromContext fromContext, int depth) {
@@ -590,7 +782,7 @@ private SourceColumn resolveProjectionSource(String expression, FromContext from
         return null;
     }
     String expr = stripOuterParentheses(expression.trim());
-    if (startsWithKeyword(expr, "SELECT")) {
+    if (startsWithKeyword(expr, "SELECT") || startsWithKeyword(expr, "WITH")) {
         SqlParseResult inner = parseSelectWithLineage(expr, depth);
         if (inner == null || inner.getColumns() == null || inner.getColumns().length != 1) {
             return null;
@@ -613,7 +805,7 @@ private SourceColumn resolveProjectionSource(String expression, FromContext from
     if (source == null) {
         return null;
     }
-    return new SourceColumn(source.schemaName, source.tableName, columnName);
+    return source.resolveColumn(columnName);
 }
 
 private Projection splitProjectionAlias(String selectItem) {
@@ -623,7 +815,40 @@ private Projection splitProjectionAlias(String selectItem) {
         String alias = cleanIdentifier(item.substring(asIndex + 2).trim());
         return new Projection(item.substring(0, asIndex).trim(), alias);
     }
+    int whitespaceIndex = findLastTopLevelWhitespace(item);
+    if (whitespaceIndex > 0) {
+        String expression = item.substring(0, whitespaceIndex).trim();
+        String alias = cleanIdentifier(item.substring(whitespaceIndex).trim());
+        if (isSimpleColumnReference(expression) && alias != null && isSimpleIdentifier(alias)) {
+            return new Projection(expression, alias);
+        }
+    }
     return new Projection(item, null);
+}
+
+private int findLastTopLevelWhitespace(String value) {
+    int depth = 0;
+    int found = -1;
+    char quote = 0;
+    for (int i = 0; i < value.length(); i++) {
+        char c = value.charAt(i);
+        if (quote != 0) {
+            if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (c == '\'' || c == '"' || c == '`') {
+            quote = c;
+        } else if (c == '(') {
+            depth++;
+        } else if (c == ')') {
+            depth = Math.max(0, depth - 1);
+        } else if (depth == 0 && Character.isWhitespace(c)) {
+            found = i;
+        }
+    }
+    return found;
 }
 
 private String legacyColumnName(String expression) {
@@ -800,11 +1025,16 @@ private boolean startsWithKeywordAt(String value, int index, String keyword) {
 }
 
 private int skipWhitespace(String value, int index) {
-    while (index < value.length() && Character.isWhitespace(value.charAt(index))) {
-        index++;
-    }
+    index = skipSpacesOnly(value, index);
     if (index < value.length() && value.charAt(index) == ',') {
         return skipWhitespace(value, index + 1);
+    }
+    return index;
+}
+
+private int skipSpacesOnly(String value, int index) {
+    while (index < value.length() && Character.isWhitespace(value.charAt(index))) {
+        index++;
     }
     return index;
 }
@@ -832,6 +1062,16 @@ private String readIdentifier(String value, int index) {
 
 private boolean isSimpleColumnReference(String value) {
     return value.matches("[`\"\\[]?[A-Za-z_][A-Za-z0-9_$]*[`\"\\]]?(\\.[`\"\\[]?[A-Za-z_][A-Za-z0-9_$]*[`\"\\]]?){0,2}");
+}
+
+private boolean isWildcardProjection(String value) {
+    String expression = value == null ? "" : value.trim();
+    return "*".equals(expression)
+            || expression.matches("[`\"\\[]?[A-Za-z_][A-Za-z0-9_$]*[`\"\\]]?\\.\\*");
+}
+
+private boolean isSimpleIdentifier(String value) {
+    return value.matches("[A-Za-z_][A-Za-z0-9_$]*");
 }
 
 private boolean isJoinBoundaryKeyword(String token) {
@@ -864,5 +1104,20 @@ private static String trimToNull(String value) {
     }
     String trimmed = value.trim();
     return trimmed.isEmpty() ? null : trimmed;
+}
+
+private static String normalizeLookupName(String value) {
+    String cleaned = cleanIdentifier(value);
+    return cleaned == null ? null : cleaned.toLowerCase(Locale.ROOT);
+}
+
+private static boolean sameSourceColumn(SourceColumn left, SourceColumn right) {
+    return equalsIgnoreCase(left.getSchemaName(), right.getSchemaName())
+            && equalsIgnoreCase(left.getTableName(), right.getTableName())
+            && equalsIgnoreCase(left.getColumnName(), right.getColumnName());
+}
+
+private static boolean equalsIgnoreCase(String left, String right) {
+    return left == null ? right == null : right != null && left.equalsIgnoreCase(right);
 }
 }

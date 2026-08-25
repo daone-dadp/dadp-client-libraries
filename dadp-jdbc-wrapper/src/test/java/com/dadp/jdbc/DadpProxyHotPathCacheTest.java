@@ -149,6 +149,100 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
+    void resultSetDecryptsDerivedTableAliasesUsingTheirExactSourceColumns() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        String sql = "SELECT merged.cusemail, merged.empemail "
+                + "FROM (SELECT c.email AS cusemail, e.email AS empemail "
+                + "FROM customer c JOIN employee e ON c.supportrepid = e.employeeid) merged";
+
+        when(actualResultSet.getString(1)).thenReturn("enc-customer-email");
+        when(actualResultSet.getString(2)).thenReturn("enc-employee-email");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(2);
+        when(metaData.getColumnName(1)).thenReturn("cusemail");
+        when(metaData.getColumnLabel(1)).thenReturn("cusemail");
+        when(metaData.getColumnName(2)).thenReturn("empemail");
+        when(metaData.getColumnLabel(2)).thenReturn("empemail");
+        when(metaData.getSchemaName(org.mockito.ArgumentMatchers.anyInt())).thenReturn(null);
+        when(metaData.getTableName(org.mockito.ArgumentMatchers.anyInt())).thenReturn("");
+
+        stubResultSetConnection(proxyConnection, policyResolver, adapter);
+        when(policyResolver.resolvePolicy(null, "testdb", "customer", "email"))
+                .thenReturn("policy-customer-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "employee", "email"))
+                .thenReturn("policy-employee-email");
+        when(adapter.decrypt("enc-customer-email", "policy-customer-email"))
+                .thenReturn("customer@example.com");
+        when(adapter.decrypt("enc-employee-email", "policy-employee-email"))
+                .thenReturn("employee@example.com");
+
+        DadpProxyResultSet resultSet = new DadpProxyResultSet(actualResultSet, sql, proxyConnection);
+
+        assertEquals("customer@example.com", resultSet.getString(1));
+        assertEquals("employee@example.com", resultSet.getString(2));
+    }
+
+    @Test
+    void resultSetDecryptsOnlyExactCteColumnsAndSkipsAggregateOutputs() throws Exception {
+        ResultSet actualResultSet = mock(ResultSet.class);
+        ResultSetMetaData metaData = mock(ResultSetMetaData.class);
+        DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
+        PolicyResolver policyResolver = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        String sql = "WITH cust_invoice AS ("
+                + "SELECT inv.customerid, cus.supportrepid, SUM(inv.total) AS cusSum "
+                + "FROM invoice inv JOIN customer cus ON inv.customerid = cus.customerid "
+                + "GROUP BY inv.customerid, cus.supportrepid), "
+                + "emp_total AS (SELECT supportrepid, SUM(cusSum) AS empSum "
+                + "FROM cust_invoice GROUP BY supportrepid) "
+                + "SELECT cus.email AS customer, ci.cusSum, emp.email AS employee, et.empSum "
+                + "FROM customer cus "
+                + "LEFT JOIN cust_invoice ci ON cus.customerid = ci.customerid "
+                + "LEFT JOIN employee emp ON cus.supportrepid = emp.employeeid "
+                + "LEFT JOIN emp_total et ON cus.supportrepid = et.supportrepid";
+
+        when(actualResultSet.getString(1)).thenReturn("enc-customer-email");
+        when(actualResultSet.getString(2)).thenReturn("125.00");
+        when(actualResultSet.getString(3)).thenReturn("enc-employee-email");
+        when(actualResultSet.getString(4)).thenReturn("875.00");
+        when(actualResultSet.getMetaData()).thenReturn(metaData);
+        when(metaData.getColumnCount()).thenReturn(4);
+        when(metaData.getColumnName(1)).thenReturn("customer");
+        when(metaData.getColumnLabel(1)).thenReturn("customer");
+        when(metaData.getColumnName(2)).thenReturn("cussum");
+        when(metaData.getColumnLabel(2)).thenReturn("cussum");
+        when(metaData.getColumnName(3)).thenReturn("employee");
+        when(metaData.getColumnLabel(3)).thenReturn("employee");
+        when(metaData.getColumnName(4)).thenReturn("empsum");
+        when(metaData.getColumnLabel(4)).thenReturn("empsum");
+        when(metaData.getSchemaName(org.mockito.ArgumentMatchers.anyInt())).thenReturn(null);
+        when(metaData.getTableName(org.mockito.ArgumentMatchers.anyInt())).thenReturn("");
+
+        stubResultSetConnection(proxyConnection, policyResolver, adapter);
+        when(policyResolver.resolvePolicy(null, "testdb", "customer", "email"))
+                .thenReturn("policy-customer-email");
+        when(policyResolver.resolvePolicy(null, "testdb", "employee", "email"))
+                .thenReturn("policy-employee-email");
+        when(adapter.decrypt("enc-customer-email", "policy-customer-email"))
+                .thenReturn("customer@example.com");
+        when(adapter.decrypt("enc-employee-email", "policy-employee-email"))
+                .thenReturn("employee@example.com");
+
+        DadpProxyResultSet resultSet = new DadpProxyResultSet(actualResultSet, sql, proxyConnection);
+
+        assertEquals("customer@example.com", resultSet.getString(1));
+        assertEquals("125.00", resultSet.getString(2));
+        assertEquals("employee@example.com", resultSet.getString(3));
+        assertEquals("875.00", resultSet.getString(4));
+        verify(adapter, never()).decrypt(eq("125.00"), anyString());
+        verify(adapter, never()).decrypt(eq("875.00"), anyString());
+    }
+
+    @Test
     void resultSetLabelAccessSkipsDecryptWhenColumnLabelIsAmbiguous() throws Exception {
         ResultSet actualResultSet = mock(ResultSet.class);
         ResultSetMetaData metaData = mock(ResultSetMetaData.class);
@@ -989,5 +1083,21 @@ class DadpProxyHotPathCacheTest {
                         invocation.getArgument(0, SqlParser.SqlParseResult.class),
                         invocation.getArgument(1, String.class),
                         invocation.getArgument(2, String.class)));
+    }
+
+    private static void stubResultSetConnection(
+            DadpProxyConnection proxyConnection,
+            PolicyResolver policyResolver,
+            DirectCryptoAdapter adapter) {
+        when(proxyConnection.getAlias()).thenReturn("lineage_alias");
+        when(proxyConnection.getCurrentSchemaName()).thenReturn(null);
+        when(proxyConnection.getCurrentDatabaseName()).thenReturn("testdb");
+        when(proxyConnection.getPolicyResolver()).thenReturn(policyResolver);
+        when(proxyConnection.getDirectCryptoAdapter()).thenReturn(adapter);
+        when(proxyConnection.getDbVendor()).thenReturn("mysql");
+        stubMysqlLookup(proxyConnection);
+        when(proxyConnection.normalizeIdentifier(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0, String.class).toLowerCase(Locale.ROOT));
+        when(policyResolver.getCurrentVersion()).thenReturn(51L);
     }
 }

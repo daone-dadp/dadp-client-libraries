@@ -244,6 +244,13 @@ public class DadpProxyResultSet implements ResultSet {
         String metadataSchemaName = metaData.getSchemaName(columnIndex);
         String metadataTableName = metaData.getTableName(columnIndex);
         SqlParser.SourceColumn parsedSourceColumn = sqlParseResult.getSourceColumn(columnIndex);
+        if (parsedSourceColumn == null && sqlParseResult.isLineageTracked(columnIndex)) {
+            ParsedDecryptPlanEntry emptyPlan = new ParsedDecryptPlanEntry(null, null, null, currentPolicyVersion);
+            parsedCacheByIndex.put(columnIndex, emptyPlan);
+            cacheParsedLabel(columnLabel, columnIndex);
+            cacheParsedLabel(rawColumnName, columnIndex);
+            return emptyPlan;
+        }
         String tableName = parsedSourceColumn != null && parsedSourceColumn.isResolved()
                 ? parsedSourceColumn.getTableName()
                 : sqlParseResult.getTableName();
