@@ -1400,74 +1400,59 @@ public class HubCryptoService {
             log.debug("isEncryptedData check: dataLength={}", data.length());
         }
 
-        // Partial-encryption format: "[plain]::ENC::[ciphertext]".
-        String checkPart = data;
-        if (data.contains("::ENC::")) {
-            int idx = data.indexOf("::ENC::");
-            checkPart = data.substring(idx + "::ENC::".length());
-        }
-
-        // hub: prefix
-        if (checkPart.startsWith("hub:")) {
-            String[] parts = checkPart.split(":", 3);
-            if (parts.length >= 3) {
-                String policyUuid = parts[1];
-                String base64Data = parts[2];
-                if (policyUuid.length() == 36 && policyUuid.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) {
-                    try {
-                        byte[] decoded = Base64.getDecoder().decode(base64Data);
-                        return decoded.length >= 16;
-                    } catch (IllegalArgumentException e) {
-                        return false;
-                    }
-                }
+        String envelope = data;
+        String partialMarker = "::DADP_ENC:v3:";
+        int partialIndex = data.indexOf(partialMarker);
+        if (partialIndex >= 0) {
+            if (partialIndex != data.lastIndexOf(partialMarker)) {
+                return false;
             }
-            return false;
-        }
-
-        // kms: prefix
-        if (checkPart.startsWith("kms:")) {
-            String[] parts = checkPart.split(":", 4);
-            if (parts.length >= 4) {
-                String policyUuid = parts[1];
-                String base64Data = parts[3];
-                if (policyUuid.length() == 36 && policyUuid.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) {
-                    try {
-                        byte[] decoded = Base64.getDecoder().decode(base64Data);
-                        return decoded.length >= 28;
-                    } catch (IllegalArgumentException e) {
-                        return false;
-                    }
-                }
+            String framed = data.substring(partialIndex + partialMarker.length());
+            int separator = framed.indexOf(':');
+            if (separator <= 0) {
+                return false;
             }
-            return false;
-        }
-
-        // vault: prefix
-        if (checkPart.startsWith("vault:")) {
-            String[] parts = checkPart.split(":", 4);
-            return parts.length >= 4 && parts[2].startsWith("v");
-        }
-
-        // Legacy format: Base64 payload plus Policy UUID validation.
-        try {
-            byte[] decoded = Base64.getDecoder().decode(checkPart);
-            if (decoded.length >= 64 && decoded.length >= 36) {
-                try {
-                    String uuidCandidate = new String(decoded, 0, 36, StandardCharsets.UTF_8);
-                    boolean isValidUuid = uuidCandidate.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-                    if (enableLogging && log.isDebugEnabled()) {
-                        log.debug("Legacy format check: decodedLength={}, isValidUuid={}", decoded.length, isValidUuid);
-                    }
-                    return isValidUuid;
-                } catch (Exception e) {
+            try {
+                int expectedLength = Integer.parseInt(framed.substring(0, separator));
+                envelope = framed.substring(separator + 1);
+                if (expectedLength <= 0 || envelope.getBytes(StandardCharsets.UTF_8).length != expectedLength) {
                     return false;
                 }
+            } catch (NumberFormatException e) {
+                return false;
             }
-            return false;
+        }
+
+        if (envelope.startsWith("hub:")) {
+            String[] parts = envelope.split(":", 5);
+            return parts.length == 5 && "v1".equals(parts[1]) && isCurrentPolicyCode(parts[2])
+                    && isNonEmptyBase64(parts[3]) && !parts[4].isEmpty();
+        }
+        if (envelope.startsWith("kms:")) {
+            String[] parts = envelope.split(":", 4);
+            return parts.length == 4 && isCurrentPolicyCode(parts[1])
+                    && isNonEmptyBase64(parts[2]) && !parts[3].isEmpty();
+        }
+        if (envelope.startsWith("vlt:")) {
+            String[] parts = envelope.split(":", 3);
+            return parts.length == 3 && isCurrentPolicyCode(parts[1]) && !parts[2].isEmpty();
+        }
+        return false;
+    }
+
+    private boolean isCurrentPolicyCode(String value) {
+        return value != null && value.matches("^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$");
+    }
+
+    private boolean isNonEmptyBase64(String value) {
+        try {
+            if (value == null || Base64.getDecoder().decode(value).length == 0) {
+                return false;
+            }
         } catch (IllegalArgumentException e) {
             return false;
         }
+        return true;
     }
 
     private void recordProfileEvent(CryptoProfileRecorder recorder,

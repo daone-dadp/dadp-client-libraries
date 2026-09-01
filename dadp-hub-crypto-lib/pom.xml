@@ -184,6 +184,12 @@
                 </configuration>
             </plugin>
 
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+
             <!-- Java 버전별 classifier로 JAR 생성 (프로파일 활성화 시에만) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
