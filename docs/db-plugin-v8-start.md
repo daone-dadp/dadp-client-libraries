@@ -1,6 +1,6 @@
 # DADP 8 Wrapper 개발 기준
 
-> 2026-09-18: INISAFE_CRYPTO is the primary product provider; DADP_CRYPTO is an explicitly selected secondary, never an automatic fallback. MAGIC_CRYPTO is retired.
+> 2026-09-18: INISAFE_CRYPTO is the primary product provider; DADP_CRYPTO is an explicitly selected secondary, never an automatic fallback.
 > [Provider selection and evaluation limitations](/home/au212/projects/worktrees/dadp-db-plugin-v8/docs/kcmvp/architecture/v8-crypto-module-selection.md) are authoritative. DADP-specific C ABI and lease guarantees must not be attributed to INISAFE.
 
 - 브랜치: codex/db-plugin-v8
