@@ -1,5 +1,7 @@
 # Wrapper 6.0 Runtime Variable Control
 
+> v8에서는 구 구현 참고용이다. 개발 지시는 [v8 기준](../../docs/db-plugin-v8-start.md)을 따른다. 원격 값 치환이나 Wrapper local 개발을 재개하지 않는다.
+
 Wrapper 6.0 runtime reads CLI-owned JSON files only. JDBC URL, environment
 variables, and system properties do not control wrapper runtime options.
 

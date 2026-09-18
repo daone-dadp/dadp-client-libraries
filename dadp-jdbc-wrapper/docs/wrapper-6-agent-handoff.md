@@ -1,5 +1,7 @@
 # Wrapper 6.0.0 Agent Handoff
 
+> v8에서는 구 구현 참고용이다. 개발 지시는 [v8 기준](../../docs/db-plugin-v8-start.md)을 따른다. 원격 값 치환이나 Wrapper local 개발을 재개하지 않는다.
+
 This document is the handoff guide for the next wrapper agent.
 
 ## Scope
