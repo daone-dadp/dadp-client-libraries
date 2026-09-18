@@ -107,6 +107,12 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Isolated v8 AST experiment; not connected to the JDBC runtime. -->
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>4.9</version>
+        </dependency>
         <!-- Common Sync Library (Java 8) - 정책 매핑 및 엔드포인트 동기화 -->
         <!-- 버전은 부모 pom.xml의 dependencyManagement에서 관리 (5.5.0) -->
         <dependency>
@@ -305,6 +311,10 @@
                             
                             <!-- Jackson relocate: 고객사 앱의 Jackson과 충돌 방지 -->
                             <relocations>
+                                <relocation>
+                                    <pattern>net.sf.jsqlparser</pattern>
+                                    <shadedPattern>com.dadp.wrapper.shaded.jsqlparser</shadedPattern>
+                                </relocation>
                                 <relocation>
                                     <pattern>com.fasterxml.jackson</pattern>
                                     <shadedPattern>com.dadp.wrapper.shaded.jackson</shadedPattern>
