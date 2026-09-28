@@ -136,10 +136,7 @@ final class DadpJdbcUrlSupport {
         String queryString = dadpUrl.substring(paramStartIndex + 1);
         for (String pair : queryString.split("&")) {
             int eqIndex = pair.indexOf('=');
-            if (eqIndex <= 0) {
-                continue;
-            }
-            String key = pair.substring(0, eqIndex).trim();
+            String key = (eqIndex < 0 ? pair : pair.substring(0, eqIndex)).trim();
             if (isDadpOnlyParam(key)) {
                 throw forbiddenRuntimeParam(key);
             }
@@ -182,6 +179,14 @@ final class DadpJdbcUrlSupport {
     }
 
     private static boolean isDadpOnlyParam(String key) {
+        try {
+            String decoded = java.net.URLDecoder.decode(key, "UTF-8");
+            if (decoded.toLowerCase(java.util.Locale.ROOT).startsWith("dadp.v8.")) {
+                throw new IllegalArgumentException("DADP v8 settings must be supplied as JDBC Properties, not URL parameters");
+            }
+        } catch (java.io.UnsupportedEncodingException impossible) {
+            throw new IllegalStateException(impossible);
+        }
         return REMOVED_DADP_PARAM_KEYS.contains(key);
     }
 

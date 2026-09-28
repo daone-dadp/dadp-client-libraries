@@ -40,27 +40,33 @@ class ExperimentalSqlRewriterTest {
     private static ExperimentalSqlRewriter fixture() throws SQLException {
         return ExperimentalSqlRewriter.forFixture(
                 new ExperimentalSqlRewriter.FixtureScope("app", "users", columns()),
-                new ExperimentalSqlRewriter.FixtureFunctions("fixture_encrypt", "fixture_decrypt"));
+                new ExperimentalSqlRewriter.FixtureFunctions("dadp.dadp_encrypt", "dadp.dadp_decrypt"));
     }
 
     static Stream<Arguments> golden() {
         return Stream.of(
                 Arguments.of("insert into app.users (id, email, note, phone) values (?, ?, 'why?', ?)",
-                        "INSERT INTO app.users (id, email, note, phone) VALUES (?, fixture_encrypt(?, 'pii'), 'why?', fixture_encrypt(?, 'contact'))"),
+                        "INSERT INTO app.users (id, email, note, phone) VALUES (?, dadp.dadp_encrypt(?, 'pii'), 'why?', dadp.dadp_encrypt(?, 'contact'))"),
                 Arguments.of("INSERT INTO app.users (email, phone, id) VALUES (NULL, ?, 7)",
-                        "INSERT INTO app.users (email, phone, id) VALUES (NULL, fixture_encrypt(?, 'contact'), 7)"),
+                        "INSERT INTO app.users (email, phone, id) VALUES (NULL, dadp.dadp_encrypt(?, 'contact'), 7)"),
                 Arguments.of("INSERT INTO app.users (email) VALUES ('a''b,?')",
-                        "INSERT INTO app.users (email) VALUES (fixture_encrypt('a''b,?', 'pii'))"),
+                        "INSERT INTO app.users (email) VALUES (dadp.dadp_encrypt('a''b,?', 'pii'))"),
                 Arguments.of("UPDATE app.users SET phone = ?, id = ?, email = NULL, note = '?,email'",
-                        "UPDATE app.users SET phone = fixture_encrypt(?, 'contact'), id = ?, email = NULL, note = '?,email'"),
+                        "UPDATE app.users SET phone = dadp.dadp_encrypt(?, 'contact'), id = ?, email = NULL, note = '?,email'"),
                 Arguments.of("UPDATE app.users SET email = 'x', phone = ?",
-                        "UPDATE app.users SET email = fixture_encrypt('x', 'pii'), phone = fixture_encrypt(?, 'contact')"),
+                        "UPDATE app.users SET email = dadp.dadp_encrypt('x', 'pii'), phone = dadp.dadp_encrypt(?, 'contact')"),
                 Arguments.of("SELECT id, email, phone AS mobile FROM app.users",
-                        "SELECT id, fixture_decrypt(email, 'pii') AS email, fixture_decrypt(phone, 'contact') AS mobile FROM app.users"),
+                        "SELECT id, dadp.dadp_decrypt(email) AS email, dadp.dadp_decrypt(phone) AS mobile FROM app.users"),
                 Arguments.of("SELECT u.email addr, u.id, u.phone AS mobile FROM app.users u",
-                        "SELECT fixture_decrypt(u.email, 'pii') addr, u.id, fixture_decrypt(u.phone, 'contact') AS mobile FROM app.users u"),
+                        "SELECT dadp.dadp_decrypt(u.email) addr, u.id, dadp.dadp_decrypt(u.phone) AS mobile FROM app.users u"),
                 Arguments.of("SELECT app.users.email FROM app.users",
-                        "SELECT fixture_decrypt(app.users.email, 'pii') AS email FROM app.users"),
+                        "SELECT dadp.dadp_decrypt(app.users.email) AS email FROM app.users"),
+                Arguments.of("SELECT dadp.dadp_decrypt(email) FROM app.users",
+                        "SELECT dadp.dadp_decrypt(email) FROM app.users"),
+                Arguments.of("UPDATE app.users SET email = ? WHERE id = ?",
+                        "UPDATE app.users SET email = dadp.dadp_encrypt(?, 'pii') WHERE id = ?"),
+                Arguments.of("SELECT u.email AS addr FROM app.users u WHERE u.id = ?",
+                        "SELECT dadp.dadp_decrypt(u.email) AS addr FROM app.users u WHERE u.id = ?"),
                 Arguments.of("INSERT INTO app.users (id, note) VALUES (?, NULL)",
                         "INSERT INTO app.users (id, note) VALUES (?, NULL)"));
     }
@@ -115,7 +121,7 @@ class ExperimentalSqlRewriterTest {
             "SELECT COUNT(email) FROM app.users", "SELECT email || phone FROM app.users",
             "SELECT DISTINCT email FROM app.users", "SELECT email FROM app.users ORDER BY email",
             "SELECT email FROM app.users GROUP BY email", "SELECT email FROM app.users LIMIT 1",
-            "SELECT email FROM app.users WHERE id = ?", "SELECT email FROM app.users WHERE email = ?",
+            "SELECT email FROM app.users WHERE missing = ?", "SELECT email FROM app.users WHERE email = ?",
             "SELECT email FROM app.users FOR UPDATE", "SELECT email INTO other FROM app.users",
             "SELECT u.email FROM app.users u JOIN app.users v ON u.id = v.id",
             "SELECT email FROM app.users UNION SELECT email FROM app.users",
@@ -140,7 +146,19 @@ class ExperimentalSqlRewriterTest {
             "INSERT INTO app.users (email, email) VALUES (?, ?)",
             "INSERT INTO app.users (email, phone) VALUES (?)",
             "INSERT INTO app.users (missing) VALUES (?)",
-            "UPDATE app.users SET email = ? WHERE id = ?",
+            "UPDATE app.users SET email = ? WHERE email = ?",
+            "UPDATE app.users SET email = ? WHERE id = ? OR id = ?",
+            "UPDATE app.users SET email = ? WHERE id IN (?)",
+            "UPDATE app.users SET email = ? WHERE id = (SELECT id FROM app.users)",
+            "INSERT INTO app.users (email) VALUES (123)",
+            "INSERT INTO app.users (email) VALUES (B'01')",
+            "INSERT INTO app.users (email) VALUES (X'ff')",
+            "INSERT INTO app.users (email) VALUES (dadp.dadp_encrypt(B'01', 'pii'))",
+            "INSERT INTO app.users (email) VALUES (dadp.dadp_encrypt(?, 'wrong'))",
+            "INSERT INTO app.users (email) VALUES (dadp.dadp_encrypt(dadp.dadp_encrypt(?, 'pii'), 'pii'))",
+            "INSERT INTO app.users (note) VALUES (dadp.dadp_encrypt(?, 'pii'))",
+            "SELECT dadp.dadp_decrypt(note) FROM app.users",
+            "SELECT dadp.dadp_decrypt(email, 'pii') FROM app.users",
             "UPDATE app.users SET email = ? RETURNING email",
             "UPDATE app.users SET email = phone", "UPDATE app.users SET email = email || ?",
             "UPDATE app.users SET (email, phone) = (?, ?)",
@@ -164,10 +182,10 @@ class ExperimentalSqlRewriterTest {
             "INSERT INTO app.users (email) VALUES (?)",
             "UPDATE app.users SET email = ?", "SELECT email FROM app.users"
     })
-    void secondPassRejectsInsteadOfDoubleTransforming(String sql) throws Exception {
+    void secondPassPreservesSingleApplication(String sql) throws Exception {
         ExperimentalSqlRewriter rewriter = fixture();
         String rewritten = rewriter.rewrite(sql);
-        assertThrows(SQLFeatureNotSupportedException.class, () -> rewriter.rewrite(rewritten));
+        assertEquals(rewritten, rewriter.rewrite(rewritten));
         assertEquals(rewritten, rewriter.rewrite(sql));
     }
 
@@ -194,11 +212,31 @@ class ExperimentalSqlRewriterTest {
         mapping.put("email", null);
         ExperimentalSqlRewriter rewriter = ExperimentalSqlRewriter.forFixture(scope,
                 new ExperimentalSqlRewriter.FixtureFunctions("trial_enc", "trial_dec"));
-        assertEquals("SELECT trial_dec(email, 'pii') AS email FROM app.users",
+        assertEquals("SELECT trial_dec(email) AS email FROM app.users",
                 rewriter.rewrite("SELECT email FROM app.users"));
         assertThrows(SQLException.class, () -> new ExperimentalSqlRewriter.FixtureFunctions("x);DROP", "d"));
         assertThrows(SQLException.class, () -> new ExperimentalSqlRewriter.FixtureFunctions("same", "same"));
         mapping.put("email", "policy' OR 1=1");
         assertThrows(SQLException.class, () -> new ExperimentalSqlRewriter.FixtureScope("app", "users", mapping));
+    }
+
+    @Test
+    void postgresRequiresSchemaAndExactPolicyContract() throws Exception {
+        Map<String, String> mapping = new HashMap<>();
+        mapping.put("id", null);
+        mapping.put("secret", "TEST0001");
+        ExperimentalSqlRewriter pg = ExperimentalSqlRewriter.forPostgresql(
+                new ExperimentalSqlRewriter.FixtureScope("app", "users", mapping));
+        assertEquals("INSERT INTO app.users (secret) VALUES (dadp.dadp_encrypt(?, 'TEST0001'))",
+                pg.rewrite("INSERT INTO app.users (secret) VALUES (?)"));
+        assertEquals("SELECT dadp.dadp_decrypt(secret) AS secret FROM app.users",
+                pg.rewrite("SELECT secret FROM app.users"));
+        assertThrows(SQLException.class, () -> ExperimentalSqlRewriter.forPostgresql(
+                new ExperimentalSqlRewriter.FixtureScope(null, "users", mapping)));
+        for (String invalid : Arrays.asList("policy_a", "short", "TOOLONG00", "ABCD_001")) {
+            mapping.put("secret", invalid);
+            assertThrows(SQLException.class, () -> ExperimentalSqlRewriter.forPostgresql(
+                    new ExperimentalSqlRewriter.FixtureScope("app", "users", mapping)));
+        }
     }
 }

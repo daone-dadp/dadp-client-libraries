@@ -56,6 +56,10 @@ public class DadpJdbcDriver implements Driver {
         if (!acceptsURL(url)) {
             return null;
         }
+        DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
+        if (V8PostgresqlConnection.requested(info)) {
+            return V8PostgresqlConnection.connect(url, info);
+        }
         
         try {
             // Connection Pool에서 반복적으로 생성되므로 TRACE 레벨로 처리 (로그 정책 참조)

@@ -107,7 +107,7 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Isolated v8 AST experiment; not connected to the JDBC runtime. -->
+        <!-- AST allowlist for the opt-in v8 PostgreSQL evaluation path. -->
         <dependency>
             <groupId>com.github.jsqlparser</groupId>
             <artifactId>jsqlparser</artifactId>

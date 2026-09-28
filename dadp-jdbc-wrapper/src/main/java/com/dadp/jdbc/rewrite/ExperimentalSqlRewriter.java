@@ -21,6 +21,7 @@ import net.sf.jsqlparser.expression.NullValue;
 import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
+import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
@@ -34,8 +35,8 @@ import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.statement.update.UpdateSet;
 
 /**
- * Internal, opt-in G2 experiment, deliberately disconnected from JDBC execution.
- * No SQL function ABI, DB support, policy authorization or key path is approved here.
+ * Bounded PostgreSQL evaluation allowlist. Mapping is an explicit trusted snapshot,
+ * not policy authorization. Unknown columns and additional clauses fail closed.
  */
 public final class ExperimentalSqlRewriter {
     private final FixtureScope scope;
@@ -54,6 +55,15 @@ public final class ExperimentalSqlRewriter {
 
     public static ExperimentalSqlRewriter forFixture(FixtureScope scope, FixtureFunctions functions) {
         return new ExperimentalSqlRewriter(scope, functions);
+    }
+
+    public static ExperimentalSqlRewriter forPostgresql(FixtureScope scope) throws SQLException {
+        require(scope.schema != null);
+        for (String policy : scope.columns.values()) {
+            require(policy == null || policy.matches("[A-Za-z0-9]{8}"));
+        }
+        return new ExperimentalSqlRewriter(scope,
+                new FixtureFunctions("dadp.dadp_encrypt", "dadp.dadp_decrypt"));
     }
 
     public String rewrite(String sql) throws SQLException {
@@ -99,7 +109,6 @@ public final class ExperimentalSqlRewriter {
             String name = column(source.getColumns().get(i), table, false);
             require(seen.add(name));
             Expression value = values.get(i);
-            scalar(value);
             rewritten.add(wrap(value, name, false));
         }
         Insert allowed = new Insert();
@@ -123,13 +132,13 @@ public final class ExperimentalSqlRewriter {
             String name = column(target, table, false);
             require(seen.add(name));
             Expression value = assignment.getValue(0);
-            scalar(value);
             original.add(new UpdateSet(target, value));
             rewritten.add(new UpdateSet(target, wrap(value, name, false)));
         }
         Update allowed = new Update();
         allowed.setTable(table);
         allowed.setUpdateSets(original);
+        allowed.setWhere(predicate(source.getWhere(), table));
         sameShape(source, allowed);
         allowed.setUpdateSets(rewritten);
         return allowed;
@@ -141,15 +150,25 @@ public final class ExperimentalSqlRewriter {
         require(source.getSelectItems() != null && !source.getSelectItems().isEmpty());
         List<SelectItem<?>> rewritten = new ArrayList<>();
         for (SelectItem<?> item : source.getSelectItems()) {
-            require(item.getExpression() instanceof Column);
-            Column target = (Column) item.getExpression();
+            Expression expression = item.getExpression();
+            if (expression instanceof Function) {
+                Function explicit = (Function) expression;
+                require(explicit.getParameters() != null && explicit.getParameters().size() == 1);
+                expression = explicit.getParameters().get(0);
+            }
+            require(expression instanceof Column);
+            Column target = (Column) expression;
             String name = column(target, table, true);
             Expression value = wrap(target, name, true);
+            if (item.getExpression() instanceof Function) {
+                require(value instanceof Function);
+                sameShape(item.getExpression(), value);
+            }
             Alias alias = item.getAlias();
             if (alias != null) {
                 identifier(alias.getName());
                 sameShape(alias, new Alias(alias.getName(), alias.isUseAs()));
-            } else if (value != target) {
+            } else if (value != target && item.getExpression() instanceof Column) {
                 alias = new Alias(name, true);
             }
             rewritten.add(new SelectItem<>(value, alias));
@@ -157,6 +176,7 @@ public final class ExperimentalSqlRewriter {
         PlainSelect allowed = new PlainSelect();
         allowed.setFromItem(table);
         allowed.setSelectItems(source.getSelectItems());
+        allowed.setWhere(predicate(source.getWhere(), table));
         sameShape(source, allowed);
         allowed.setSelectItems(rewritten);
         return allowed;
@@ -189,14 +209,51 @@ public final class ExperimentalSqlRewriter {
         return name;
     }
 
-    private Expression wrap(Expression value, String column, boolean decrypt) {
+    private Expression predicate(Expression expression, Table table) throws SQLException {
+        if (expression == null) {
+            return null;
+        }
+        require(expression instanceof EqualsTo);
+        EqualsTo equality = (EqualsTo) expression;
+        require(equality.getLeftExpression() instanceof Column);
+        String name = column((Column) equality.getLeftExpression(), table, true);
+        require(scope.columns.get(name) == null);
+        scalar(equality.getRightExpression());
+        EqualsTo allowed = new EqualsTo();
+        allowed.setLeftExpression(equality.getLeftExpression());
+        allowed.setRightExpression(equality.getRightExpression());
+        sameShape(expression, allowed);
+        return allowed;
+    }
+
+    private Expression wrap(Expression value, String column, boolean decrypt) throws SQLException {
         String policy = scope.columns.get(column);
+        if (!decrypt) {
+            if (value instanceof Function) {
+                require(policy != null);
+                Function explicit = (Function) value;
+                require(explicit.getParameters() != null && explicit.getParameters().size() == 2);
+                Expression input = explicit.getParameters().get(0);
+                require(input instanceof StringValue || input instanceof NullValue || input instanceof JdbcParameter);
+                scalar(input);
+                sameShape(explicit, function(input, policy, false));
+                return value;
+            }
+            scalar(value);
+            require(policy == null || value instanceof StringValue || value instanceof NullValue
+                    || value instanceof JdbcParameter);
+        }
         if (policy == null || value instanceof NullValue) {
             return value;
         }
+        return function(value, policy, decrypt);
+    }
+
+    private Function function(Expression value, String policy, boolean decrypt) {
         Function function = new Function();
-        function.setName(decrypt ? functions.decrypt : functions.encrypt);
-        function.setParameters(new ExpressionList<>(value, new StringValue(policy)));
+        function.setName(java.util.Arrays.asList((decrypt ? functions.decrypt : functions.encrypt).split("\\.")));
+        function.setParameters(decrypt ? new ExpressionList<>(value)
+                : new ExpressionList<>(value, new StringValue(policy)));
         return function;
     }
 
@@ -205,6 +262,9 @@ public final class ExperimentalSqlRewriter {
                 || value instanceof NullValue || value instanceof JdbcParameter);
         if (value instanceof JdbcParameter) {
             require("?".equals(value.toString()));
+        }
+        if (value instanceof StringValue) {
+            require(((StringValue) value).getPrefix() == null);
         }
     }
 
@@ -242,9 +302,9 @@ public final class ExperimentalSqlRewriter {
             require(columns != null && !columns.isEmpty());
             for (Map.Entry<String, String> entry : columns.entrySet()) {
                 identifier(entry.getKey());
-                // Restrict fixture policy tokens; wire representation awaits G2.
+                // PG runtime imposes its stricter eight-character policy contract.
                 if (entry.getValue() != null) {
-                    identifier(entry.getValue());
+                    require(entry.getValue().matches("[A-Za-z0-9_]{1,64}"));
                 }
             }
             this.schema = schema;
@@ -253,17 +313,26 @@ public final class ExperimentalSqlRewriter {
         }
     }
 
-    /** Injected trial ABI: function(value, policy-token), NULL-strict, no casts or extra binds. */
+    /** Encrypt(value, policy), decrypt(value); identifier parts are validated separately. */
     public static final class FixtureFunctions {
         private final String encrypt;
         private final String decrypt;
 
         public FixtureFunctions(String encrypt, String decrypt) throws SQLException {
-            identifier(encrypt);
-            identifier(decrypt);
+            functionIdentifier(encrypt);
+            functionIdentifier(decrypt);
             require(!encrypt.equals(decrypt));
             this.encrypt = encrypt;
             this.decrypt = decrypt;
+        }
+
+        private static void functionIdentifier(String value) throws SQLException {
+            require(value != null);
+            String[] parts = value.split("\\.", -1);
+            require(parts.length == 1 || parts.length == 2);
+            for (String part : parts) {
+                identifier(part);
+            }
         }
     }
 }
