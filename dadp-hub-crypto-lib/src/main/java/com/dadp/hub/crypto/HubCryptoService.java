@@ -1090,9 +1090,10 @@ public class HubCryptoService {
                     && isNonEmptyBase64(parts[3]) && !parts[4].isEmpty();
         }
         if (envelope.startsWith("kms:")) {
-            String[] parts = envelope.split(":", 5);
-            return parts.length == 5 && "v1".equals(parts[1]) && isCurrentPolicyCode(parts[2])
-                    && isNonEmptyBase64(parts[3]) && isNonEmptyBase64(parts[4]);
+            // FormatKMS uses kms:{policyCode}:{edk}:{payload}, without a version field.
+            String[] parts = envelope.split(":", 4);
+            return parts.length == 4 && isCurrentPolicyCode(parts[1])
+                    && isNonEmptyBase64(parts[2]) && !parts[3].trim().isEmpty();
         }
         if (envelope.startsWith("vlt:")) {
             String[] parts = envelope.split(":", 3);

@@ -18,7 +18,7 @@ class WorkerMutualTlsTest {
     @TempDir static Path dir;
     private HttpsServer server;
     private final AtomicInteger calls = new AtomicInteger();
-    private static final String FRAME = "kms:v1:NXSF2345:ZWRr:cGF5bG9hZA==";
+    private static final String FRAME = "kms:NXSF2345:ZWRr:cGF5bG9hZA==";
     private volatile int status = 200;
     private volatile String response;
     private volatile String request;
