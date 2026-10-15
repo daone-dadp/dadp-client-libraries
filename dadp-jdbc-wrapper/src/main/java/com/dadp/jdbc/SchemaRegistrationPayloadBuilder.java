@@ -100,7 +100,7 @@ public final class SchemaRegistrationPayloadBuilder {
 
         Map<String, Object> capabilities = new LinkedHashMap<>();
         capabilities.put("manualSchemaCollection", true);
-        capabilities.put("localCrypto", true);
+        capabilities.put("localCrypto", false);
         capabilities.put("remoteCrypto", true);
         payload.put("capabilities", capabilities);
 
@@ -131,7 +131,7 @@ public final class SchemaRegistrationPayloadBuilder {
         } else {
             Map<String, Object> defaultCapabilities = new LinkedHashMap<>();
             defaultCapabilities.put("manualSchemaCollection", true);
-            defaultCapabilities.put("localCrypto", true);
+            defaultCapabilities.put("localCrypto", false);
             defaultCapabilities.put("remoteCrypto", true);
             payload.put("capabilities", defaultCapabilities);
         }

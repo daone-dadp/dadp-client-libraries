@@ -13,7 +13,12 @@ class HubCryptoServiceCiphertextDetectionTest {
     void acceptsProviderTransparentHubV1Envelope() {
         String envelope = "hub:v1:NXSF2345:ZWRr:provider-specific-payload";
         assertTrue(service.isEncryptedData(envelope));
-        assertTrue(service.isEncryptedData("kms:NXSF2345:ZWRr:opaque-provider-payload"));
+        assertTrue(service.isEncryptedData("kms:v1:NXSF2345:ZWRr:cGF5bG9hZA=="));
+        String kms = "kms:v1:NXSF2345:ZWRr:cGF5bG9hZA==";
+        assertTrue(service.isEncryptedData("ABC::DADP_ENC:v3:" + kms.length() + ":" + kms));
+        assertFalse(service.isEncryptedData("kms:NXSF2345:ZWRr:opaque-provider-payload"));
+        assertFalse(service.isEncryptedData("kms:v2:NXSF2345:ZWRr:cGF5bG9hZA=="));
+        assertFalse(service.isEncryptedData("kms:v1:NXSF2345:ZWRr:not-base64"));
         assertTrue(service.isEncryptedData("vlt:NXSF2345:opaque-provider-payload"));
 
         int byteLength = envelope.getBytes(StandardCharsets.UTF_8).length;

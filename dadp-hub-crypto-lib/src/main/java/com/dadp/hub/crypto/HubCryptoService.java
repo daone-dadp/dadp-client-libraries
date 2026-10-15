@@ -1,5 +1,7 @@
 package com.dadp.hub.crypto;
 
+import com.dadp.common.sync.http.WorkerTls;
+
 import com.dadp.hub.crypto.dto.*;
 import com.dadp.hub.crypto.exception.HubCryptoException;
 import com.dadp.hub.crypto.exception.HubConnectionException;
@@ -21,13 +23,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
-import javax.net.ssl.*;
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.security.KeyStore;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -65,100 +61,30 @@ public class HubCryptoService {
     private volatile String lastUsedEndpoint = null;
     private volatile long endpointUsageCount = 0;
 
-    private static String getDadpCaCertPath() {
-        return null;
+    private static RestTemplate createRestTemplateWithSSL(String configPath) {
+        final WorkerTls tls = new WorkerTls(configPath);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String method) throws IOException {
+                super.prepareConnection(connection, method);
+                tls.configure(connection);
+            }
+        };
+        factory.setProxy(java.net.Proxy.NO_PROXY);
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(5000);
+        return new RestTemplate(factory);
     }
-    
-    /**
-     * PEM 형식 인증서를 X.509 인증서로 변환 (Java 표준 라이브러리만 사용)
-     */
-    private static X509Certificate pemToCertificate(String pem) throws Exception {
-        // PEM 형식에서 BEGIN/END CERTIFICATE 사이의 Base64 디코딩
-        String certContent = pem.replace("-----BEGIN CERTIFICATE-----", "")
-                                .replace("-----END CERTIFICATE-----", "")
-                                .replaceAll("\\s", "");
-        
-        byte[] certBytes = Base64.getDecoder().decode(certContent);
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        return (X509Certificate) certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
-    }
-    
-    /**
-     * DADP CA 인증서만 신뢰하는 SSLContext 생성.
-     * Wrapper 6.0 does not accept CA certificate path through env or system property.
-     */
-    private static SSLContext createDadpCaSSLContext() {
-        String caCertPath = getDadpCaCertPath();
-        if (caCertPath == null) {
-            return null;
-        }
-        
-        try {
-            // PEM 파일 읽기
-            String pem = new String(Files.readAllBytes(Paths.get(caCertPath)));
-            X509Certificate caCert = pemToCertificate(pem);
-            
-            // TrustStore 생성 및 DADP CA 추가
-            KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
-            trustStore.load(null, null);
-            trustStore.setCertificateEntry("dadp-root-ca", caCert);
-            
-            // TrustManagerFactory 생성
-            TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
-                TrustManagerFactory.getDefaultAlgorithm()
-            );
-            trustManagerFactory.init(trustStore);
-            
-            // SSLContext 생성
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustManagerFactory.getTrustManagers(), new java.security.SecureRandom());
-            
-            log.info("DADP CA certificate SSL configuration completed: path={}", caCertPath);
-            return sslContext;
-        } catch (Exception e) {
-            log.warn("Failed to load DADP CA certificate, using default SSL: path={}, error={}", caCertPath, e.getMessage());
-            return null;
-        }
-    }
-    
-    /**
-     * SSL 설정이 적용된 RestTemplate 생성
-     * 기본: Java 기본 TrustStore 사용
-     */
-    private static RestTemplate createRestTemplateWithSSL() {
-        SSLContext sslContext = null;
-        
-        // 1. DADP CA 인증서만 신뢰 (운영 환경 권장)
-        sslContext = createDadpCaSSLContext();
-        
-        final SSLContext finalSslContext = sslContext;
-        
-        if (finalSslContext != null) {
-            // SSL 설정이 적용된 ClientHttpRequestFactory 생성
-            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
-                @Override
-                protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws java.io.IOException {
-                    super.prepareConnection(connection, httpMethod);
-                    if (connection instanceof HttpsURLConnection) {
-                        HttpsURLConnection httpsConnection = (HttpsURLConnection) connection;
-                        httpsConnection.setSSLSocketFactory(finalSslContext.getSocketFactory());
-                        // DADP CA만 신뢰하는 경우 호스트명 검증 유지
-                    }
-                }
-            };
-            
-            return new RestTemplate(factory);
-        }
-        
-        // SSL 설정 실패 시 또는 환경 변수가 없을 때 기본 RestTemplate 반환 (정상적인 SSL 검증)
-        return new RestTemplate();
-    }
-    
+
     /**
      * 생성자
      */
     public HubCryptoService() {
-        this.restTemplate = createRestTemplateWithSSL();
+        this(System.getProperty(WorkerTls.CONFIG_PROPERTY));
+    }
+
+    public HubCryptoService(String workerTlsConfig) {
+        this.restTemplate = createRestTemplateWithSSL(workerTlsConfig);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -167,7 +93,7 @@ public class HubCryptoService {
      * 자동 초기화 메서드 - Spring Bean이 아닌 경우 사용
      */
     public static HubCryptoService createInstance() {
-        return createInstance("http://localhost:9003", 5000, false);
+        return createInstance("https://localhost:9003", 5000, false);
     }
 
     /**
@@ -230,10 +156,15 @@ public class HubCryptoService {
      * @throws IllegalStateException Hub 경로가 감지된 경우
      */
     public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging) {
+        return createInstance(hubUrl, apiBasePath, timeout, enableLogging, System.getProperty(WorkerTls.CONFIG_PROPERTY));
+    }
+
+    public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging, String tlsConfigPath) {
         boolean logging = Boolean.TRUE.equals(enableLogging);
-        HubCryptoService instance = new HubCryptoService();
+        HubCryptoService instance = new HubCryptoService(tlsConfigPath);
         
         // base URL 추출 (경로 제거)
+        WorkerTls.validateEndpoint(hubUrl);
         String baseUrl = extractBaseUrl(hubUrl);
         instance.hubUrl = baseUrl;
         
@@ -243,7 +174,7 @@ public class HubCryptoService {
         }
         
         // Hub 경로 사용 시 예외 발생 (런타임 가드)
-        if (apiBasePath.contains("/hub/api") || apiBasePath.equals(HUB_API_PATH)) {
+        if (!ENGINE_API_PATH.equals(apiBasePath)) {
             String errorMsg = String.format(
                 "Hub direct crypto path is not allowed. Only Engine path (/api) is permitted. " +
                 "Detected path: %s. Crypto via Hub has been removed. Connect directly to Engine.",
@@ -275,7 +206,7 @@ public class HubCryptoService {
         String path = apiBasePath != null ? apiBasePath : "/api";
         
         // Hub 경로 사용 시 예외 발생 (런타임 가드)
-        if (path.contains("/hub/api") || path.equals(HUB_API_PATH)) {
+        if (!ENGINE_API_PATH.equals(path)) {
             String errorMsg = String.format(
                 "Hub direct crypto path is not allowed. Only Engine path (/api) is permitted. " +
                 "Detected path: %s. Crypto via Hub has been removed. Connect directly to Engine.",
@@ -559,91 +490,7 @@ public class HubCryptoService {
      * @return 암호문 또는 평문 (Engine이 결정)
      */
     public String encryptForSearch(String data, String policyName) {
-        initializeIfNeeded();
-        validateNotHubPath();
-
-        if (enableLogging) {
-            log.trace("Engine encrypt-for-search request: policy={}", policyName);
-        }
-
-        try {
-            String url = hubUrl + apiBasePath + "/encrypt";
-            recordEndpointUsage(url);
-
-            EncryptRequest request = new EncryptRequest();
-            request.setData(data);
-            applyPolicyIdentifier(request, policyName);
-
-            String requestBody;
-            try {
-                requestBody = buildEncryptRequestBody(data, policyName);
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
-            }
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
-            ResponseEntity<String> response;
-            try {
-                response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            } catch (HttpClientErrorException | HttpServerErrorException e) {
-                throw new HubConnectionException("Engine connection failed: " + getExceptionStatusCode(e) + " " + e.getResponseBodyAsString(), e);
-            } catch (Exception e) {
-                throw new HubConnectionException("Engine connection failed: " + e.getMessage(), e);
-            }
-
-            if (is2xxSuccessful(response)) {
-                JsonNode rootNode;
-                try {
-                    rootNode = objectMapper.readTree(response.getBody());
-                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                    throw new HubCryptoException("Engine response parsing failed: " + e.getMessage());
-                }
-
-                // v2: code 기반 (primary), v1: success boolean fallback
-                JsonNode codeNode = rootNode.get("code");
-                boolean responseSuccess;
-                if (codeNode != null && codeNode.isTextual()) {
-                    responseSuccess = "SUCCESS".equals(codeNode.asText());
-                } else {
-                    JsonNode successNode = rootNode.get("success");
-                    responseSuccess = successNode != null && successNode.asBoolean();
-                }
-                if (!responseSuccess) {
-                    // 실패 시 평문 반환 (검색은 best-effort)
-                    if (enableLogging) {
-                        log.debug("Encrypt-for-search failed, returning plaintext: {}", rootNode.get("message"));
-                    }
-                    return data;
-                }
-
-                JsonNode dataNode = rootNode.get("data");
-                if (dataNode != null && dataNode.isTextual()) {
-                    String result = dataNode.asText();
-                    if (enableLogging) {
-                        log.trace("Encrypt-for-search completed: result={}",
-                                result.length() > 30 ? result.substring(0, 30) + "..." : result);
-                    }
-                    return result;
-                }
-
-                // data 필드가 없으면 평문 반환
-                return data;
-            } else {
-                if (enableLogging) {
-                    log.debug("Encrypt-for-search API failed ({}), returning plaintext", getStatusCodeString(response));
-                }
-                return data;
-            }
-        } catch (Exception e) {
-            // 검색용 암호화 실패 시 평문 반환 (best-effort)
-            if (enableLogging) {
-                log.debug("Encrypt-for-search failed, returning plaintext: {}", e.getMessage());
-            }
-            return data;
-        }
+        return encrypt(data, policyName);
     }
 
     /**
@@ -1027,13 +874,11 @@ public class HubCryptoService {
                             decryptedList.add(decryptedDataNode.asText());
                         } else {
                             // 복호화 실패 시 원본 데이터 유지
-                            JsonNode originalDataNode = resultNode.get("originalData");
-                            decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                            throw new HubCryptoException("Worker batch item failed or omitted result");
                         }
                     } else {
                         // 실패한 항목은 원본 데이터 유지
-                        JsonNode originalDataNode = resultNode.get("originalData");
-                        decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        throw new HubCryptoException("Worker batch item failed or omitted result");
                     }
                 }
                 
@@ -1178,13 +1023,11 @@ public class HubCryptoService {
                             encryptedList.add(encryptedDataNode.asText());
                         } else {
                             // 암호화 실패 시 원본 데이터 유지
-                            JsonNode originalDataNode = resultNode.get("originalData");
-                            encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                            throw new HubCryptoException("Worker batch item failed or omitted result");
                         }
                     } else {
                         // 실패한 항목은 원본 데이터 유지
-                        JsonNode originalDataNode = resultNode.get("originalData");
-                        encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        throw new HubCryptoException("Worker batch item failed or omitted result");
                     }
                 }
                 
@@ -1247,9 +1090,9 @@ public class HubCryptoService {
                     && isNonEmptyBase64(parts[3]) && !parts[4].isEmpty();
         }
         if (envelope.startsWith("kms:")) {
-            String[] parts = envelope.split(":", 4);
-            return parts.length == 4 && isCurrentPolicyCode(parts[1])
-                    && isNonEmptyBase64(parts[2]) && !parts[3].isEmpty();
+            String[] parts = envelope.split(":", 5);
+            return parts.length == 5 && "v1".equals(parts[1]) && isCurrentPolicyCode(parts[2])
+                    && isNonEmptyBase64(parts[3]) && isNonEmptyBase64(parts[4]);
         }
         if (envelope.startsWith("vlt:")) {
             String[] parts = envelope.split(":", 3);

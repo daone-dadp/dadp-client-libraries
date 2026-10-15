@@ -73,7 +73,7 @@ class DadpProxyConnectionRuntimeRefreshTest {
         setField(connection, "directCryptoAdapter", adapter);
 
         connection.getDirectCryptoAdapter();
-        connection.getDirectCryptoAdapter();
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, connection::getDirectCryptoAdapter);
 
         verify(adapter, times(1)).setCryptoMode(
                 eq("remote"),

@@ -1,5 +1,7 @@
 package com.dadp.hub.crypto;
 
+import com.dadp.common.sync.http.WorkerTls;
+
 import com.dadp.common.sync.crypto.CryptoProfileRecorder;
 import com.dadp.hub.crypto.dto.*;
 import com.dadp.hub.crypto.exception.HubCryptoException;
@@ -10,16 +12,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.*;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.security.KeyStore;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -42,17 +38,14 @@ public class HubCryptoService {
     private static final AtomicLong HTTP_REQUEST_SEQUENCE = new AtomicLong(0);
 
     private final ObjectMapper objectMapper;
-    private final SSLContext sslContext;
+    private final WorkerTls workerTls;
     private String hubUrl;
     private String apiBasePath = "/api";
     private int timeout;
     private boolean enableLogging;
     private String singleTransportMode = "json";
-    private String engineTransport = "http";
-    private int engineBinaryPort = 9104;
     private boolean initialized = false;
     private volatile CryptoProfileRecorder profileRecorder;
-    private volatile BinaryTcpEngineClient binaryTcpClient;
 
     @Deprecated
     private static final String HUB_API_PATH = "/hub/api/v1";
@@ -146,59 +139,21 @@ public class HubCryptoService {
         String bodyAsText() { return new String(body, StandardCharsets.UTF_8); }
     }
 
-    // SSL helpers
-
-    private static String getDadpCaCertPath() {
-        return null;
-    }
-
-    private static X509Certificate pemToCertificate(String pem) throws Exception {
-        String certContent = pem.replace("-----BEGIN CERTIFICATE-----", "")
-                                .replace("-----END CERTIFICATE-----", "")
-                                .replaceAll("\\s", "");
-        byte[] certBytes = Base64.getDecoder().decode(certContent);
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        return (X509Certificate) certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
-    }
-
-    private static SSLContext createDadpCaSSLContext() {
-        String caCertPath = getDadpCaCertPath();
-        if (caCertPath == null) {
-            return null;
-        }
-        try {
-            String pem = new String(Files.readAllBytes(Paths.get(caCertPath)));
-            X509Certificate caCert = pemToCertificate(pem);
-
-            KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
-            trustStore.load(null, null);
-            trustStore.setCertificateEntry("dadp-root-ca", caCert);
-
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(trustStore);
-
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, tmf.getTrustManagers(), new java.security.SecureRandom());
-
-            log.info("DADP CA SSL configured: path={}", caCertPath);
-            return ctx;
-        } catch (Exception e) {
-            log.warn("Failed to load DADP CA certificate, using default SSL: path={}, error={}", caCertPath, e.getMessage());
-            return null;
-        }
-    }
-
     // Construction and factory methods
 
     public HubCryptoService() {
-        this.sslContext = createDadpCaSSLContext();
+        this(System.getProperty(WorkerTls.CONFIG_PROPERTY));
+    }
+
+    public HubCryptoService(String workerTlsConfig) {
+        this.workerTls = new WorkerTls(workerTlsConfig);
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     public static HubCryptoService createInstance() {
         boolean enableLogging = isLoggingEnabled();
-        return createInstance("http://localhost:9003", 5000, enableLogging);
+        return createInstance("https://localhost:9003", 5000, enableLogging);
     }
 
     public static HubCryptoService createInstance(String hubUrl, int timeout, Boolean enableLogging) {
@@ -207,9 +162,14 @@ public class HubCryptoService {
     }
 
     public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging) {
-        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
-        HubCryptoService instance = new HubCryptoService();
+        return createInstance(hubUrl, apiBasePath, timeout, enableLogging, System.getProperty(WorkerTls.CONFIG_PROPERTY));
+    }
 
+    public static HubCryptoService createInstance(String hubUrl, String apiBasePath, int timeout, Boolean enableLogging, String tlsConfigPath) {
+        boolean logging = enableLogging != null ? enableLogging : isLoggingEnabled();
+        HubCryptoService instance = new HubCryptoService(tlsConfigPath);
+
+        WorkerTls.validateEndpoint(hubUrl);
         String baseUrl = extractBaseUrl(hubUrl);
         instance.hubUrl = baseUrl;
 
@@ -217,7 +177,7 @@ public class HubCryptoService {
             apiBasePath = ENGINE_API_PATH;
         }
 
-        if (apiBasePath.contains("/hub/api") || apiBasePath.equals(HUB_API_PATH)) {
+        if (!ENGINE_API_PATH.equals(apiBasePath)) {
             String errorMsg = String.format(
                 "Direct Hub crypto path is not allowed. Only Engine path (/api) is permitted. Detected path: %s", apiBasePath);
             log.error(errorMsg);
@@ -260,7 +220,7 @@ public class HubCryptoService {
 
     public void setApiBasePath(String apiBasePath) {
         String path = apiBasePath != null ? apiBasePath : "/api";
-        if (path.contains("/hub/api") || path.equals(HUB_API_PATH)) {
+        if (!ENGINE_API_PATH.equals(path)) {
             throw new IllegalStateException("Direct Hub crypto path is not allowed. Only Engine path (/api) is permitted.");
         }
         this.apiBasePath = path;
@@ -311,59 +271,10 @@ public class HubCryptoService {
         return "binary-framed".equals(singleTransportMode);
     }
 
-    private boolean useBinaryTcpTransport() {
-        return "binary-tcp".equals(engineTransport);
-    }
-
     public void setEngineTransport(String engineTransport) {
-        if (engineTransport == null || engineTransport.trim().isEmpty()) {
-            this.engineTransport = "http";
-            closeBinaryTcpClient();
-            return;
-        }
-
-        String normalized = engineTransport.trim().toLowerCase();
-        if ("netty-binary".equals(normalized)) {
-            normalized = "binary-tcp";
-        }
-        if (!"binary-tcp".equals(normalized) && !"http".equals(normalized)) {
-            log.warn("Unsupported wrapper engine transport: {} (falling back to http)", engineTransport);
-            normalized = "http";
-        }
-        if (!normalized.equals(this.engineTransport)) {
-            closeBinaryTcpClient();
-        }
-        this.engineTransport = normalized;
-    }
-
-    public void setEngineBinaryPort(Integer engineBinaryPort) {
-        if (engineBinaryPort == null || engineBinaryPort <= 0 || engineBinaryPort > 65535) {
-            this.engineBinaryPort = 9104;
-        } else {
-            this.engineBinaryPort = engineBinaryPort;
-        }
-        closeBinaryTcpClient();
-    }
-
-    private BinaryTcpEngineClient binaryTcpClient() {
-        BinaryTcpEngineClient client = binaryTcpClient;
-        if (client == null) {
-            synchronized (this) {
-                client = binaryTcpClient;
-                if (client == null) {
-                    client = new BinaryTcpEngineClient(hubUrl, engineBinaryPort, timeout, enableLogging);
-                    binaryTcpClient = client;
-                }
-            }
-        }
-        return client;
-    }
-
-    private void closeBinaryTcpClient() {
-        BinaryTcpEngineClient client = binaryTcpClient;
-        binaryTcpClient = null;
-        if (client != null) {
-            client.close();
+        if (engineTransport != null && !engineTransport.trim().isEmpty()
+                && !"http".equalsIgnoreCase(engineTransport) && !"https".equalsIgnoreCase(engineTransport)) {
+            throw new IllegalArgumentException("Worker supports HTTPS mTLS only");
         }
     }
 
@@ -438,14 +349,11 @@ public class HubCryptoService {
                 connectionOpenStartedNs = System.nanoTime();
             }
             URL urlObj = new URL(url);
-            conn = (HttpURLConnection) urlObj.openConnection();
+            conn = workerTls.open(urlObj);
             if (captureTimings) {
                 connectionOpenFinishedNs = System.nanoTime();
             }
 
-            if (conn instanceof HttpsURLConnection && sslContext != null) {
-                ((HttpsURLConnection) conn).setSSLSocketFactory(sslContext.getSocketFactory());
-            }
 
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", contentType);
@@ -642,59 +550,7 @@ public class HubCryptoService {
             long requestBuildFinishedNs;
             long responseParseFinishedNs;
 
-            if (useBinaryTcpTransport()) {
-                byte[] requestBody = SingleBinaryFramedCodec.writeEncryptRequest(request);
-                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                long tcpRequestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
-                try {
-                    BinaryTcpEngineClient.Response response = binaryTcpClient().send("encrypt", "/api/encrypt", requestBody);
-                    requestBytes = response.requestBytes;
-                    responseBytes = response.responseBytes;
-                    responseId = tcpRequestId;
-                    responseStatus = 200;
-                    responseEndpoint = response.endpoint;
-                    wrapperTransportMode = "binary-tcp";
-                    connectionOpenMs = response.connectionOpenMs;
-                    outputStreamOpenMs = 0.0;
-                    bodyWriteMs = response.writeMs;
-                    bodyFlushCloseMs = 0.0;
-                    responseWriteMs = response.writeMs;
-                    responseCodeMs = 0.0;
-                    responseReadMs = response.readMs;
-                    if (captureProfile) {
-                        responseParseStartedNs = System.nanoTime();
-                    }
-                    parsed = parseEncryptResponse(SingleBinaryFramedCodec.readEncryptResponse(response.body, objectMapper), captureProfile);
-                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                } catch (RuntimeException tcpFailure) {
-                    log.warn("Wrapper binary TCP encrypt failed, falling back to HTTP binary frame: {}", tcpFailure.getMessage());
-                    BinaryHttpResponse response = doPostBinary("encrypt", url, requestBody,
-                            SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE,
-                            "binary-tcp-fallback-http");
-                    requestBytes = response.requestBytes;
-                    responseBytes = response.responseBytes;
-                    responseId = response.requestId;
-                    responseStatus = response.statusCode;
-                    responseEndpoint = response.endpoint;
-                    wrapperTransportMode = response.wrapperTransportMode;
-                    connectionOpenMs = response.connectionOpenMs;
-                    outputStreamOpenMs = response.outputStreamOpenMs;
-                    bodyWriteMs = response.bodyWriteMs;
-                    bodyFlushCloseMs = response.bodyFlushCloseMs;
-                    responseWriteMs = response.writeMs;
-                    responseCodeMs = response.responseCodeMs;
-                    responseReadMs = response.readMs;
-                    if (response.is2xx()) {
-                        if (captureProfile) {
-                            responseParseStartedNs = System.nanoTime();
-                        }
-                        parsed = parseEncryptResponse(SingleBinaryFramedCodec.readEncryptResponse(response.body, objectMapper), captureProfile);
-                        responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                    } else {
-                        throw new HubCryptoException("Engine API call failed: " + response.statusCode + " " + response.bodyAsText());
-                    }
-                }
-            } else if (useBinaryFramed) {
+            if (useBinaryFramed) {
                 byte[] requestBody = SingleBinaryFramedCodec.writeEncryptRequest(request);
                 requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
                 BinaryHttpResponse response = doPostBinary("encrypt", url, requestBody,
@@ -770,7 +626,7 @@ public class HubCryptoService {
             if (captureProfile) {
                 recordProfileEvent(recorder, "encrypt", null, null, null, false, policy, null,
                         null, null, null, null, null, null, null, null, null, null, null, e.getMessage(),
-                        useBinaryTcpTransport() ? "binary-tcp" : (useBinaryFramed ? "binary-framed" : "json"),
+                        useBinaryFramed ? "binary-framed" : "json",
                         null, null, null, null);
             }
             if (enableLogging) log.debug("Engine encryption failed: {}", e.getMessage());
@@ -782,62 +638,7 @@ public class HubCryptoService {
     // Encrypt for search
 
     public String encryptForSearch(String data, String policyName) {
-        initializeIfNeeded();
-        validateNotHubPath();
-        CryptoProfileRecorder recorder = this.profileRecorder;
-        boolean captureProfile = recorder != null;
-
-        if (enableLogging && log.isDebugEnabled()) log.debug("Wrapper encrypt-for-search request: policy={}", policyName);
-
-        try {
-            String url = hubUrl + apiBasePath + "/encrypt";
-            recordEndpointUsage(url);
-
-            EncryptRequest request = new EncryptRequest();
-            request.setData(data);
-            applyPolicyIdentifier(request, policyName);
-
-            String requestBody;
-            long requestBuildStartedNs = captureProfile ? System.nanoTime() : 0L;
-            try {
-                requestBody = buildEncryptRequestBody(data, policyName);
-            } catch (Exception e) {
-                throw new HubCryptoException("Request data serialization failed: " + e.getMessage());
-            }
-            long requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
-
-            HttpResponse response = doPost("encryptForSearch", url, requestBody);
-
-            if (response.is2xx()) {
-                long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
-                ParsedEncryptResult parsed = parseEncryptResponse(response.body, captureProfile);
-                long responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                // Prefer the v2 "code" contract, then fall back to the legacy success flag.
-                if (captureProfile) {
-                    recordProfileEvent(recorder, "encryptForSearch", response.endpoint, response.requestId, response.statusCode,
-                            true, policyName, null, response.requestBytes, response.responseBytes,
-                            elapsedMs(requestBuildStartedNs, requestBuildFinishedNs), response.writeMs,
-                            response.responseCodeMs, response.readMs,
-                            elapsedMs(responseParseStartedNs, responseParseFinishedNs),
-                            elapsedMs(requestBuildStartedNs, responseParseFinishedNs),
-                            parsed.processingTime, parsed.engineTraceId, parsed.engineStats, null,
-                            response.wrapperTransportMode, response.connectionOpenMs, response.outputStreamOpenMs,
-                            response.bodyWriteMs, response.bodyFlushCloseMs);
-                }
-                return parsed.encryptedData != null ? parsed.encryptedData : data;
-            } else {
-                if (enableLogging) log.warn("Encrypt-for-search API failed ({}), returning plaintext", response.statusCode);
-                return data;
-            }
-        } catch (Exception e) {
-            if (captureProfile) {
-                recordProfileEvent(recorder, "encryptForSearch", null, null, null, false, policyName, null,
-                        null, null, null, null, null, null, null, null, null, null, null, e.getMessage(),
-                        "json", null, null, null, null);
-            }
-            if (enableLogging) log.warn("Encrypt-for-search failed, returning plaintext: {}", e.getMessage());
-            return data;
-        }
+        return encrypt(data, policyName);
     }
 
     // Decrypt
@@ -892,64 +693,7 @@ public class HubCryptoService {
             long responseParseStartedNs = captureProfile ? System.nanoTime() : 0L;
             long responseParseFinishedNs;
 
-            if (useBinaryTcpTransport()) {
-                byte[] requestBody = SingleBinaryFramedCodec.writeDecryptRequest(request);
-                requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                long tcpRequestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
-                try {
-                    BinaryTcpEngineClient.Response response = binaryTcpClient().send("decrypt", "/api/decrypt", requestBody);
-                    requestBytes = response.requestBytes;
-                    responseBytes = response.responseBytes;
-                    responseId = tcpRequestId;
-                    responseStatus = 200;
-                    responseEndpoint = response.endpoint;
-                    wrapperTransportMode = "binary-tcp";
-                    connectionOpenMs = response.connectionOpenMs;
-                    outputStreamOpenMs = 0.0;
-                    bodyWriteMs = response.writeMs;
-                    bodyFlushCloseMs = 0.0;
-                    responseWriteMs = response.writeMs;
-                    responseCodeMs = 0.0;
-                    responseReadMs = response.readMs;
-                    if (captureProfile) {
-                        responseParseStartedNs = System.nanoTime();
-                    }
-                    parsed = parseDecryptResponse(SingleBinaryFramedCodec.readDecryptResponse(response.body, objectMapper), encryptedData, captureProfile);
-                    responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                } catch (RuntimeException tcpFailure) {
-                    log.warn("Wrapper binary TCP decrypt failed, falling back to HTTP binary frame: {}", tcpFailure.getMessage());
-                    BinaryHttpResponse response = doPostBinary("decrypt", url, requestBody,
-                            SingleBinaryFramedCodec.CONTENT_TYPE, SingleBinaryFramedCodec.CONTENT_TYPE,
-                            "binary-tcp-fallback-http");
-                    requestBytes = response.requestBytes;
-                    responseBytes = response.responseBytes;
-                    responseId = response.requestId;
-                    responseStatus = response.statusCode;
-                    responseEndpoint = response.endpoint;
-                    wrapperTransportMode = response.wrapperTransportMode;
-                    connectionOpenMs = response.connectionOpenMs;
-                    outputStreamOpenMs = response.outputStreamOpenMs;
-                    bodyWriteMs = response.bodyWriteMs;
-                    bodyFlushCloseMs = response.bodyFlushCloseMs;
-                    responseWriteMs = response.writeMs;
-                    responseCodeMs = response.responseCodeMs;
-                    responseReadMs = response.readMs;
-                    if (response.is2xx()) {
-                        if (captureProfile) {
-                            responseParseStartedNs = System.nanoTime();
-                        }
-                        parsed = parseDecryptResponse(SingleBinaryFramedCodec.readDecryptResponse(response.body, objectMapper), encryptedData, captureProfile);
-                        responseParseFinishedNs = captureProfile ? System.nanoTime() : 0L;
-                    } else {
-                        String errorBody = response.bodyAsText();
-                        if (errorBody.contains("Data is not encrypted")) {
-                            if (enableLogging) log.warn("Data is not encrypted (pre-policy data)");
-                            return null;
-                        }
-                        throw new HubConnectionException("Engine API call failed: " + response.statusCode + " " + errorBody);
-                    }
-                }
-            } else if (useBinaryFramed) {
+            if (useBinaryFramed) {
                 byte[] requestBody = SingleBinaryFramedCodec.writeDecryptRequest(request);
                 requestBuildFinishedNs = captureProfile ? System.nanoTime() : 0L;
                 BinaryHttpResponse response = doPostBinary("decrypt", url, requestBody,
@@ -1034,7 +778,7 @@ public class HubCryptoService {
             if (captureProfile) {
                 recordProfileEvent(recorder, "decrypt", null, null, null, false, policyName, maskPolicyName,
                         null, null, null, null, null, null, null, null, null, null, null, e.getMessage(),
-                        useBinaryTcpTransport() ? "binary-tcp" : (useBinaryFramed ? "binary-framed" : "json"),
+                        useBinaryFramed ? "binary-framed" : "json",
                         null, null, null, null);
             }
             String errorMessage = e.getMessage() != null ? e.getMessage() : "";
@@ -1263,12 +1007,10 @@ public class HubCryptoService {
                         if (decryptedDataNode != null && !decryptedDataNode.isNull()) {
                             decryptedList.add(decryptedDataNode.asText());
                         } else {
-                            JsonNode originalDataNode = resultNode.get("originalData");
-                            decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                            throw new HubCryptoException("Worker batch item failed or omitted result");
                         }
                     } else {
-                        JsonNode originalDataNode = resultNode.get("originalData");
-                        decryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        throw new HubCryptoException("Worker batch item failed or omitted result");
                     }
                 }
 
@@ -1367,12 +1109,10 @@ public class HubCryptoService {
                         if (encryptedDataNode != null && !encryptedDataNode.isNull()) {
                             encryptedList.add(encryptedDataNode.asText());
                         } else {
-                            JsonNode originalDataNode = resultNode.get("originalData");
-                            encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                            throw new HubCryptoException("Worker batch item failed or omitted result");
                         }
                     } else {
-                        JsonNode originalDataNode = resultNode.get("originalData");
-                        encryptedList.add(originalDataNode != null ? originalDataNode.asText() : null);
+                        throw new HubCryptoException("Worker batch item failed or omitted result");
                     }
                 }
 
@@ -1429,9 +1169,9 @@ public class HubCryptoService {
                     && isNonEmptyBase64(parts[3]) && !parts[4].isEmpty();
         }
         if (envelope.startsWith("kms:")) {
-            String[] parts = envelope.split(":", 4);
-            return parts.length == 4 && isCurrentPolicyCode(parts[1])
-                    && isNonEmptyBase64(parts[2]) && !parts[3].isEmpty();
+            String[] parts = envelope.split(":", 5);
+            return parts.length == 5 && "v1".equals(parts[1]) && isCurrentPolicyCode(parts[2])
+                    && isNonEmptyBase64(parts[3]) && isNonEmptyBase64(parts[4]);
         }
         if (envelope.startsWith("vlt:")) {
             String[] parts = envelope.split(":", 3);

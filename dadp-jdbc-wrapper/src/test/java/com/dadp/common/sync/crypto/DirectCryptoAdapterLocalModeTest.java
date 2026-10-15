@@ -12,17 +12,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DirectCryptoAdapterLocalModeTest {
 
     @Test
-    void localModeRequestIsForcedToRemote() {
+    void localModeRequestIsRejected() {
         DirectCryptoAdapter adapter = new DirectCryptoAdapter(false);
 
-        adapter.setCryptoMode(
+        assertThrows(IllegalArgumentException.class, () -> adapter.setCryptoMode(
                 "local",
                 "http://dadp-hub:9004",
                 false,
                 1000,
                 "wtenant_local",
                 true,
-                "1day");
+                "1day"));
 
         assertFalse(adapter.isLocalCryptoMode());
     }
@@ -41,11 +41,19 @@ class DirectCryptoAdapterLocalModeTest {
             endpoint.setCryptoUrl("http://127.0.0.1:" + server.getAddress().getPort());
 
             DirectCryptoAdapter adapter = new DirectCryptoAdapter(false);
-            adapter.setEndpointData(endpoint);
+            assertThrows(IllegalArgumentException.class, () -> adapter.setEndpointData(endpoint));
 
             assertThrows(RuntimeException.class, () -> adapter.encrypt("plaintext", "INISAFE_POLICY"));
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void failOpenCannotBeEnabled() {
+        assertThrows(IllegalArgumentException.class, () -> new DirectCryptoAdapter(true));
+        DirectCryptoAdapter adapter = new DirectCryptoAdapter(false);
+        assertThrows(IllegalArgumentException.class, () -> adapter.setFailOpen(true));
+        assertThrows(RuntimeException.class, () -> adapter.encrypt("plaintext", "NXSF2345"));
     }
 }

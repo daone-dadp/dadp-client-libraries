@@ -161,9 +161,7 @@ public class DadpProxyResultSet implements ResultSet {
                     return decryptUsingParsedPlan(columnIndex, value);
                 }
             } catch (Exception e) {
-                // 복호화 처리 중 오류 발생 시 경고 레벨로 간략하게 출력하고 평문 반환
-                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                log.warn("Error during decryption, returning plaintext: {}", errorMsg);
+                throw new SQLException("Worker decryption failed", e);
             }
         } else if (value != null && sqlParseResult == null) {
             // 폴백: 메타데이터로 테이블/컬럼 조회 후 따옴표·백틱 제거하여 암복호화 대상 여부 확인
@@ -843,14 +841,7 @@ public class DadpProxyResultSet implements ResultSet {
     }
 
     private String decryptOrOriginal(DirectCryptoAdapter adapter, String value, String policyName, String tableName, String columnName) {
-        try {
-            return adapter.decrypt(value, policyName);
-        } catch (RuntimeException e) {
-            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("Decryption failed; leaving original value unchanged: {}.{}, policy={}, error={}",
-                    tableName, columnName, policyName, errorMsg);
-            return value;
-        }
+        return adapter.decrypt(value, policyName);
     }
     
     @Override
@@ -1470,8 +1461,7 @@ public class DadpProxyResultSet implements ResultSet {
                     return decryptUsingParsedPlan(columnIndex, value);
                 }
             } catch (Exception e) {
-                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                log.warn("Error during getNString decryption, returning original: {}", errorMsg);
+                throw new SQLException("Worker decryption failed", e);
             }
         } else if (value != null && sqlParseResult == null) {
             try {

@@ -8,7 +8,7 @@ import org.springframework.web.client.RestTemplate;
 /**
  * 암복호화 라이브러리 설정
  * 
- * HubCryptoService는 기본값(http://localhost:9003)을 사용합니다.
+ * HubCryptoService는 기본값(https://localhost:9003)을 사용합니다.
  * 실제 사용 시에는 DirectCryptoAdapter를 통해 EndpointStorage에서 URL을 가져옵니다.
  * 
  * @author DADP Development Team
@@ -28,7 +28,7 @@ public class HubCryptoConfig {
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(HubCryptoConfig.class);
         
         // 기본값 사용 (실제 사용 시 DirectCryptoAdapter가 EndpointStorage에서 URL을 가져옴)
-        String cryptoUrl = "http://localhost:9003";  // 기본값: 엔진
+        String cryptoUrl = "https://localhost:9003";  // 기본값: 엔진
         String apiPath = null;  // API 경로는 HubCryptoService가 자동으로 감지
         
         log.info("HubCryptoService bean created: cryptoUrl={}, apiPath={} (auto-detect, dynamic URL set by DirectCryptoAdapter)", cryptoUrl, apiPath);

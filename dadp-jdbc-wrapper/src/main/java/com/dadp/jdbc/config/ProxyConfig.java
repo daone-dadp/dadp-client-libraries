@@ -97,7 +97,7 @@ public class ProxyConfig {
             emitMissingRequiredHubUrl(this.storageDir);
         }
 
-        this.failOpen = Boolean.TRUE.equals(storedConfig != null ? storedConfig.getFailOpen() : null);
+        this.failOpen = false;
         this.enableLogging = false;
         DadpLoggerFactory.setLoggingEnabled(this.enableLogging);
 

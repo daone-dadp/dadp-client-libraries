@@ -285,7 +285,7 @@ class DadpProxyHotPathCacheTest {
     }
 
     @Test
-    void resultSetDecryptFailureReturnsOriginalValue() throws Exception {
+    void resultSetDecryptFailureDoesNotReturnOriginalValue() throws Exception {
         ResultSet actualResultSet = mock(ResultSet.class);
         ResultSetMetaData metaData = mock(ResultSetMetaData.class);
         DadpProxyConnection proxyConnection = mock(DadpProxyConnection.class);
@@ -318,7 +318,7 @@ class DadpProxyHotPathCacheTest {
                 "SELECT email FROM users",
                 proxyConnection);
 
-        assertEquals("legacy-or-unreadable-value", proxyResultSet.getString(1));
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> proxyResultSet.getString(1));
     }
 
     @Test

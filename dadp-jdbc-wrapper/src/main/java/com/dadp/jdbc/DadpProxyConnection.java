@@ -302,10 +302,7 @@ public class DadpProxyConnection implements Connection {
     }
 
     private boolean isEffectiveFailOpen() {
-        if (orchestrator != null) {
-            return orchestrator.isRuntimeFailOpen();
-        }
-        return config != null && config.isFailOpen();
+        return false;
     }
 
     private boolean isRuntimeDisabled() {

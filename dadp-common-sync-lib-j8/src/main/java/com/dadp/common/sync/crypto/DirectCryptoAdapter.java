@@ -21,7 +21,7 @@ public class DirectCryptoAdapter {
     
     private static final DadpLogger log = DadpLoggerFactory.getLogger(DirectCryptoAdapter.class);
     
-    private volatile boolean failOpen;
+    private final String workerTlsConfig;
     private volatile boolean endpointAvailable = true; // 엔드포인트 연결 가능 여부
     
     // 현재 사용 중인 HubCryptoService (Engine/Gateway 직접 연결)
@@ -35,12 +35,17 @@ public class DirectCryptoAdapter {
     private volatile Integer engineBinaryPort = 9104;
     
     public DirectCryptoAdapter(boolean failOpen) {
-        this.failOpen = failOpen;
+        this(failOpen, System.getProperty(com.dadp.common.sync.http.WorkerTls.CONFIG_PROPERTY));
+    }
+
+    public DirectCryptoAdapter(boolean failOpen, String workerTlsConfig) {
+        if (failOpen) throw new IllegalArgumentException("Engine crypto requires fail-closed operation");
+        this.workerTlsConfig = workerTlsConfig;
         log.trace("Direct crypto adapter created: failOpen={}", failOpen);
     }
 
     public void setFailOpen(boolean failOpen) {
-        this.failOpen = failOpen;
+        if (failOpen) throw new IllegalArgumentException("Engine crypto requires fail-closed operation");
         log.info("Direct crypto adapter failOpen updated: {}", failOpen);
     }
     
@@ -51,16 +56,17 @@ public class DirectCryptoAdapter {
      */
     public void setEndpointData(EndpointStorage.EndpointData endpointData) {
         if (endpointData == null) {
-            log.warn("Endpoint data is null");
-            return;
+            currentCryptoService = null;
+            currentCryptoUrl = null;
+            endpointAvailable = false;
+            throw new IllegalArgumentException("Worker endpoint is required");
         }
         
         try {
             // cryptoUrl만 사용
             String cryptoUrl = endpointData.getCryptoUrl();
             if (cryptoUrl == null || cryptoUrl.trim().isEmpty()) {
-                log.warn("cryptoUrl is missing");
-                return;
+                throw new IllegalArgumentException("Worker endpoint is required");
             }
             
             // 이미 같은 cryptoUrl로 초기화되어 있으면 다시 초기화하지 않음
@@ -77,7 +83,7 @@ public class DirectCryptoAdapter {
             Boolean enableLogging = DadpLoggerFactory.isLoggingEnabled();
             
             // cryptoUrl로 암복호화 서비스 초기화
-            this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging);
+            this.currentCryptoService = HubCryptoService.createInstance(trimmedCryptoUrl, apiBasePath, 5000, enableLogging, workerTlsConfig);
             applySingleTransportMode(this.currentCryptoService);
             applyEngineTransport(this.currentCryptoService);
             applyProfileRecorder(this.currentCryptoService);
@@ -89,6 +95,9 @@ public class DirectCryptoAdapter {
         } catch (Exception e) {
             log.warn("Crypto service initialization failed: {}", e.getMessage(), e);
             endpointAvailable = false;
+            currentCryptoService = null;
+            currentCryptoUrl = null;
+            throw new IllegalArgumentException("Invalid Worker endpoint configuration", e);
         }
     }
     
@@ -114,6 +123,10 @@ public class DirectCryptoAdapter {
     }
 
     public void setEngineTransport(String engineTransport) {
+        if (engineTransport != null && !engineTransport.trim().isEmpty()
+                && !"http".equalsIgnoreCase(engineTransport) && !"https".equalsIgnoreCase(engineTransport)) {
+            throw new IllegalArgumentException("Worker supports HTTPS mTLS only");
+        }
         if (engineTransport == null || engineTransport.trim().isEmpty()) {
             this.engineTransport = "http";
         } else {
@@ -136,7 +149,7 @@ public class DirectCryptoAdapter {
                               Integer timeoutMillis, String hubTenantId,
                               boolean cryptoStatsEnabled, String cryptoStatsAggregationLevel) {
         if (cryptoMode != null && !cryptoMode.trim().isEmpty() && !"remote".equalsIgnoreCase(cryptoMode.trim())) {
-            log.warn("Wrapper crypto mode {} is not supported; using remote", cryptoMode);
+            throw new IllegalArgumentException("Wrapper local crypto is not supported");
         }
         log.trace("Wrapper crypto mode set to remote");
     }
@@ -212,7 +225,7 @@ public class DirectCryptoAdapter {
      * 
      * @param data 평문 데이터
      * @param policyName 정책명
-     * @return 암호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     * @return 암호화된 데이터 (실패 시 예외)
      */
     public String encrypt(String data, String policyName) {
         if (data == null) {
@@ -221,11 +234,7 @@ public class DirectCryptoAdapter {
 
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
-            if (failOpen) {
-                return data;
-            } else {
-                throw new RuntimeException("Crypto service not initialized");
-            }
+            throw new RuntimeException("Crypto service not initialized");
         }
 
         try {
@@ -241,12 +250,7 @@ public class DirectCryptoAdapter {
             
             endpointAvailable = false;
             
-            if (failOpen) {
-                log.debug("Fail-open mode: storing as plaintext");
-                return data;
-            } else {
-                throw new RuntimeException("Encryption failed (Fail-closed mode)", e);
-            }
+            throw new RuntimeException("Encryption failed (Fail-closed mode)", e);
         }
     }
     
@@ -256,36 +260,17 @@ public class DirectCryptoAdapter {
      *
      * @param data 검색할 데이터 (평문)
      * @param policyName 정책명
-     * @return 암호문 또는 평문 (Engine이 결정). 실패 시 평문 반환.
+     * @return Engine 응답. 실패 시 예외.
      */
     public String encryptForSearch(String data, String policyName) {
-        if (data == null) {
-            return null;
-        }
-
-        if (currentCryptoService == null) {
-            log.warn("Crypto service not initialized (encryptForSearch)");
-            return data;
-        }
-
-        try {
-            log.trace("Search encryption request: policy={}, dataLength={}", policyName, data.length());
-            String result = currentCryptoService.encryptForSearch(data, policyName);
-            log.trace("Search encryption completed");
-            endpointAvailable = true;
-            return result;
-        } catch (Exception e) {
-            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("Search encryption failed (policy: {}): {}, returning plaintext", policyName, errorMsg);
-            return data;
-        }
+        return encrypt(data, policyName);
     }
 
     /**
      * 복호화
      *
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
-     * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     * @return 복호화된 데이터 (실패 시 예외)
      */
     public String decrypt(String encryptedData) {
         return decrypt(encryptedData, null, null, null, false);
@@ -296,7 +281,7 @@ public class DirectCryptoAdapter {
      *
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
      * @param policyName 암호화 정책명 (선택사항, FPE 복호화 시 필수)
-     * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     * @return 복호화된 데이터 (실패 시 예외)
      */
     public String decrypt(String encryptedData, String policyName) {
         return decrypt(encryptedData, policyName, null, null, false);
@@ -308,7 +293,7 @@ public class DirectCryptoAdapter {
      * @param encryptedData 암호화된 데이터 (또는 일반 텍스트)
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
-     * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     * @return 복호화된 데이터 (실패 시 예외)
      */
     public String decrypt(String encryptedData, String maskPolicyName, String maskPolicyUid) {
         return decrypt(encryptedData, null, maskPolicyName, maskPolicyUid, false);
@@ -322,7 +307,7 @@ public class DirectCryptoAdapter {
      * @param maskPolicyName 마스킹 정책명 (선택사항)
      * @param maskPolicyUid 마스킹 정책 UID (선택사항)
      * @param includeStats 통계 정보 포함 여부
-     * @return 복호화된 데이터 (실패 시 failOpen 모드에 따라 원본 반환 또는 예외)
+     * @return 복호화된 데이터 (실패 시 예외)
      */
     public String decrypt(String encryptedData, String policyName, String maskPolicyName, String maskPolicyUid, boolean includeStats) {
         if (encryptedData == null) {
@@ -330,8 +315,7 @@ public class DirectCryptoAdapter {
         }
 
         if (currentCryptoService == null) {
-            log.warn("Crypto service not initialized");
-            return encryptedData;
+            throw new IllegalStateException("Crypto service not initialized");
         }
 
         try {
@@ -341,8 +325,7 @@ public class DirectCryptoAdapter {
             String decrypted = currentCryptoService.decrypt(encryptedData, policyName, maskPolicyName, maskPolicyUid, includeStats);
             
             if (decrypted == null) {
-                log.trace("Data is not encrypted - returning original data");
-                return encryptedData;
+                throw new IllegalStateException("Worker omitted decrypted data");
             }
             
             log.trace("Direct decryption completed");
@@ -354,8 +337,7 @@ public class DirectCryptoAdapter {
             
             endpointAvailable = false;
             
-            log.debug("Decryption failure leaves original value unchanged");
-            return encryptedData;
+            throw new IllegalStateException("Worker decryption failed", e);
         }
     }
     
@@ -378,11 +360,7 @@ public class DirectCryptoAdapter {
 
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
-            if (failOpen) {
-                return encryptedDataList; // 원본 반환
-            } else {
-                throw new RuntimeException("Crypto service not initialized");
-            }
+            throw new RuntimeException("Crypto service not initialized");
         }
 
         try {
@@ -393,11 +371,7 @@ public class DirectCryptoAdapter {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("Batch decryption failed: {}", errorMessage);
             
-            if (failOpen) {
-                return encryptedDataList; // 원본 반환
-            } else {
-                throw new RuntimeException("Batch decryption failed (Fail-closed mode)", e);
-            }
+            throw new RuntimeException("Batch decryption failed (Fail-closed mode)", e);
         }
     }
     
@@ -420,11 +394,7 @@ public class DirectCryptoAdapter {
 
         if (currentCryptoService == null) {
             log.warn("Crypto service not initialized");
-            if (failOpen) {
-                return dataList; // 원본 반환
-            } else {
-                throw new RuntimeException("Crypto service not initialized");
-            }
+            throw new RuntimeException("Crypto service not initialized");
         }
 
         try {
@@ -434,11 +404,7 @@ public class DirectCryptoAdapter {
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("Batch encryption failed: {}", errorMessage);
             
-            if (failOpen) {
-                return dataList; // 원본 반환
-            } else {
-                throw new RuntimeException("Batch encryption failed (Fail-closed mode)", e);
-            }
+            throw new RuntimeException("Batch encryption failed (Fail-closed mode)", e);
         }
     }
     
