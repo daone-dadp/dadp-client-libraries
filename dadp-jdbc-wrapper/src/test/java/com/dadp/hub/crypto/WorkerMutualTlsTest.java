@@ -61,6 +61,16 @@ class WorkerMutualTlsTest {
             int n;
             while ((n = exchange.getRequestBody().read(buffer)) != -1) body.write(buffer, 0, n);
             request = new String(body.toByteArray(), StandardCharsets.UTF_8);
+            // Mirrors cryptoOperationRequest's strict decoder in Engine crypto_handlers.go.
+            com.fasterxml.jackson.databind.JsonNode input = new com.fasterxml.jackson.databind.ObjectMapper().readTree(request);
+            boolean batch = exchange.getRequestURI().getPath().endsWith("/batch");
+            if (batch) {
+                assertEquals(1, input.size());
+                assertTrue(input.path("items").isArray());
+                for (com.fasterxml.jackson.databind.JsonNode item : input.path("items")) validateRequest(item, exchange.getRequestURI().getPath());
+            } else {
+                validateRequest(input, exchange.getRequestURI().getPath());
+            }
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.getResponseHeaders().add("Location", "http://127.0.0.1:1/leak");
             byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
@@ -68,7 +78,7 @@ class WorkerMutualTlsTest {
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
-        response = "{\"code\":\"SUCCESS\",\"data\":\"" + FRAME + "\"}";
+        response = "{\"success\":true,\"data\":\"" + FRAME + "\"}";
         server.start();
     }
 
@@ -84,12 +94,12 @@ class WorkerMutualTlsTest {
         assertEquals(FRAME, service.encrypt("secret", "NXSF2345"));
         assertTrue(request.contains("secret"));
         assertTrue(service.isEncryptedData(FRAME));
-        response = "{\"code\":\"SUCCESS\",\"data\":\"secret\"}";
+        response = "{\"success\":true,\"data\":\"secret\"}";
         assertEquals("secret", service.decrypt(FRAME));
         assertTrue(request.contains(FRAME));
-        response = "{\"code\":\"SUCCESS\",\"data\":{\"results\":[{\"success\":true,\"encryptedData\":\"" + FRAME + "\"}]}}";
+        response = "{\"success\":true,\"transportMode\":\"json\",\"results\":[{\"success\":true,\"code\":1000,\"encryptedData\":\"" + FRAME + "\"}],\"totalProcessed\":1,\"totalSuccess\":1,\"totalFailed\":0,\"totalProcessingTime\":0}";
         assertEquals(Collections.singletonList(FRAME), service.batchEncrypt(Collections.singletonList("secret"), Collections.singletonList("NXSF2345")));
-        response = "{\"code\":\"SUCCESS\",\"data\":{\"results\":[{\"success\":true,\"decryptedData\":\"secret\"}]}}";
+        response = "{\"success\":true,\"results\":[{\"success\":true,\"code\":1000,\"decryptedData\":\"secret\"}],\"totalProcessed\":1,\"totalSuccess\":1,\"totalFailed\":0,\"totalProcessingTime\":0}";
         assertEquals(Collections.singletonList("secret"), service.batchDecrypt(Collections.singletonList(FRAME), null, null, false));
         assertEquals(4, calls.get());
     }
@@ -161,9 +171,41 @@ class WorkerMutualTlsTest {
         status = 503;
         assertThrows(RuntimeException.class, () -> service.encryptForSearch("secret", "NXSF2345"));
         status = 200;
-        response = "{\"code\":\"SUCCESS\",\"data\":{\"results\":[{\"success\":false,\"originalData\":\"secret\"}]}}";
+        response = "{\"success\":false,\"results\":[{\"success\":false,\"code\":2000,\"originalData\":\"secret\",\"message\":\"denied\"}],\"totalProcessed\":1,\"totalSuccess\":0,\"totalFailed\":1,\"totalProcessingTime\":0}";
         assertThrows(RuntimeException.class, () -> service.batchEncrypt(Collections.singletonList("secret"), Collections.singletonList("NXSF2345")));
         assertThrows(RuntimeException.class, () -> service.batchDecrypt(Collections.singletonList(FRAME), null, null, false));
+    }
+
+    @Test void acceptsWorkerEmptyPlaintextAndPolicyNameContract() {
+        HubCryptoService service = client("valid", "localhost");
+        assertEquals(FRAME, service.encrypt("", "customer-policy"));
+        assertTrue(request.contains("\"policyName\":\"customer-policy\""));
+        assertFalse(request.contains("policyCode"));
+        response = "{\"success\":true,\"data\":\"\"}";
+        String partial = "ABC::DADP_ENC:v3:" + FRAME.length() + ":" + FRAME;
+        assertTrue(service.isEncryptedData(partial));
+        assertEquals("", service.decrypt(partial));
+    }
+
+    @Test void rejectsTruncatedBatchResults() {
+        response = "{\"success\":true,\"results\":[]}";
+        assertThrows(RuntimeException.class, () -> client("valid", "localhost").batchEncrypt(
+                Collections.singletonList("secret"), Collections.singletonList("NXSF2345")));
+        assertThrows(RuntimeException.class, () -> client("valid", "localhost").batchDecrypt(
+                Collections.singletonList(FRAME), null, null, false));
+    }
+
+    private static void validateRequest(com.fasterxml.jackson.databind.JsonNode input, String path) {
+        assertTrue(input.path("data").isTextual());
+        Set<String> fields = new HashSet<>();
+        input.fieldNames().forEachRemaining(fields::add);
+        if (path.contains("/decrypt")) {
+            assertEquals(Collections.singleton("data"), fields);
+        } else {
+            assertEquals(2, fields.size());
+            assertTrue(fields.contains("data"));
+            assertTrue(fields.contains("policyCode") ^ fields.contains("policyName"));
+        }
     }
 
     private static KeyStore store(String name) throws Exception {

@@ -9,7 +9,7 @@ import java.util.Arrays;
 
 /**
  * 2026-09-09: canonical metadata experiment for native local interoperability.
- * Not an enabled ciphertext format, grant verifier, or legacy Java crypto path.
+ * Test-only: never included in the product artifact.
  * Fields remain untrusted until future native authentication succeeds.
  */
 public final class LocalMetadataDraft {

@@ -1000,11 +1000,14 @@ public class HubCryptoService {
                     }
                 }
 
+                if (!rootNode.path("success").asBoolean() || resultsNode.size() != encryptedDataList.size()) {
+                    throw new HubCryptoException("Batch decryption failed: invalid results array");
+                }
                 java.util.List<String> decryptedList = new java.util.ArrayList<>();
                 for (JsonNode resultNode : resultsNode) {
                     if (resultNode.get("success") != null && resultNode.get("success").asBoolean()) {
                         JsonNode decryptedDataNode = resultNode.get("decryptedData");
-                        if (decryptedDataNode != null && !decryptedDataNode.isNull()) {
+                        if (decryptedDataNode != null && decryptedDataNode.isTextual()) {
                             decryptedList.add(decryptedDataNode.asText());
                         } else {
                             throw new HubCryptoException("Worker batch item failed or omitted result");
@@ -1092,21 +1095,18 @@ public class HubCryptoService {
                     throw new HubCryptoException("Batch encryption failed: " + errorMessage);
                 }
 
-                JsonNode dataNode = rootNode.get("data");
-                if (dataNode == null || dataNode.isNull()) {
-                    throw new HubCryptoException("Batch encryption failed: no data field in response");
-                }
+                JsonNode dataNode = rootNode;
 
                 JsonNode resultsNode = dataNode.get("results");
-                if (resultsNode == null || !resultsNode.isArray()) {
-                    throw new HubCryptoException("Batch encryption failed: no results array in response");
+                if (resultsNode == null || !resultsNode.isArray() || resultsNode.size() != dataList.size()) {
+                    throw new HubCryptoException("Batch encryption failed: invalid results array");
                 }
 
                 java.util.List<String> encryptedList = new java.util.ArrayList<>();
                 for (JsonNode resultNode : resultsNode) {
                     if (resultNode.get("success") != null && resultNode.get("success").asBoolean()) {
                         JsonNode encryptedDataNode = resultNode.get("encryptedData");
-                        if (encryptedDataNode != null && !encryptedDataNode.isNull()) {
+                        if (encryptedDataNode != null && encryptedDataNode.isTextual()) {
                             encryptedList.add(encryptedDataNode.asText());
                         } else {
                             throw new HubCryptoException("Worker batch item failed or omitted result");
