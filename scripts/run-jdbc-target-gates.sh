@@ -7,4 +7,8 @@ here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bash "$here/build-jdbc-process-probe.sh"
 CRYPTO_INCLUDE="$CRYPTO_SOURCE/include" bash "$here/run-jdbc-native-fixture.sh"
 JDBC_DRIVER_JAR="$MYSQL_JDBC_JAR" bash "$here/run-mysql-jdbc-native-fixture.sh"
-printf '%s\n' 'JDBC_TARGET_GATES_PASS pg17=true mysql84=true'
+if [[ "${JDBC_AGENT_MODE:-plugin}" == engine ]]; then
+  printf '%s\n' 'JDBC_ENGINE_TARGET_GATES_PASS pg17=true mysql84=true'
+else
+  printf '%s\n' 'JDBC_TARGET_GATES_PASS pg17=true mysql84=true'
+fi

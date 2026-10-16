@@ -33,4 +33,5 @@ docker run --rm --user mysql --network none --tmpfs /work:rw,exec,mode=1777 \
   -v "$(realpath "$MYSQL_INCLUDE_DIR"):/headers:ro" -v "$(realpath "$JDBC_DRIVER_JAR"):/jdbc.jar:ro" \
   -v "$binary_dir/kms:/kms:ro" -v "$binary_dir/engine:/worker:ro" \
   -e DADP_KMS_BINARY=/kms -e CRYPTO_SOURCE=/crypto -e MYSQL_INCLUDE_DIR=/headers -e JDBC_DRIVER_JAR=/jdbc.jar \
+  -e JDBC_AGENT_MODE="${JDBC_AGENT_MODE:-plugin}" \
   dadp-mysql84-jdbc-test:local bash /source/dadp-client-libraries/scripts/run-mysql-jdbc-native-fixture.sh --inside

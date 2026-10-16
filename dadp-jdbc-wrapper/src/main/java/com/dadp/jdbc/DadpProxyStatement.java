@@ -33,6 +33,7 @@ public class DadpProxyStatement implements Statement {
         long start = System.nanoTime();
         boolean error = false;
         try {
+            requireReadOnlyStatement(sql);
             log.debug("Statement.executeQuery executed: {}", sql);
             ResultSet actualRs = actualStatement.executeQuery(sql);
             lastResultSetSql = sql;
@@ -162,6 +163,7 @@ public class DadpProxyStatement implements Statement {
     
     @Override
     public void addBatch(String sql) throws SQLException {
+        requireReadOnlyStatement(sql);
         actualStatement.addBatch(sql);
     }
     
@@ -295,6 +297,7 @@ public class DadpProxyStatement implements Statement {
         long start = System.nanoTime();
         boolean error = false;
         try {
+            requireReadOnlyStatement(sql);
             T result = action.call();
             if (captureResultSetSql) {
                 boolean hasResultSet = result instanceof Boolean && ((Boolean) result).booleanValue();
@@ -309,6 +312,23 @@ public class DadpProxyStatement implements Statement {
         } finally {
             recordTelemetry(sql, start, error);
         }
+    }
+
+    private void requireReadOnlyStatement(String sql) throws SQLException {
+        com.dadp.common.sync.policy.PolicyResolver policies = proxyConnection.getPolicyResolver();
+        if (policies == null || policies.getAllMappings().isEmpty()) return;
+        // Statement has no protected-bind processing. Writes must use PreparedStatement.
+        try {
+            net.sf.jsqlparser.statement.Statement parsed = net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql);
+            if (parsed instanceof net.sf.jsqlparser.statement.select.PlainSelect) {
+                net.sf.jsqlparser.statement.select.PlainSelect select = (net.sf.jsqlparser.statement.select.PlainSelect) parsed;
+                if ((select.getWithItemsList() == null || select.getWithItemsList().isEmpty())
+                        && (select.getIntoTables() == null || select.getIntoTables().isEmpty())) return;
+            }
+        } catch (Exception ignored) {
+            // Never expose literal SQL or delegate an unclassified statement.
+        }
+        throw new SQLFeatureNotSupportedException("Engine-mode Statement is read-only while policies are active; use PreparedStatement", "0A000");
     }
 
     private void recordTelemetry(String sql, long startNanos, boolean errorFlag) {

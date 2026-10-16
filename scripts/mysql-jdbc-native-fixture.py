@@ -35,11 +35,14 @@ with KMSFixture(work, runtime_id="mysql84", real=True, worker_binary="/worker") 
             time.sleep(0.1)
         else:
             raise RuntimeError("MySQL startup timeout")
-        sql((work / "mysql/sql/install.sql").read_text())
+        engine = os.environ.get("JDBC_AGENT_MODE") == "engine"
+        if not engine:
+            sql((work / "mysql/sql/install.sql").read_text())
         # Isolated loopback-only disposable server; no production credentials or TLS bypass setting escapes this fixture.
         sql("CREATE USER 'jdbc_probe'@'127.0.0.1' IDENTIFIED BY 'fixture-only'; "
-            "GRANT CREATE,DROP,SELECT,INSERT,UPDATE,DELETE ON *.* TO 'jdbc_probe'@'127.0.0.1'; "
-            "GRANT EXECUTE ON dadp.* TO 'jdbc_probe'@'127.0.0.1';")
+            "GRANT CREATE,DROP,SELECT,INSERT,UPDATE,DELETE ON *.* TO 'jdbc_probe'@'127.0.0.1';")
+        if not engine:
+            sql("GRANT EXECUTE ON dadp.* TO 'jdbc_probe'@'127.0.0.1';")
         config = work / "jdbc.properties"
         config.write_text("user=jdbc_probe\npassword=fixture-only\nsslMode=DISABLED\nallowPublicKeyRetrieval=true\n"
                           "characterEncoding=UTF-8\nuseServerPrepStmts=true\ncontinueBatchOnError=false\n"
@@ -47,10 +50,13 @@ with KMSFixture(work, runtime_id="mysql84", real=True, worker_binary="/worker") 
         config.chmod(0o600)
         result = subprocess.run(["bash", "/source/dadp-client-libraries/scripts/run-jdbc-process-probe.sh"],
             env=dict(os.environ, JDBC_URL="jdbc:mysql://127.0.0.1:53306/", JDBC_CONFIG=str(config),
-                     JDBC_DRIVER_JAR="/jdbc.jar", JDBC_POLICY_CODE="ABCD2345", JDBC_PARTIAL_POLICY_CODE="PREFIX01",
+                     WORKER_URL=fixture.worker_url, WORKER_TLS_CONFIG=str(fixture.prepare_java_tls()),
+                     JDBC_DRIVER_JAR="/jdbc.jar", JDBC_POLICY_CODE="ABCD2345",
+                     JDBC_PARTIAL_POLICY_CODE="PREFA234" if os.environ.get("JDBC_AGENT_MODE") == "engine" else "PREFIX01",
                      JDBC_DENIED_POLICY_CODE="DENYA234"), capture_output=True, text=True, timeout=120)
         print(result.stdout, end="", flush=True)
-        if result.returncode or "JDBC_PLUGIN_TARGET mysql84" not in result.stdout or "JDBC_PLUGIN_PROBE_PASS" not in result.stdout:
+        marker = "JDBC_ENGINE_PROBE_PASS" if os.environ.get("JDBC_AGENT_MODE") == "engine" else "JDBC_PLUGIN_PROBE_PASS"
+        if result.returncode or "JDBC_PLUGIN_TARGET mysql84" not in result.stdout or marker not in result.stdout:
             print(result.stderr, file=sys.stderr)
             raise RuntimeError("Actual MySQL JDBC/native KMS probe failed")
         print("PASS: actual MySQL8.4 JDBC Agent/prepared/batch/raw storage/native KMS")

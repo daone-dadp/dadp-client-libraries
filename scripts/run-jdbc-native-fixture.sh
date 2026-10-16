@@ -29,5 +29,6 @@ docker run --rm --user postgres --network none \
   -v "$(realpath "$CRYPTO_LIB"):/native:ro" -v "$(realpath "$PG_JDBC_JAR"):/pgjdbc.jar:ro" \
   -v "$binary_dir/kms:/kms:ro" -v "$binary_dir/engine:/worker:ro" \
   -e DADP_KMS_BINARY=/kms -e CRYPTO_INCLUDE=/include -e CRYPTO_LIB=/native -e PG_JDBC_JAR=/pgjdbc.jar \
+  -e JDBC_AGENT_MODE="${JDBC_AGENT_MODE:-plugin}" \
   --tmpfs /work:rw,exec,mode=1777 --workdir /work "${PG_TEST_IMAGE:-dadp-pg17-kms-test:local}" \
   bash /source/dadp-client-libraries/scripts/run-jdbc-native-fixture.sh --inside

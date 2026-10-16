@@ -6,6 +6,16 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class JdbcProcessProbeTest {
+    @Test void acceptsJdbcBinaryTextButNotArbitraryObjectRepresentations() {
+        assertEquals("\uD55C\uAE00", JdbcProcessProbe.objectText("\uD55C\uAE00".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertNull(JdbcProcessProbe.objectText(null));
+        assertEquals("", JdbcProcessProbe.objectText(""));
+        assertThrows(AssertionError.class, () -> JdbcProcessProbe.objectText(1));
+    }
+    @Test void engineDenialRequiresWorkerRejectionNotGenericRuntimeFailure() {
+        assertThrows(AssertionError.class, () -> JdbcProcessProbe.verifyDenial(new RuntimeException("offline"), false, true));
+        assertThrows(AssertionError.class, () -> JdbcProcessProbe.verifyDenial(new java.io.IOException("TLS"), false, true));
+    }
     @Test void mysqlDenialAndTargetVersionGatesAreStrict() {
         JdbcProcessProbe.requireDenial(new SQLException("", "45000"), true);
         for (String state : new String[]{"HY000", "42000", "08S01", "38000"}) {

@@ -1,6 +1,14 @@
 package com.dadp.jdbc.integration;
 
 import com.dadp.jdbc.DadpJdbcDriver;
+import com.dadp.jdbc.DadpProxyConnection;
+import com.dadp.common.sync.config.StoragePathResolver;
+import com.dadp.common.sync.policy.PolicyMappingStorage;
+import com.dadp.hub.crypto.exception.HubCryptoException;
+import com.dadp.hub.crypto.exception.HubConnectionException;
+import com.dadp.common.sync.config.InstanceConfigStorage;
+import java.util.HashMap;
+import java.util.Map;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -16,11 +24,13 @@ public final class JdbcProcessProbe {
     public static void main(String[] args) {
         try {
             run(args);
-            System.out.println("JDBC_PLUGIN_PROBE_PASS prepared=true batch=true null=true unicode=true partial=true denied=true storage=true");
+            System.out.println((engineMode() ? "JDBC_ENGINE_PROBE_PASS" : "JDBC_PLUGIN_PROBE_PASS")
+                    + " prepared=true batch=true null=true unicode=true partial=true denied=true storage=true repeatedGetters=true");
         } catch (Exception | AssertionError failure) {
             // Driver messages can contain bound data or credentials.
             System.err.println("JDBC_PLUGIN_PROBE_FAIL type=" + failure.getClass().getSimpleName()
                     + (failure instanceof SQLException ? " sqlState=" + ((SQLException) failure).getSQLState() : ""));
+            if (failure instanceof AssertionError) System.err.println(failure.getMessage());
             System.exit(1);
         }
     }
@@ -29,6 +39,7 @@ public final class JdbcProcessProbe {
         check(args.length == 5, "arguments");
         String url = args[0], full = policy(args[2]), partial = policy(args[3]), denied = policy(args[4]);
         boolean mysql = url.startsWith("jdbc:mysql:");
+        boolean engine = engineMode();
         check(mysql || url.startsWith("jdbc:postgresql:"), "native PG or MySQL URL required");
         check(!full.equals(partial) && !full.equals(denied) && !partial.equals(denied), "distinct policies required");
         Properties nativeConfig = new Properties();
@@ -46,10 +57,12 @@ public final class JdbcProcessProbe {
             try {
                 execute(raw, "CREATE TABLE " + table + " (id varchar(64) PRIMARY KEY, secret text, partial_value text, denied_value text)"
                         + (mysql ? " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4" : ""));
-                Properties mapped = mapping(nativeConfig, schema, full, partial, denied);
-                if (mysql) mapped.setProperty("dadp.v8.mode", "mysql-evaluation");
+                Properties mapped = engine ? engineMapping(nativeConfig, schema, full, partial, denied)
+                        : mapping(nativeConfig, schema, full, partial, denied);
+                if (mysql && !engine) mapped.setProperty("dadp.v8.mode", "mysql-evaluation");
                 try (Connection agent = new DadpJdbcDriver().connect("jdbc:dadp:" + url.substring(5), mapped)) {
                     check(agent != null, "Agent connection");
+                    check(!engine || agent instanceof DadpProxyConnection, "actual Engine JDBC entry required");
                     String[] samples = {"", "ASCII-value", "\uD55C\uAE00\uD83D\uDE00 caf\u00e9", "quote' backslash\\ newline\n tab\t", null};
                     for (int i = 0; i < samples.length; i++) {
                         insert(agent, table, "s" + i, samples[i]);
@@ -79,16 +92,24 @@ public final class JdbcProcessProbe {
                     check(stored != null && stored.startsWith("\uAC00\uB098::DADP_ENC:v3:")
                             && stored.contains("kms:" + partial + ":") && !stored.contains(partialPlain), "partial storage");
                     System.out.println("JDBC_PLUGIN_PARTIAL_PASS mode=PLAIN_PREFIX count=2");
-                    try {
-                        execute(agent, "INSERT INTO " + table + " (id, denied_value) VALUES ('denied', 'not-authorized')");
+                    try (PreparedStatement ps = agent.prepareStatement("INSERT INTO " + table + " (id, denied_value) VALUES (?, ?)")) {
+                        ps.setString(1, "denied"); ps.setString(2, "not-authorized"); ps.executeUpdate();
                         throw new AssertionError("denied policy accepted");
-                    } catch (SQLException failure) { requireDenial(failure, mysql); }
+                    } catch (SQLException | RuntimeException failure) { verifyDenial(failure, mysql, engine); }
                     check(rowCount(raw, table, "denied") == 0, "denied write persisted");
+                    if (engine) {
+                        try {
+                            execute(agent, "INSERT INTO " + table + " (id, secret) VALUES ('literal', 'must-not-persist')");
+                            throw new AssertionError("literal write bypassed Engine");
+                        } catch (SQLException rejected) { check("0A000".equals(rejected.getSQLState()), "literal write guard"); }
+                        check(rowCount(raw, table, "literal") == 0, "literal plaintext persisted");
+                    }
                     agent.setAutoCommit(false);
                     try (PreparedStatement ps = agent.prepareStatement("INSERT INTO " + table + " (id, denied_value) VALUES (?, ?)")) {
-                        ps.setString(1, "denied_batch"); ps.setString(2, "not-authorized"); ps.addBatch();
-                        try { ps.executeBatch(); throw new AssertionError("denied batch accepted"); }
-                        catch (SQLException failure) { requireDenial(failure, mysql); }
+                        try {
+                            ps.setString(1, "denied_batch"); ps.setString(2, "not-authorized"); ps.addBatch();
+                            ps.executeBatch(); throw new AssertionError("denied batch accepted");
+                        } catch (SQLException | RuntimeException failure) { verifyDenial(failure, mysql, engine); }
                     } finally { agent.rollback(); agent.setAutoCommit(true); }
                     check(rowCount(raw, table, "denied_batch") == 0, "denied batch persisted");
                     insert(agent, table, "after_denial", "still-operational");
@@ -102,6 +123,45 @@ public final class JdbcProcessProbe {
     static String policy(String code) {
         check(code.matches("[A-Za-z0-9]{8}"), "eight character policy code required");
         return code;
+    }
+
+    static boolean engineMode() {
+        String mode = System.getProperty("dadp.probe.mode", "plugin");
+        check(mode.equals("engine") || mode.equals("plugin"), "unsupported probe mode");
+        return mode.equals("engine");
+    }
+
+    private static Properties engineMapping(Properties source, String schema, String full, String partial, String denied) throws Exception {
+        String endpoint = System.getProperty("dadp.probe.workerUrl", "");
+        check(endpoint.startsWith("https://"), "HTTPS Worker required");
+        check(System.getProperty("dadp.worker.tls.config") != null, "Worker mTLS required");
+        java.nio.file.Path storage = Paths.get(StoragePathResolver.resolveStorageDir(schema));
+        Files.createDirectories(storage);
+        InstanceConfigStorage enrollment = new InstanceConfigStorage(storage.toString(), "proxy-config.json");
+        check(enrollment.saveEnrollment("tenant", schema, "1", endpoint, null, null, null), "enrollment persistence");
+        check(enrollment.saveRuntimeOptions("remote", false, false, "1", endpoint, "tenant", endpoint,
+                null, null, null, true), "runtime persistence");
+        Map<String, String> mappings = new HashMap<>();
+        mappings.put(schema + ".records.secret", full);
+        mappings.put(schema + ".records.partial_value", partial);
+        mappings.put(schema + ".records.denied_value", denied);
+        check(new PolicyMappingStorage(storage.toString(), "policy-mappings.json").saveMappings(mappings, 1L), "mapping persistence");
+        Properties result = new Properties(); result.putAll(source);
+        result.setProperty("dadp.wrapper.alias", schema);
+        return result;
+    }
+
+    static void verifyDenial(Exception failure, boolean mysql, boolean engine) {
+        if (!engine) { check(failure instanceof SQLException, "expected SQL rejection"); requireDenial((SQLException) failure, mysql); return; }
+        boolean rejected = false;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            check(!(cause instanceof HubConnectionException || cause instanceof java.io.IOException), "transport failure is not denial");
+            if (cause instanceof HubCryptoException && cause.getMessage() != null) {
+                rejected |= cause.getMessage().startsWith("Engine API call failed: 400 ")
+                        || cause.getMessage().startsWith("Engine API call failed: 403 ");
+            }
+        }
+        check(rejected, "expected Worker policy rejection");
     }
 
     static Properties mapping(Properties source, String schema, String full, String partial, String denied) {
@@ -147,9 +207,20 @@ public final class JdbcProcessProbe {
             try (ResultSet rs = ps.executeQuery()) {
                 check(rs.next(), "missing row"); String result = rs.getString(1);
                 check(rs.wasNull() == (result == null), "NULL semantics");
+                check(Objects.equals(result, rs.getString(column)), "repeated named getter");
+                check(Objects.equals(result, rs.getString(1)), "repeated indexed getter");
+                check(Objects.equals(result, objectText(rs.getObject(1))), "indexed object getter");
+                check(Objects.equals(result, objectText(rs.getObject(column))), "named object getter");
+                check(rs.wasNull() == (result == null), "repeated getter NULL semantics");
                 check(!rs.next(), "duplicate row"); return result;
             }
         }
+    }
+
+    static String objectText(Object value) {
+        if (value instanceof byte[]) return new String((byte[]) value, java.nio.charset.StandardCharsets.UTF_8);
+        check(value == null || value instanceof String, "unexpected JDBC text representation");
+        return (String) value;
     }
 
     private static void roundtrip(Connection agent, Connection raw, String table, String id, String plain, String policy) throws SQLException {

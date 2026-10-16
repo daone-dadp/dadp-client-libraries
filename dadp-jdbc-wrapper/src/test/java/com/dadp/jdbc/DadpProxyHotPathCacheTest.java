@@ -28,6 +28,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class DadpProxyHotPathCacheTest {
+    @Test
+    void protectedEmptyStringIsEncryptedButSqlNullRemainsNull() throws Exception {
+        PreparedStatement raw = mock(PreparedStatement.class);
+        DadpProxyConnection connection = mock(DadpProxyConnection.class);
+        PolicyResolver policies = mock(PolicyResolver.class);
+        DirectCryptoAdapter adapter = mock(DirectCryptoAdapter.class);
+        stubResultSetConnection(connection, policies, adapter);
+        when(policies.resolvePolicy(null, "testdb", "users", "email")).thenReturn("policy-email");
+        when(adapter.encrypt("", "policy-email")).thenReturn("encrypted-empty");
+        DadpProxyPreparedStatement ps = new DadpProxyPreparedStatement(raw,
+                "INSERT INTO users (email) VALUES (?)", connection);
+        ps.setString(1, "");
+        ps.setNull(1, Types.VARCHAR);
+        verify(adapter).encrypt("", "policy-email");
+        verify(raw).setString(1, "encrypted-empty");
+        verify(raw).setNull(1, Types.VARCHAR);
+        verify(raw, never()).setString(1, "");
+    }
 
     @AfterEach
     void clearPreparedStatementCaches() {

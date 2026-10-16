@@ -37,6 +37,9 @@ with KMSFixture(work, real=True, worker_binary="/worker") as fixture:
                "GRANT USAGE ON SCHEMA dadp TO jdbc_probe; "
                "GRANT EXECUTE ON FUNCTION dadp.dadp_encrypt(text,text),dadp.dadp_decrypt(text) TO jdbc_probe; "
                f"ALTER DATABASE postgres SET dadp_v8.config_file='{fixture.config_file}';")
+        if os.environ.get("JDBC_AGENT_MODE") == "engine":
+            # No crypto SQL functions exist: only the real Worker can transform data.
+            sql = "CREATE ROLE jdbc_probe LOGIN NOSUPERUSER; GRANT CREATE ON DATABASE postgres TO jdbc_probe;"
         command(pg + "psql", "-h", "127.0.0.1", "-p", "55486", "-U", "fixture", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", sql)
         config = work / "jdbc.properties"
         config.write_text("user=jdbc_probe\nsslmode=disable\nconnectTimeout=10\nsocketTimeout=30\n", encoding="ascii")
@@ -44,14 +47,16 @@ with KMSFixture(work, real=True, worker_binary="/worker") as fixture:
         result = subprocess.run(["bash", "/source/dadp-client-libraries/scripts/run-jdbc-process-probe.sh"],
                                 env=dict(os.environ, JDBC_URL="jdbc:postgresql://127.0.0.1:55486/postgres",
                                          JDBC_CONFIG=str(config), JDBC_DRIVER_JAR="/pgjdbc.jar",
-                                         JDBC_POLICY_CODE="ABCD2345", JDBC_PARTIAL_POLICY_CODE="PREFIX01",
+                                         WORKER_URL=fixture.worker_url, WORKER_TLS_CONFIG=str(fixture.prepare_java_tls()),
+                                         JDBC_POLICY_CODE="ABCD2345", JDBC_PARTIAL_POLICY_CODE="PREFA234" if os.environ.get("JDBC_AGENT_MODE") == "engine" else "PREFIX01",
                                          JDBC_DENIED_POLICY_CODE="DENYA234"),
                                 capture_output=True, text=True, timeout=120)
         print(result.stdout, end="", flush=True)
-        if result.returncode or "JDBC_PLUGIN_PROBE_PASS" not in result.stdout:
+        marker = "JDBC_ENGINE_PROBE_PASS" if os.environ.get("JDBC_AGENT_MODE") == "engine" else "JDBC_PLUGIN_PROBE_PASS"
+        if result.returncode or marker not in result.stdout:
             print(result.stderr, file=sys.stderr)
             raise RuntimeError("Actual JDBC/native KMS integration failed")
-        print("PASS: actual JDBC Agent -> PG17 C plugin -> native KMS, non-superuser DB role")
+        print("PASS: actual JDBC " + os.environ.get("JDBC_AGENT_MODE", "plugin") + " Agent/PG17/native KMS, non-superuser DB role")
     finally:
         if started:
             subprocess.run([pg + "pg_ctl", "-D", str(data), "-m", "immediate", "-w", "stop"],

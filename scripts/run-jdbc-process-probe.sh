@@ -9,6 +9,7 @@ if [[ "${1:-}" == "--help" ]]; then
     'PG17 UTF8 or MySQL8.4 utf8mb4, native KMS runtime provisioned by caller; dadp.dadp_encrypt/dadp.dadp_decrypt required.' \
     'Caller must grant CREATE SCHEMA and function execution; probe creates/drops a unique schema.' \
     'Optional: JAVA_HOME, WRAPPER_JAR, JDBC_PROBE_JAR. Build: bash scripts/build-jdbc-process-probe.sh' \
+    'JDBC_AGENT_MODE=engine requires WORKER_URL and WORKER_TLS_CONFIG; provisions isolated enrollment beside a temporary copy of the fat jar.' \
     'Success: JDBC_PLUGIN_TARGET pg17/mysql84 then JDBC_PLUGIN_PROBE_PASS and exit 0. No fake SQL/server.'
   exit 0
 fi
@@ -22,6 +23,21 @@ probe="${JDBC_PROBE_JAR:-$root/dadp-jdbc-wrapper/target/dadp-jdbc-wrapper-8.0.0-
 for file in "$JDBC_CONFIG" "$driver" "$wrapper" "$probe"; do
   [[ "$file" == /* && -f "$file" && -r "$file" ]] || { printf 'Missing absolute readable input file\n' >&2; exit 2; }
 done
-exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" -cp "$probe:$wrapper:$driver" \
+mode="${JDBC_AGENT_MODE:-plugin}"
+options=()
+case "$mode" in
+  plugin) ;;
+  engine)
+    : "${WORKER_URL:?required}" "${WORKER_TLS_CONFIG:?required}"
+    [[ "$WORKER_URL" == https://* && "$WORKER_TLS_CONFIG" == /* && -r "$WORKER_TLS_CONFIG" ]] || exit 2
+    private="$(mktemp -d)"
+    trap 'rm -rf -- "$private"' EXIT
+    cp -- "$wrapper" "$private/wrapper.jar"
+    wrapper="$private/wrapper.jar"
+    options=("-Ddadp.probe.mode=engine" "-Ddadp.probe.workerUrl=$WORKER_URL" "-Ddadp.worker.tls.config=$WORKER_TLS_CONFIG")
+    ;;
+  *) exit 2 ;;
+esac
+"${JAVA_HOME:+$JAVA_HOME/bin/}java" "${options[@]}" -cp "$probe:$wrapper:$driver" \
   com.dadp.jdbc.integration.JdbcProcessProbe "$JDBC_URL" "$JDBC_CONFIG" \
   "$JDBC_POLICY_CODE" "$JDBC_PARTIAL_POLICY_CODE" "$JDBC_DENIED_POLICY_CODE"
