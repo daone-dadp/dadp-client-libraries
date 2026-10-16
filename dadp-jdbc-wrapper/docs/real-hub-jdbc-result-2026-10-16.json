@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "source": "actual-Hub-refresh",
+  "database": "PostgreSQL17",
+  "workerTransport": "HTTPS-mTLS",
+  "crypto": "native-KMS",
+  "agentJarSHA256": "962367d4f41ab1851dfb812152a345f42f217f8a03f0801245a05a8b26ab4111",
+  "evidence": [
+    "REAL_HUB_AGENT_SYNC_PASS bindings=1 endpointFromHub=true",
+    "REAL_HUB_ENGINE_JDBC_PASS pg17=true prepared=true batch=true null=true empty=true unicode=true rawCiphertext=true repeatedGetters=true"
+  ]
+}

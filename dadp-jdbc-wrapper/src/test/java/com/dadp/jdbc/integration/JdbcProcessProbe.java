@@ -63,6 +63,7 @@ public final class JdbcProcessProbe {
                 try (Connection agent = new DadpJdbcDriver().connect("jdbc:dadp:" + url.substring(5), mapped)) {
                     check(agent != null, "Agent connection");
                     check(!engine || agent instanceof DadpProxyConnection, "actual Engine JDBC entry required");
+                    if (engine) verifyWriteGuards(agent, raw, table);
                     String[] samples = {"", "ASCII-value", "\uD55C\uAE00\uD83D\uDE00 caf\u00e9", "quote' backslash\\ newline\n tab\t", null};
                     for (int i = 0; i < samples.length; i++) {
                         insert(agent, table, "s" + i, samples[i]);
@@ -123,6 +124,81 @@ public final class JdbcProcessProbe {
     static String policy(String code) {
         check(code.matches("[A-Za-z0-9]{8}"), "eight character policy code required");
         return code;
+    }
+
+    private static void verifyWriteGuards(Connection agent, Connection raw, String table) throws Exception {
+        String select = "SELECT id, secret FROM " + table;
+        try { agent.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE); throw new AssertionError("updatable Statement"); }
+        catch (SQLException e) { check("0A000".equals(e.getSQLState()), "updatable Statement rejection"); }
+        try { agent.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE, ResultSet.CLOSE_CURSORS_AT_COMMIT); throw new AssertionError("updatable Statement holdability"); }
+        catch (SQLException e) { check("0A000".equals(e.getSQLState()), "updatable Statement holdability rejection"); }
+        try { agent.prepareStatement(select, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE); throw new AssertionError("updatable PreparedStatement"); }
+        catch (SQLException e) { check("0A000".equals(e.getSQLState()), "updatable PreparedStatement rejection"); }
+        try { agent.prepareStatement(select, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE, ResultSet.CLOSE_CURSORS_AT_COMMIT); throw new AssertionError("updatable PreparedStatement holdability"); }
+        catch (SQLException e) { check("0A000".equals(e.getSQLState()), "updatable PreparedStatement holdability rejection"); }
+        for (int overload = 0; overload < 3; overload++) {
+            String callSql = "INSERT INTO " + table + " (id, secret) VALUES (?, ?)";
+            try (CallableStatement call = overload == 0 ? agent.prepareCall(callSql)
+                    : overload == 1 ? agent.prepareCall(callSql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
+                    : agent.prepareCall(callSql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)) {
+                call.setString(1, "guard_callable"); call.setString(2, "plain"); call.executeUpdate();
+                throw new AssertionError("raw CallableStatement bypass");
+            } catch (SQLException denied) { check("0A000".equals(denied.getSQLState()), "CallableStatement rejection"); }
+        }
+        check(rowCount(raw, table, "guard_callable") == 0, "CallableStatement write persisted");
+        com.dadp.common.sync.policy.PolicyResolver resolver = ((DadpProxyConnection) agent).getPolicyResolver();
+        Map<String, String> originalMappings = new HashMap<>(resolver.getAllMappings());
+        long version = resolver.getCurrentVersion();
+        resolver.refreshMappings(java.util.Collections.emptyMap(), version + 1);
+        try (PreparedStatement prepared = agent.prepareStatement("INSERT INTO " + table + " (id, secret) VALUES (?, ?)");
+                Statement queued = agent.createStatement()) {
+            prepared.setString(1, "guard_policy_arrival"); prepared.setString(2, "plain-before-sync"); prepared.addBatch();
+            queued.addBatch("INSERT INTO " + table + " (id, secret) VALUES ('guard_queued', 'plain')");
+            resolver.refreshMappings(originalMappings, version + 2);
+            try { prepared.executeUpdate(); throw new AssertionError("policy arrival bypass"); }
+            catch (SQLException denied) { check("HY010".equals(denied.getSQLState()), "policy-change rejection"); }
+            try { prepared.executeBatch(); throw new AssertionError("queued prepared bypass"); }
+            catch (SQLException denied) { check("HY010".equals(denied.getSQLState()), "prepared batch rejection"); }
+            try { queued.executeBatch(); throw new AssertionError("queued Statement bypass"); }
+            catch (SQLException denied) { check("0A000".equals(denied.getSQLState()), "Statement batch rejection"); }
+            try { queued.executeLargeBatch(); throw new AssertionError("queued large Statement bypass"); }
+            catch (SQLException denied) { check("0A000".equals(denied.getSQLState()), "large Statement batch rejection"); }
+        } finally { resolver.refreshMappings(originalMappings, version + 3); }
+        check(rowCount(raw, table, "guard_policy_arrival") == 0 && rowCount(raw, table, "guard_queued") == 0, "policy arrival write persisted");
+        String[] statements = {
+            "INSERT INTO " + table + " (id, secret) VALUES ('guard_literal', 'plain')",
+            "INSERT INTO " + table + " (id, secret) SELECT 'guard_select', 'plain'",
+            "INSERT INTO " + table + " (id, secret) VALUES (?, upper(?))",
+            "/* app */ INSERT INTO " + table + " (id, secret) VALUES (?, ?)",
+            "UPDATE " + table + " SET secret='plain'"
+        };
+        for (String sql : statements) {
+            try (PreparedStatement ignored = agent.prepareStatement(sql)) {
+                throw new AssertionError("unsupported write prepared");
+            } catch (SQLException failure) { check("0A000".equals(failure.getSQLState()), "write guard SQLState"); }
+        }
+        for (int kind = 0; kind < 6; kind++) {
+            try (PreparedStatement ps = agent.prepareStatement("INSERT INTO " + table + " (id, secret) VALUES (?, ?)")) {
+                ps.setString(1, "guard_setter_" + kind);
+                ps.setNull(2, Types.VARCHAR);
+                try {
+                    switch (kind) {
+                        case 0: ps.setInt(2, 12345); break;
+                        case 1: ps.setObject(2, 12345, Types.VARCHAR); break;
+                        case 2: ps.setCharacterStream(2, new java.io.StringReader("plain")); break;
+                        case 3: ps.setBytes(2, new byte[]{1}); break;
+                        case 4: ps.setBinaryStream(2, new java.io.ByteArrayInputStream(new byte[]{1})); break;
+                        default: ps.clearParameters(); ps.executeUpdate();
+                    }
+                    throw new AssertionError("unsupported protected bind accepted");
+                } catch (SQLException failure) { check("0A000".equals(failure.getSQLState()), "bind guard SQLState"); }
+                try { ps.executeUpdate(); throw new AssertionError("stale bind reused"); }
+                catch (SQLException failure) { check("0A000".equals(failure.getSQLState()), "stale bind SQLState"); }
+            }
+            check(rowCount(raw, table, "guard_setter_" + kind) == 0, "guarded write persisted");
+        }
+        check(rowCount(raw, table, "guard_literal") == 0 && rowCount(raw, table, "guard_select") == 0, "literal write persisted");
+        System.out.println("JDBC_ENGINE_WRITE_GUARDS_PASS literal=true expression=true insertSelect=true comment=true numeric=true streams=true clear=true rebind=true callable=true readOnlyResultSet=true noRows=true");
     }
 
     static boolean engineMode() {

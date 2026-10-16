@@ -73,11 +73,28 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     private String lastResultSetSql;
     private volatile CompiledStatementPlan compiledStatementPlan;
     private volatile CompiledStatementPlan pinnedStatementPlan;
+    private final Map<String, String> preparedPolicyMappings;
+    private final Set<Integer> acceptedProtectedBinds = new HashSet<>();
     
     public DadpProxyPreparedStatement(PreparedStatement actualPs, String sql, DadpProxyConnection proxyConnection) {
-        this.actualPreparedStatement = actualPs;
         this.sql = sql;
         this.proxyConnection = proxyConnection;
+        this.preparedPolicyMappings = policyMappings();
+        // Track only successful native binds. A failed rebind must not reuse an old value.
+        this.actualPreparedStatement = (PreparedStatement) java.lang.reflect.Proxy.newProxyInstance(
+                PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class}, (proxy, method, args) -> {
+                    Integer index = method.getName().startsWith("set") && args != null && args.length > 1
+                            && args[0] instanceof Integer ? (Integer) args[0] : null;
+                    Set<Integer> protectedBinds = index == null ? Collections.emptySet() : validatePreparedPolicy();
+                    if (index != null) acceptedProtectedBinds.remove(index);
+                    try {
+                        Object result = method.invoke(actualPs, args);
+                        if (index != null && protectedBinds.contains(index)) acceptedProtectedBinds.add(index);
+                        return result;
+                    } catch (java.lang.reflect.InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
         this.lastResultSetSql = sql;
         
         this.statementStructure = getOrCreateStatementStructure(sql);
@@ -131,8 +148,40 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         }
     }
 
-    private void clearOriginalData(int parameterIndex) {
+    private void clearOriginalData(int parameterIndex) throws SQLException {
+        acceptedProtectedBinds.remove(parameterIndex);
+        if (validatePreparedPolicy().contains(parameterIndex)) {
+            throw EnginePreparedSqlGuard.denied();
+        }
         originalDataMap.remove(parameterIndex);
+    }
+
+    private void clearTextData(int parameterIndex, Object value) throws SQLException {
+        acceptedProtectedBinds.remove(parameterIndex);
+        if (validatePreparedPolicy().contains(parameterIndex)) {
+            if (value != null && !(value instanceof String)) throw EnginePreparedSqlGuard.denied();
+            ParameterEncryptionPlan plan = resolveParameterEncryptionPlan(parameterIndex, "protectedBind", getPinnedStatementPlan());
+            if (value != null && (plan == null || plan.policyName == null || plan.isDirectPassthrough())) {
+                throw EnginePreparedSqlGuard.denied();
+            }
+        }
+        originalDataMap.remove(parameterIndex);
+    }
+
+    private Map<String, String> policyMappings() {
+        PolicyResolver resolver = proxyConnection.getPolicyResolver();
+        return resolver == null ? Collections.emptyMap() : new HashMap<>(resolver.getAllMappings());
+    }
+
+    private Set<Integer> validatePreparedPolicy() throws SQLException {
+        if (!preparedPolicyMappings.equals(policyMappings())) {
+            throw new SQLException("Agent policy mappings changed; prepare and bind a new statement", "HY010");
+        }
+        return EnginePreparedSqlGuard.validate(sql, proxyConnection);
+    }
+
+    private void requireProtectedBinds() throws SQLException {
+        if (!acceptedProtectedBinds.containsAll(validatePreparedPolicy())) throw EnginePreparedSqlGuard.denied();
     }
 
     private static StatementStructureCacheEntry getOrCreateStatementStructure(String sql) {
@@ -373,6 +422,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public ResultSet executeQuery() throws SQLException {
+        requireProtectedBinds();
         long start = System.nanoTime();
         boolean error = false;
         try {
@@ -389,6 +439,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public int executeUpdate() throws SQLException {
+        requireProtectedBinds();
         long start = System.nanoTime();
         boolean error = false;
         try {
@@ -476,7 +527,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setNull(int parameterIndex, int sqlType) throws SQLException {
-        clearOriginalData(parameterIndex);
+        clearTextData(parameterIndex, null);
         actualPreparedStatement.setNull(parameterIndex, sqlType);
     }
     
@@ -684,9 +735,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
             // 원본 데이터 저장 (Data truncation 시 평문으로 재시도하기 위해)
             originalDataMap.put(parameterIndex, value);
             
-            log.trace("{} encryption completed: {}.{} -> {} (policy: {})", methodName, plan.tableName, plan.columnName,
-                     encrypted != null && encrypted.length() > 50 ? encrypted.substring(0, 50) + "..." : encrypted,
-                     plan.policyName);
+            log.trace("{} encryption completed: {}.{} (policy: {})", methodName, plan.tableName, plan.columnName, plan.policyName);
             return new EncryptionResult(encrypted, false);
         } catch (Exception e) {
             // 암호화 실패 시 경고 레벨로 간략하게 출력하고 평문으로 저장
@@ -1177,7 +1226,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setString(int parameterIndex, String x) throws SQLException {
-        clearOriginalData(parameterIndex);
+        clearTextData(parameterIndex, x);
         try {
             if (allPlaintextStatement) {
                 actualPreparedStatement.setString(parameterIndex, x);
@@ -1251,16 +1300,14 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void clearParameters() throws SQLException {
+        acceptedProtectedBinds.clear();
         originalDataMap.clear();
         actualPreparedStatement.clearParameters();
     }
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
-        clearOriginalData(parameterIndex);
-        log.trace("setObject(type) called: parameterIndex={}, valueType={}, targetSqlType={}, value={}", parameterIndex,
-                 x != null ? x.getClass().getSimpleName() : "null", targetSqlType,
-                 x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
+        clearTextData(parameterIndex, x);
         
         // String 타입인 경우에만 암호화 처리 시도
         if (x instanceof String) {
@@ -1278,8 +1325,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(type)", statementPlan);
                 
-                log.trace("setObject(type) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
-                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
                     log.trace("setObject(type) skip: parameterIndex={}, using original value", parameterIndex);
@@ -1290,13 +1335,9 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // VARCHAR 계열 타입이면 setString 사용 (타입 안전성)
                 if (targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
                     targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) {
-                    log.trace("setObject(type) -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
-                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     setStringWithProtectedBindNotification(parameterIndex, result.value, "setObject(type).bind");
                 } else {
                     // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                    log.trace("setObject(type) set: parameterIndex={}, targetSqlType={}, encryptedValue={}", parameterIndex, targetSqlType,
-                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     setObjectWithProtectedBindNotification(parameterIndex, result.value, targetSqlType, "setObject(type).bind");
                 }
                 return;
@@ -1315,10 +1356,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x) throws SQLException {
-        clearOriginalData(parameterIndex);
-        log.trace("setObject called: parameterIndex={}, valueType={}, value={}", parameterIndex,
-                 x != null ? x.getClass().getSimpleName() : "null",
-                 x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
+        clearTextData(parameterIndex, x);
         
         // String 타입인 경우에만 암호화 처리 시도
         if (x instanceof String) {
@@ -1336,8 +1374,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject", statementPlan);
                 
-                log.trace("setObject encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
-                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
                     log.trace("setObject skip: parameterIndex={}, using original value", parameterIndex);
@@ -1347,8 +1383,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 
                 // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
                 // String이면 setString 사용 (타입 안전성)
-                log.trace("setObject -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
-                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 setStringWithProtectedBindNotification(parameterIndex, result.value, "setObject.bind");
                 return;
             } catch (RuntimeException e) {
@@ -1366,6 +1400,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public boolean execute() throws SQLException {
+        requireProtectedBinds();
         long start = System.nanoTime();
         boolean error = false;
         try {
@@ -1382,6 +1417,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void addBatch() throws SQLException {
+        requireProtectedBinds();
         actualPreparedStatement.addBatch();
     }
     
@@ -1440,7 +1476,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setNull(int parameterIndex, int sqlType, String typeName) throws SQLException {
-        clearOriginalData(parameterIndex);
+        clearTextData(parameterIndex, null);
         actualPreparedStatement.setNull(parameterIndex, sqlType, typeName);
     }
     
@@ -1463,7 +1499,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setNString(int parameterIndex, String value) throws SQLException {
-        clearOriginalData(parameterIndex);
+        clearTextData(parameterIndex, value);
         try {
             if (allPlaintextStatement) {
                 actualPreparedStatement.setNString(parameterIndex, value);
@@ -1530,10 +1566,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
-        clearOriginalData(parameterIndex);
-        log.trace("setObject(scale) called: parameterIndex={}, valueType={}, targetSqlType={}, scaleOrLength={}, value={}", parameterIndex,
-                 x != null ? x.getClass().getSimpleName() : "null", targetSqlType, scaleOrLength,
-                 x instanceof String && ((String)x).length() > 30 ? ((String)x).substring(0, 30) + "..." : x);
+        clearTextData(parameterIndex, x);
         
         // String 타입인 경우에만 암호화 처리 시도
         if (x instanceof String) {
@@ -1551,8 +1584,6 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
                 EncryptionResult result = processStringEncryption(parameterIndex, stringValue, "setObject(scale)", statementPlan);
                 
-                log.trace("setObject(scale) encryption result: parameterIndex={}, shouldSkip={}, value={}", parameterIndex, result.shouldSkip,
-                         result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                 
                 if (result.shouldSkip) {
                     log.trace("setObject(scale) skip: parameterIndex={}, using original value", parameterIndex);
@@ -1564,14 +1595,9 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
                 // 단, scaleOrLength가 지정된 경우는 setObject 사용 (길이 제한이 있을 수 있음)
                 if ((targetSqlType == Types.VARCHAR || targetSqlType == Types.NVARCHAR || 
                      targetSqlType == Types.LONGVARCHAR || targetSqlType == Types.CLOB) && scaleOrLength <= 0) {
-                    log.trace("setObject(scale) -> delegated to setString: parameterIndex={}, encryptedValue={}", parameterIndex,
-                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setString(parameterIndex, result.value);
                 } else {
                     // 암호화된 경우 암호화된 값 사용, 아니면 원본 값 사용
-                    log.trace("setObject(scale) set: parameterIndex={}, targetSqlType={}, scaleOrLength={}, encryptedValue={}",
-                             parameterIndex, targetSqlType, scaleOrLength,
-                             result.value != null && result.value.length() > 50 ? result.value.substring(0, 50) + "..." : result.value);
                     actualPreparedStatement.setObject(parameterIndex, result.value, targetSqlType, scaleOrLength);
                 }
                 return;
@@ -1651,6 +1677,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     // Statement 인터페이스 메서드들
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
+        new DadpProxyStatement(actualPreparedStatement, proxyConnection).requireReadOnlyStatement(sql);
         long start = System.nanoTime();
         boolean error = false;
         try {
@@ -1786,6 +1813,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public void addBatch(String sql) throws SQLException {
+        new DadpProxyStatement(actualPreparedStatement, proxyConnection).requireReadOnlyStatement(sql);
         actualPreparedStatement.addBatch(sql);
     }
     
@@ -1796,6 +1824,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public int[] executeBatch() throws SQLException {
+        validatePreparedPolicy();
         try {
             return actualPreparedStatement.executeBatch();
         } catch (SQLException e) {
@@ -1900,6 +1929,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     
     @Override
     public long[] executeLargeBatch() throws SQLException {
+        validatePreparedPolicy();
         try {
             return actualPreparedStatement.executeLargeBatch();
         } catch (SQLException e) {
@@ -2049,6 +2079,7 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
 
     private <T> T executeWithTelemetry(String sqlText, SqlCallable<T> action, boolean captureResultSetSql)
             throws SQLException {
+        new DadpProxyStatement(actualPreparedStatement, proxyConnection).requireReadOnlyStatement(sqlText);
         long start = System.nanoTime();
         boolean error = false;
         try {
@@ -2077,6 +2108,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
     }
 
     private boolean isFailOpenEnabled() {
+        if (proxyConnection != null && proxyConnection.getPolicyResolver() != null
+                && !proxyConnection.getPolicyResolver().getAllMappings().isEmpty()) return false;
         return proxyConnection != null
                 && proxyConnection.getConfig() != null
                 && proxyConnection.getConfig().isFailOpen();

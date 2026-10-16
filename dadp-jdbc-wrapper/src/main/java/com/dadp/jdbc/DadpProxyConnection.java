@@ -91,7 +91,7 @@ public class DadpProxyConnection implements Connection {
             waitForRuntimeStorage("startup");
         }
 
-        // Wrapper 비활성화 모드 또는 명시적 failOpen: 암복호화 없이 순수 패스스루
+        // Only explicit administrative disablement permits passthrough.
         if (!config.isRuntimeActive()) {
             if (!config.isEnabled()) {
                 log.info("DADP Wrapper DISABLED (passthrough mode) - no encryption/decryption will be performed");
@@ -99,16 +99,9 @@ public class DadpProxyConnection implements Connection {
                 WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
                 return;
             }
-            if (config.isFailOpen()) {
-                log.warn("DADP Wrapper startup prerequisites not met and failOpen=true (passthrough mode) - no encryption/decryption will be performed");
-                initializePassthroughState(false);
-                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
-                return;
-            } else {
-                blockStartup("DADP Wrapper startup prerequisites not met and failOpen=false; refusing SQL execution to prevent plaintext storage");
-                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
-                return;
-            }
+            blockStartup("DADP Wrapper startup prerequisites not met; refusing SQL execution to prevent plaintext storage");
+            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+            return;
         }
 
         initializeConnectionMetadata();
@@ -128,12 +121,7 @@ public class DadpProxyConnection implements Connection {
         // 부팅 플로우 실행 (첫 부팅 시에만 Connection 사용, 이후에는 저장 메타데이터만 사용)
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
-            if (isEffectiveFailOpen()) {
-                log.warn("DADP Wrapper runtime is not initialized and failOpen=true. Current connection uses passthrough mode.");
-                initializePassthroughState(false);
-            } else {
-                blockStartup("DADP Wrapper runtime is not initialized and failOpen=false; refusing SQL execution to prevent plaintext storage");
-            }
+            blockStartup("DADP Wrapper runtime is not initialized; refusing SQL execution to prevent plaintext storage");
             WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
@@ -301,10 +289,6 @@ public class DadpProxyConnection implements Connection {
                 && (orchestrator == null || orchestrator.isRuntimeEnabled());
     }
 
-    private boolean isEffectiveFailOpen() {
-        return false;
-    }
-
     private boolean isRuntimeDisabled() {
         if (config != null && !config.isEnabled()) {
             return true;
@@ -323,15 +307,11 @@ public class DadpProxyConnection implements Connection {
         if (initializeRuntimeForRefreshTrigger()) {
             return true;
         }
-        if (isEffectiveFailOpen()) {
-            log.warn("DADP Wrapper runtime unavailable and failOpen=true; {} uses passthrough mode", operation);
-            return false;
-        }
         SQLException reason = startupBlockReason;
         if (reason != null) {
             throw reason;
         }
-        throw new SQLException("DADP Wrapper runtime unavailable and failOpen=false; refusing SQL execution to prevent plaintext storage");
+        throw new SQLException("DADP Wrapper runtime unavailable; refusing SQL execution to prevent plaintext storage");
     }
 
     private synchronized boolean initializeRuntimeForRefreshTrigger() {
@@ -854,6 +834,12 @@ public class DadpProxyConnection implements Connection {
     public ProxyConfig getConfig() {
         return config;
     }
+
+    private static void requireReadOnlyConcurrency(int concurrency) throws SQLException {
+        if (concurrency != ResultSet.CONCUR_READ_ONLY) {
+            throw new SQLFeatureNotSupportedException("Engine Agent supports only CONCUR_READ_ONLY ResultSets", "0A000");
+        }
+    }
     
     @Override
     public Statement createStatement() throws SQLException {
@@ -873,6 +859,7 @@ public class DadpProxyConnection implements Connection {
         log.trace("PreparedStatement created: {}", sql);
         // 정책 매핑 로드 완료 대기 (첫 번째 쿼리 실행 전 정책 적용 보장)
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }
@@ -888,7 +875,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public CallableStatement prepareCall(String sql) throws SQLException {
-        return actualConnection.prepareCall(sql);
+        throw new SQLFeatureNotSupportedException("Engine Agent does not support CallableStatement; use PreparedStatement", "0A000");
     }
     
     @Override
@@ -983,6 +970,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
+        requireReadOnlyConcurrency(resultSetConcurrency);
         if (!ensureRuntimeAvailableForSql("createStatement")) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency);
         }
@@ -993,17 +981,19 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
+        requireReadOnlyConcurrency(resultSetConcurrency);
         if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency);
         }
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }
     
     @Override
     public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
-        return actualConnection.prepareCall(sql, resultSetType, resultSetConcurrency);
+        throw new SQLFeatureNotSupportedException("Engine Agent does not support CallableStatement; use PreparedStatement", "0A000");
     }
     
     @Override
@@ -1048,6 +1038,7 @@ public class DadpProxyConnection implements Connection {
     
     @Override
     public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
+        requireReadOnlyConcurrency(resultSetConcurrency);
         if (!ensureRuntimeAvailableForSql("createStatement")) {
             return actualConnection.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
         }
@@ -1058,17 +1049,19 @@ public class DadpProxyConnection implements Connection {
 
     @Override
     public PreparedStatement prepareStatement(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
+        requireReadOnlyConcurrency(resultSetConcurrency);
         if (!ensureRuntimeAvailableForSql("prepareStatement")) {
             return actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }
     
     @Override
     public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability) throws SQLException {
-        return actualConnection.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
+        throw new SQLFeatureNotSupportedException("Engine Agent does not support CallableStatement; use PreparedStatement", "0A000");
     }
     
     @Override
@@ -1077,6 +1070,7 @@ public class DadpProxyConnection implements Connection {
             return actualConnection.prepareStatement(sql, autoGeneratedKeys);
         }
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql, autoGeneratedKeys);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }
@@ -1087,6 +1081,7 @@ public class DadpProxyConnection implements Connection {
             return actualConnection.prepareStatement(sql, columnIndexes);
         }
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql, columnIndexes);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }
@@ -1097,6 +1092,7 @@ public class DadpProxyConnection implements Connection {
             return actualConnection.prepareStatement(sql, columnNames);
         }
         ensureMappingsLoaded();
+        EnginePreparedSqlGuard.validate(sql, this);
         PreparedStatement actualPs = actualConnection.prepareStatement(sql, columnNames);
         return new DadpProxyPreparedStatement(actualPs, sql, this);
     }

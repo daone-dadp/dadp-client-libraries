@@ -142,6 +142,20 @@ class DadpProxyConnectionRuntimeRefreshTest {
         verify(actualConnection, times(1)).prepareStatement("select 1");
     }
 
+    @Test
+    void storedFailOpenTrueCannotPermitUninitializedActiveRuntime() throws Exception {
+        writeRuntimeProxyConfig("incomplete-active", "", true, true, "remote");
+        Connection raw = mock(Connection.class);
+        DadpProxyConnection connection = new DadpProxyConnection(raw,
+                "jdbc:postgresql://localhost/test", Collections.emptyMap());
+        org.junit.jupiter.api.Assertions.assertFalse(connection.getConfig().isFailOpen());
+        assertThrows(SQLException.class, connection::createStatement);
+        assertThrows(SQLException.class, () -> connection.prepareStatement("INSERT INTO users(email) VALUES (?)"));
+        verify(raw, never()).createStatement();
+        verify(raw, never()).prepareStatement(org.mockito.ArgumentMatchers.anyString());
+        connection.close();
+    }
+
     private static void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = DadpProxyConnection.class.getDeclaredField(fieldName);
         field.setAccessible(true);

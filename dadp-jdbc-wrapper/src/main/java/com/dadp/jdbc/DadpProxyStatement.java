@@ -174,7 +174,14 @@ public class DadpProxyStatement implements Statement {
     
     @Override
     public int[] executeBatch() throws SQLException {
+        requireReadOnlyStatement("");
         return actualStatement.executeBatch();
+    }
+
+    @Override
+    public long[] executeLargeBatch() throws SQLException {
+        requireReadOnlyStatement("");
+        return actualStatement.executeLargeBatch();
     }
     
     @Override
@@ -314,7 +321,7 @@ public class DadpProxyStatement implements Statement {
         }
     }
 
-    private void requireReadOnlyStatement(String sql) throws SQLException {
+    void requireReadOnlyStatement(String sql) throws SQLException {
         com.dadp.common.sync.policy.PolicyResolver policies = proxyConnection.getPolicyResolver();
         if (policies == null || policies.getAllMappings().isEmpty()) return;
         // Statement has no protected-bind processing. Writes must use PreparedStatement.

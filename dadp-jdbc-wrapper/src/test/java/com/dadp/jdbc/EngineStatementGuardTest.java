@@ -8,6 +8,20 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class EngineStatementGuardTest {
+    @Test void batchQueuedBeforePolicyArrivalCannotExecute() throws Exception {
+        Statement raw = mock(Statement.class);
+        DadpProxyConnection connection = mock(DadpProxyConnection.class);
+        PolicyResolver policies = mock(PolicyResolver.class);
+        when(connection.getPolicyResolver()).thenReturn(policies);
+        when(policies.getAllMappings()).thenReturn(Collections.emptyMap());
+        DadpProxyStatement statement = new DadpProxyStatement(raw, connection);
+        statement.addBatch("INSERT INTO users(secret) VALUES ('plain')");
+        when(policies.getAllMappings()).thenReturn(Collections.singletonMap("users.secret", "ABCD2345"));
+        assertThrows(SQLFeatureNotSupportedException.class, statement::executeBatch);
+        assertThrows(SQLFeatureNotSupportedException.class, statement::executeLargeBatch);
+        verify(raw, never()).executeBatch(); verify(raw, never()).executeLargeBatch();
+    }
+
     @Test void literalWritesAndBatchFailBeforeNativeExecutionWithActivePolicies() throws Exception {
         Statement raw = mock(Statement.class);
         DadpProxyConnection connection = mock(DadpProxyConnection.class);
