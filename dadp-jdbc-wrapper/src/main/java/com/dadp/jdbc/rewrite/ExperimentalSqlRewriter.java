@@ -58,6 +58,14 @@ public final class ExperimentalSqlRewriter {
     }
 
     public static ExperimentalSqlRewriter forPostgresql(FixtureScope scope) throws SQLException {
+        return forPlugin(scope);
+    }
+
+    public static ExperimentalSqlRewriter forMysql(FixtureScope scope) throws SQLException {
+        return forPlugin(scope);
+    }
+
+    private static ExperimentalSqlRewriter forPlugin(FixtureScope scope) throws SQLException {
         require(scope.schema != null);
         for (String policy : scope.columns.values()) {
             require(policy == null || policy.matches("[A-Za-z0-9]{8}"));

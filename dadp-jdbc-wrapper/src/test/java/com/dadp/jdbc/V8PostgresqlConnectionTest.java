@@ -12,6 +12,26 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class V8PostgresqlConnectionTest {
+    @Test
+    void mysqlEntryRewritesAndStripsPrivatePropertiesWithoutLegacyBootstrap() throws Exception {
+        Driver driver = mock(Driver.class);
+        Connection raw = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(driver.acceptsURL("jdbc:mysql:v8-test")).thenReturn(true);
+        when(driver.connect(eq("jdbc:mysql:v8-test"), any())).thenReturn(raw);
+        when(raw.prepareStatement(anyString())).thenReturn(statement);
+        DriverManager.registerDriver(driver);
+        try {
+            Properties p = settings(); p.setProperty("dadp.v8.mode", "mysql-evaluation");
+            p.setProperty("useServerPrepStmts", "true");
+            Connection wrapped = new DadpJdbcDriver().connect("jdbc:dadp:mysql:v8-test", p);
+            wrapped.prepareStatement(INSERT);
+            verify(raw).prepareStatement(ENCRYPTED);
+            Properties nativeSettings = new Properties(); nativeSettings.setProperty("useServerPrepStmts", "true");
+            verify(driver).connect("jdbc:mysql:v8-test", nativeSettings);
+            assertThrows(SQLException.class, () -> new DadpJdbcDriver().connect("jdbc:dadp:postgresql:v8-test", p));
+        } finally { DriverManager.deregisterDriver(driver); }
+    }
     private static final String INSERT = "INSERT INTO app.users (id, secret) VALUES (?, ?)";
     private static final String ENCRYPTED = "INSERT INTO app.users (id, secret) VALUES (?, dadp.dadp_encrypt(?, 'TEST0001'))";
 

@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
 
-/** External PG17/native KMS integration probe; no mock server or SQL executor. */
+/** External PG17/MySQL84 native KMS probe; no mock server or SQL executor. */
 public final class JdbcProcessProbe {
     private JdbcProcessProbe() { }
 
@@ -28,22 +28,26 @@ public final class JdbcProcessProbe {
     static void run(String[] args) throws Exception {
         check(args.length == 5, "arguments");
         String url = args[0], full = policy(args[2]), partial = policy(args[3]), denied = policy(args[4]);
-        check(url.startsWith("jdbc:postgresql:"), "native PostgreSQL URL required");
+        boolean mysql = url.startsWith("jdbc:mysql:");
+        check(mysql || url.startsWith("jdbc:postgresql:"), "native PG or MySQL URL required");
         check(!full.equals(partial) && !full.equals(denied) && !partial.equals(denied), "distinct policies required");
         Properties nativeConfig = new Properties();
         try (InputStream in = Files.newInputStream(Paths.get(args[1]))) { nativeConfig.load(in); }
         for (String key : nativeConfig.stringPropertyNames()) {
             check(!key.startsWith("dadp."), "JDBC properties must not override Agent mapping");
         }
-        Class.forName("org.postgresql.Driver");
+        Class.forName(mysql ? "com.mysql.cj.jdbc.Driver" : "org.postgresql.Driver");
         String schema = "dadp_probe_" + UUID.randomUUID().toString().replace("-", "");
         String table = schema + ".records";
         try (Connection raw = DriverManager.getConnection(url, nativeConfig)) {
-            check(raw.getMetaData().getDatabaseMajorVersion() == 17, "PG17 required");
+            requireVersion(mysql, raw.getMetaData().getDatabaseMajorVersion(), raw.getMetaData().getDatabaseMinorVersion());
+            System.out.println("JDBC_PLUGIN_TARGET " + (mysql ? "mysql84" : "pg17"));
             execute(raw, "CREATE SCHEMA " + schema);
             try {
-                execute(raw, "CREATE TABLE " + table + " (id text PRIMARY KEY, secret text, partial_value text, denied_value text)");
+                execute(raw, "CREATE TABLE " + table + " (id varchar(64) PRIMARY KEY, secret text, partial_value text, denied_value text)"
+                        + (mysql ? " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4" : ""));
                 Properties mapped = mapping(nativeConfig, schema, full, partial, denied);
+                if (mysql) mapped.setProperty("dadp.v8.mode", "mysql-evaluation");
                 try (Connection agent = new DadpJdbcDriver().connect("jdbc:dadp:" + url.substring(5), mapped)) {
                     check(agent != null, "Agent connection");
                     String[] samples = {"", "ASCII-value", "\uD55C\uAE00\uD83D\uDE00 caf\u00e9", "quote' backslash\\ newline\n tab\t", null};
@@ -78,20 +82,20 @@ public final class JdbcProcessProbe {
                     try {
                         execute(agent, "INSERT INTO " + table + " (id, denied_value) VALUES ('denied', 'not-authorized')");
                         throw new AssertionError("denied policy accepted");
-                    } catch (SQLException failure) { requireDenial(failure); }
+                    } catch (SQLException failure) { requireDenial(failure, mysql); }
                     check(rowCount(raw, table, "denied") == 0, "denied write persisted");
                     agent.setAutoCommit(false);
                     try (PreparedStatement ps = agent.prepareStatement("INSERT INTO " + table + " (id, denied_value) VALUES (?, ?)")) {
                         ps.setString(1, "denied_batch"); ps.setString(2, "not-authorized"); ps.addBatch();
                         try { ps.executeBatch(); throw new AssertionError("denied batch accepted"); }
-                        catch (SQLException failure) { requireDenial(failure); }
+                        catch (SQLException failure) { requireDenial(failure, mysql); }
                     } finally { agent.rollback(); agent.setAutoCommit(true); }
                     check(rowCount(raw, table, "denied_batch") == 0, "denied batch persisted");
                     insert(agent, table, "after_denial", "still-operational");
                     roundtrip(agent, raw, table, "after_denial", "still-operational", full);
                     System.out.println("JDBC_PLUGIN_DENIED_PASS single=true batch=true postDenial=true");
                 }
-            } finally { execute(raw, "DROP SCHEMA " + schema + " CASCADE"); }
+            } finally { execute(raw, "DROP SCHEMA " + schema + (mysql ? "" : " CASCADE")); }
         }
     }
 
@@ -113,9 +117,18 @@ public final class JdbcProcessProbe {
     }
 
     static void requireDenial(SQLException failure) {
+        requireDenial(failure, false);
+    }
+
+    static void requireVersion(boolean mysql, int major, int minor) {
+        check(mysql ? major == 8 && minor == 4 : major == 17, "unsupported DB version");
+    }
+
+    static void requireDenial(SQLException failure, boolean mysql) {
         // The native plugin returns 38000 for protected-operation rejection.
         // Connection, syntax, missing function and transaction errors must never pass.
-        check("38000".equals(failure.getSQLState()) || "42501".equals(failure.getSQLState()), "unexpected denial SQLState");
+        check(mysql ? "45000".equals(failure.getSQLState()) :
+                "38000".equals(failure.getSQLState()) || "42501".equals(failure.getSQLState()), "unexpected denial SQLState");
     }
 
     private static void insert(Connection c, String table, String id, String plain) throws SQLException {

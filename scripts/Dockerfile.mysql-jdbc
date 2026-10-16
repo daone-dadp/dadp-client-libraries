@@ -1,0 +1,4 @@
+FROM dadp-mysql84-kms-test:local
+USER root
+RUN microdnf install -y java-17-openjdk-headless && microdnf clean all
+ENTRYPOINT []

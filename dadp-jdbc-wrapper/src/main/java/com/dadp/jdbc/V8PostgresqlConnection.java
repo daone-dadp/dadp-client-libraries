@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-/** Isolated, opt-in PG evaluation path. No legacy bootstrap or value crypto objects. */
+/** Isolated PG/MySQL plugin evaluation path. No legacy bootstrap or value crypto objects. */
 final class V8PostgresqlConnection {
     private static final String PREFIX = "dadp.v8.";
     private final ExperimentalSqlRewriter rewriter;
@@ -24,8 +24,11 @@ final class V8PostgresqlConnection {
     }
 
     static Connection connect(String url, Properties properties) throws SQLException {
-        if (!"pg-evaluation".equals(properties.getProperty(PREFIX + "mode"))
-                || !url.startsWith("jdbc:dadp:postgresql:")) {
+        boolean mysql = "mysql-evaluation".equals(properties.getProperty(PREFIX + "mode"))
+                && url.startsWith("jdbc:dadp:mysql:");
+        boolean pg = "pg-evaluation".equals(properties.getProperty(PREFIX + "mode"))
+                && url.startsWith("jdbc:dadp:postgresql:");
+        if (!pg && !mysql) {
             throw unsupported();
         }
         DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
@@ -51,9 +54,10 @@ final class V8PostgresqlConnection {
                 nativeProperties.setProperty(key, value);
             }
         }
-        ExperimentalSqlRewriter rewriter = ExperimentalSqlRewriter.forPostgresql(
-                new ExperimentalSqlRewriter.FixtureScope(properties.getProperty(PREFIX + "schema"),
-                        properties.getProperty(PREFIX + "table"), columns));
+        ExperimentalSqlRewriter.FixtureScope scope = new ExperimentalSqlRewriter.FixtureScope(
+                properties.getProperty(PREFIX + "schema"), properties.getProperty(PREFIX + "table"), columns);
+        ExperimentalSqlRewriter rewriter = mysql ? ExperimentalSqlRewriter.forMysql(scope)
+                : ExperimentalSqlRewriter.forPostgresql(scope);
         String nativeUrl = DadpJdbcUrlSupport.extractActualUrl(url);
         // Exactly one connection attempt; never enter the legacy connector's retry path.
         Connection delegate;
@@ -63,7 +67,7 @@ final class V8PostgresqlConnection {
             throw sanitized(e);
         }
         if (delegate == null) {
-            throw new SQLException("PostgreSQL driver did not create a connection", "08001");
+            throw new SQLException("Native driver did not create a connection", "08001");
         }
         return wrap(delegate, rewriter);
     }
@@ -82,7 +86,7 @@ final class V8PostgresqlConnection {
     private Object invoke(Object self, Method method, Object[] args, Object delegate, Statement owner) throws Throwable {
         String name = method.getName();
         if (method.getDeclaringClass() == Object.class) {
-            if (name.equals("toString")) return "DADP v8 PostgreSQL JDBC wrapper";
+            if (name.equals("toString")) return "DADP v8 Plugin JDBC wrapper";
             if (name.equals("hashCode")) return System.identityHashCode(self);
             if (name.equals("equals")) return self == args[0];
         }
@@ -148,7 +152,7 @@ final class V8PostgresqlConnection {
         if (result instanceof ParameterMetaData) return proxy(ParameterMetaData.class, (ParameterMetaData) result, null);
         if (result instanceof SQLWarning) {
             SQLWarning warning = (SQLWarning) result;
-            return new SQLWarning("PostgreSQL JDBC warning in v8 evaluation mode", warning.getSQLState(), warning.getErrorCode());
+            return new SQLWarning("JDBC warning in v8 plugin evaluation mode", warning.getSQLState(), warning.getErrorCode());
         }
         // PG Array/LOB/vendor objects can retain a native connection. Text evaluation
         // does not expose them, including through untyped getObject().
@@ -162,7 +166,7 @@ final class V8PostgresqlConnection {
     }
 
     private static SQLFeatureNotSupportedException unsupported() {
-        return new SQLFeatureNotSupportedException("Operation outside v8 PostgreSQL evaluation allowlist", "0A000");
+        return new SQLFeatureNotSupportedException("Operation outside v8 plugin evaluation allowlist", "0A000");
     }
 
     private static void noGeneratedKeys(Object option) throws SQLException {
@@ -198,7 +202,7 @@ final class V8PostgresqlConnection {
     }
 
     private static SQLException sanitized(SQLException error) {
-        String message = "PostgreSQL JDBC operation failed in v8 evaluation mode";
+        String message = "JDBC operation failed in v8 plugin evaluation mode";
         if (error instanceof BatchUpdateException) {
             return new BatchUpdateException(message, error.getSQLState(), error.getErrorCode(),
                     ((BatchUpdateException) error).getLargeUpdateCounts(), null);

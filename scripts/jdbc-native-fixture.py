@@ -43,7 +43,7 @@ with KMSFixture(work, real=True, worker_binary="/worker") as fixture:
         config.chmod(0o600)
         result = subprocess.run(["bash", "/source/dadp-client-libraries/scripts/run-jdbc-process-probe.sh"],
                                 env=dict(os.environ, JDBC_URL="jdbc:postgresql://127.0.0.1:55486/postgres",
-                                         JDBC_CONFIG=str(config), PG_JDBC_JAR="/pgjdbc.jar",
+                                         JDBC_CONFIG=str(config), JDBC_DRIVER_JAR="/pgjdbc.jar",
                                          JDBC_POLICY_CODE="ABCD2345", JDBC_PARTIAL_POLICY_CODE="PREFIX01",
                                          JDBC_DENIED_POLICY_CODE="DENYA234"),
                                 capture_output=True, text=True, timeout=120)
