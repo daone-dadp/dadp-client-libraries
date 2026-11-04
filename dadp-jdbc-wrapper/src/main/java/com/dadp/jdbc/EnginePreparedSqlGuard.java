@@ -11,6 +11,8 @@ import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Values;
 import net.sf.jsqlparser.statement.update.Update;
@@ -29,6 +31,10 @@ final class EnginePreparedSqlGuard {
                 PlainSelect select = (PlainSelect) statement;
                 require(empty(select.getWithItemsList()) && empty(select.getIntoTables()));
                 return Collections.emptySet();
+            }
+            if (statement instanceof Delete) {
+                validateDelete((Delete) statement, policies);
+                return Collections.emptySet(); // No value is written or encrypted by DELETE.
             }
             Table table;
             List<Column> columns = new ArrayList<>();
@@ -86,10 +92,39 @@ final class EnginePreparedSqlGuard {
         }
     }
 
+    private static void validateDelete(Delete delete, PolicyResolver policies) throws SQLException {
+        require(empty(delete.getWithItemsList()) && empty(delete.getTables()) && empty(delete.getUsingList())
+                && empty(delete.getJoins()) && empty(delete.getOrderByElements()) && delete.getLimit() == null
+                && delete.getReturningClause() == null && delete.getOutputClause() == null
+                && delete.getOracleHint() == null && delete.getModifierPriority() == null
+                && !delete.isModifierIgnore() && !delete.isModifierQuick());
+        Table table = delete.getTable();
+        require(table != null && table.getAlias() == null && identifier(table.getName())
+                && (table.getSchemaName() == null || identifier(table.getSchemaName())));
+        String qualified = table.getSchemaName() == null ? table.getName()
+                : table.getSchemaName() + "." + table.getName();
+        require(qualified.equals(table.getFullyQualifiedName()));
+        // Restrict this path to a direct bind on an unprotected column. Expressions,
+        // subqueries and ciphertext comparisons require a separate execution plan.
+        require(delete.getWhere() instanceof EqualsTo);
+        EqualsTo where = (EqualsTo) delete.getWhere();
+        require(where.getLeftExpression() instanceof Column && where.getRightExpression() instanceof JdbcParameter
+                && "?".equals(where.getRightExpression().toString()));
+        Column column = (Column) where.getLeftExpression();
+        require(identifier(column.getColumnName()));
+        String qualifier = column.getTable() == null ? null : column.getTable().getFullyQualifiedName();
+        require(qualifier == null || qualifier.isEmpty() || qualifier.equals(table.getName()) || qualifier.equals(qualified));
+        String suffix = (table.getName() + "." + column.getColumnName()).toLowerCase(Locale.ROOT);
+        for (String key : policies.getAllMappings().keySet()) {
+            String normalized = key.toLowerCase(Locale.ROOT);
+            require(!normalized.equals(suffix) && !normalized.endsWith("." + suffix));
+        }
+    }
+
     private static boolean identifier(String value) { return value != null && value.matches("[A-Za-z_][A-Za-z0-9_]*"); }
     private static boolean empty(Collection<?> values) { return values == null || values.isEmpty(); }
     private static void require(boolean condition) throws SQLException { if (!condition) throw denied(); }
     static SQLFeatureNotSupportedException denied() {
-        return new SQLFeatureNotSupportedException("Engine policy writes require supported single-row INSERT or UPDATE with direct bind parameters and text/NULL protected values", "0A000");
+        return new SQLFeatureNotSupportedException("Engine policy SQL requires supported INSERT/UPDATE text binds or DELETE with a direct bind on an unprotected column", "0A000");
     }
 }

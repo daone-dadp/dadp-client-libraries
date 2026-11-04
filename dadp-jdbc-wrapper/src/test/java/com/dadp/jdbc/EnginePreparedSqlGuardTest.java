@@ -88,6 +88,41 @@ class EnginePreparedSqlGuardTest {
         assertTrue(EnginePreparedSqlGuard.validate("SELECT secret FROM users WHERE id=?", c).isEmpty());
     }
 
+    @Test void boundedDeleteUsesOnlyAnUnmappedBindPredicate() throws Exception {
+        DadpProxyConnection c = connection();
+        for (String sql : new String[]{"DELETE FROM users WHERE id = ?",
+                "delete from public.users where id=?", "DELETE FROM public.users WHERE users.id=?"}) {
+            assertTrue(EnginePreparedSqlGuard.validate(sql, c).isEmpty(), sql);
+        }
+        PreparedStatement raw = mock(PreparedStatement.class);
+        when(raw.executeUpdate()).thenReturn(1);
+        DadpProxyPreparedStatement statement = new DadpProxyPreparedStatement(raw,
+                "DELETE FROM users WHERE id = ?", c);
+        statement.setLong(1, 42L);
+        assertEquals(1, statement.executeUpdate());
+        verify(raw).setLong(1, 42L);
+        verify(raw).executeUpdate();
+    }
+
+    @Test void deleteCannotBypassPolicyOrExpandTheStatement() {
+        DadpProxyConnection c = connection();
+        String[] rejected = {
+            "DELETE FROM users", "DELETE FROM users WHERE id=1", "DELETE FROM users WHERE secret=?",
+            "DELETE FROM users WHERE id=? OR 1=1", "DELETE FROM users WHERE id IN (SELECT id FROM other)",
+            "DELETE FROM users WHERE id=writer(?)", "DELETE FROM users WHERE id=? RETURNING secret",
+            "DELETE FROM users WHERE id=?; INSERT INTO users(secret) VALUES ('plain')",
+            "WITH changed AS (UPDATE users SET secret='plain' RETURNING id) DELETE FROM users WHERE id=?",
+            "DELETE FROM users USING other WHERE users.id=?", "DELETE users FROM users JOIN other ON users.id=other.id WHERE users.id=?",
+            "DELETE FROM users WHERE id=? LIMIT 1", "DELETE FROM users u WHERE id=?",
+            "DELETE FROM users WHERE other.id=?", "DELETE FROM users WHERE id=:id"
+        };
+        for (String sql : rejected) assertThrows(SQLFeatureNotSupportedException.class,
+                () -> EnginePreparedSqlGuard.validate(sql, c), sql);
+        when(c.getPolicyResolver().getAllMappings()).thenReturn(Collections.singletonMap("public.users.id", "ABCD2345"));
+        assertThrows(SQLFeatureNotSupportedException.class,
+                () -> EnginePreparedSqlGuard.validate("DELETE FROM users WHERE id=?", c));
+    }
+
     @Test void protectedNonTextSettersNeverReachDelegate() throws Exception {
         PreparedStatement raw = mock(PreparedStatement.class);
         DadpProxyPreparedStatement p = new DadpProxyPreparedStatement(raw, "INSERT INTO users(secret) VALUES (?)", connection());
