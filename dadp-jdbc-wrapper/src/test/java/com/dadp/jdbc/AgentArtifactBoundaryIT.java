@@ -44,7 +44,9 @@ class AgentArtifactBoundaryIT {
             assertTrue(moduleJars > 0, "Missing built artifact: " + module);
         }
         assertTrue(scanned >= MODULES.size());
-        Path fatJar = root.resolve("dadp-jdbc-wrapper/target/dadp-jdbc-wrapper-8.0.0-SNAPSHOT-all.jar");
+        String version = System.getProperty("dadp.wrapper.version");
+        assertTrue(version != null && !version.isEmpty(), "Wrapper version must be supplied by Maven");
+        Path fatJar = root.resolve("dadp-jdbc-wrapper/target/dadp-jdbc-wrapper-" + version + "-all.jar");
         try (JarFile jar = new JarFile(fatJar.toFile())) {
             assertNotNull(jar.getEntry("com/dadp/common/sync/http/WorkerTls.class"), "TLS must remain packaged");
             assertNotNull(jar.getEntry("com/dadp/jdbc/V8PostgresqlConnection.class"), "Plugin agent must remain packaged");
