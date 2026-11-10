@@ -1103,7 +1103,7 @@ public class HubCryptoService {
     }
 
     private boolean isCurrentPolicyCode(String value) {
-        return value != null && value.matches("^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$");
+        return value != null && value.matches("^[A-Z0-9]{8}$");
     }
 
     private boolean isNonEmptyBase64(String value) {

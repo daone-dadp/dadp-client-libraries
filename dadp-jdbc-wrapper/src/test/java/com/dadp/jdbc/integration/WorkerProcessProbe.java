@@ -61,7 +61,7 @@ public final class WorkerProcessProbe {
     }
 
     static String policyCode(String value) {
-        if (value == null || !value.matches("[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}"))
+        if (value == null || !value.matches("[A-Z0-9]{8}"))
             throw new IllegalArgumentException("Expected an eight-character policy code");
         return value;
     }

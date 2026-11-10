@@ -10,7 +10,9 @@ class WorkerProcessProbeTest {
     @Test void validatesPolicyCodesAndArgumentsBeforeNetworkUse() {
         assertEquals("ABCD2345", WorkerProcessProbe.policyCode("ABCD2345"));
         assertThrows(IllegalArgumentException.class, () -> WorkerProcessProbe.policyCode("policy-name"));
-        assertThrows(IllegalArgumentException.class, () -> WorkerProcessProbe.policyCode("ABCD23I0"));
+        assertEquals("DAONE234", WorkerProcessProbe.policyCode("DAONE234"));
+        assertEquals("ABCD23I0", WorkerProcessProbe.policyCode("ABCD23I0"));
+        assertThrows(IllegalArgumentException.class, () -> WorkerProcessProbe.policyCode("ABCD23-0"));
         assertThrows(IllegalArgumentException.class, () -> WorkerProcessProbe.run(new String[0]));
         assertThrows(IllegalArgumentException.class, () -> WorkerProcessProbe.run(
                 new String[]{"https://localhost", "ABCD2345", "ABCD2345"}));

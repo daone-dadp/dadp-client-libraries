@@ -45,7 +45,7 @@ public final class LocalMetadataDraft {
     private void validate() {
         if (keyScopeId == null || !keyScopeId.matches("[A-Za-z0-9_-]{1,128}")
                 || keyId == null || !keyId.matches("[A-Za-z0-9_-]{1,128}")
-                || policyCode == null || !policyCode.matches("[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}")) {
+                || policyCode == null || !policyCode.matches("[A-Z0-9]{8}")) {
             throw new IllegalArgumentException("Invalid metadata identity");
         }
         if (policyRevision <= 0 || keyVersion <= 0 || mode < 0 || mode > 5

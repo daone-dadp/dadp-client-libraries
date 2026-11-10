@@ -13,6 +13,8 @@ class HubCryptoServiceCiphertextDetectionTest {
     void acceptsProviderTransparentHubV1Envelope() {
         String envelope = "hub:v1:NXSF2345:ZWRr:provider-specific-payload";
         assertTrue(service.isEncryptedData(envelope));
+        assertTrue(service.isEncryptedData("kms:DAONE234:ZWRr:cGF5bG9hZA=="));
+        assertTrue(service.isEncryptedData("kms:ABCD23I0:ZWRr:cGF5bG9hZA=="));
         assertTrue(service.isEncryptedData("kms:NXSF2345:ZWRr:cGF5bG9hZA=="));
         String kms = "kms:NXSF2345:ZWRr:cGF5bG9hZA==";
         assertTrue(service.isEncryptedData("ABC::DADP_ENC:v3:" + kms.length() + ":" + kms));
@@ -31,7 +33,7 @@ class HubCryptoServiceCiphertextDetectionTest {
     void rejectsLegacyAndMalformedCiphertexts() {
         assertFalse(service.isEncryptedData("hub:550e8400-e29b-41d4-a716-446655440000:cGF5bG9hZA=="));
         assertFalse(service.isEncryptedData("ABC::ENC::hub:v1:NXSF2345:ZWRr:payload"));
-        assertFalse(service.isEncryptedData("hub:v1:INVALID1:ZWRr:payload"));
+        assertFalse(service.isEncryptedData("hub:v1:INVALID!:ZWRr:payload"));
         assertFalse(service.isEncryptedData("hub:v1:NXSF2345:not-base64:payload"));
         assertFalse(service.isEncryptedData("ABC::DADP_ENC:v3:1:hub:v1:NXSF2345:ZWRr:payload"));
         assertFalse(service.isEncryptedData("ABC::DADP_ENC:v3:1:X::DADP_ENC:v3:1:Y"));
