@@ -27,6 +27,7 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.SelectItem;
@@ -87,6 +88,9 @@ public final class ExperimentalSqlRewriter {
             if (statement instanceof Update) {
                 return update((Update) statement).toString();
             }
+            if (statement instanceof Delete) {
+                return delete((Delete) statement).toString();
+            }
             if (statement instanceof PlainSelect) {
                 return select((PlainSelect) statement).toString();
             }
@@ -96,6 +100,13 @@ public final class ExperimentalSqlRewriter {
         } catch (Exception e) {
             // Parser exceptions can include SQL literals. Never attach them as causes.
             throw unsupported();
+        }
+    }
+
+    public void checkGeneratedKeyColumns(String[] columns) throws SQLException {
+        require(scope != null && columns.length > 0);
+        for (String column : columns) {
+            require(scope.columns.containsKey(column) && scope.columns.get(column) == null);
         }
     }
 
@@ -149,6 +160,16 @@ public final class ExperimentalSqlRewriter {
         allowed.setWhere(predicate(source.getWhere(), table));
         sameShape(source, allowed);
         allowed.setUpdateSets(rewritten);
+        return allowed;
+    }
+
+    private Delete delete(Delete source) throws SQLException {
+        Table table = table(source.getTable(), false);
+        require(source.getWhere() != null);
+        Delete allowed = new Delete();
+        allowed.setTable(table);
+        allowed.setWhere(predicate(source.getWhere(), table));
+        sameShape(source, allowed);
         return allowed;
     }
 

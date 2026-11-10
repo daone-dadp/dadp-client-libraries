@@ -32,6 +32,52 @@ class V8PostgresqlConnectionTest {
             assertThrows(SQLException.class, () -> new DadpJdbcDriver().connect("jdbc:dadp:postgresql:v8-test", p));
         } finally { DriverManager.deregisterDriver(driver); }
     }
+    @Test
+    void modeDefaultsToEngineAndRejectsConflictingOrUnknownSettings() throws Exception {
+        Properties engine = new Properties();
+        assertFalse(V8PostgresqlConnection.pluginRequested(engine));
+        engine.setProperty("dadp.v8.mode", "engine");
+        assertFalse(V8PostgresqlConnection.pluginRequested(engine));
+        engine.setProperty("dadp.v8.schema", "app");
+        assertThrows(SQLException.class, () -> V8PostgresqlConnection.pluginRequested(engine));
+        engine.remove("dadp.v8.mode");
+        assertThrows(SQLException.class, () -> V8PostgresqlConnection.pluginRequested(engine));
+        engine.setProperty("dadp.v8.mode", "automatic");
+        assertThrows(SQLException.class, () -> V8PostgresqlConnection.pluginRequested(engine));
+    }
+
+    @Test
+    void pluginDelegatesOnlySafeGeneratedKeysAndPropagatesDatabaseFailure() throws Exception {
+        String nativeUrl = "jdbc:postgresql:plugin-mode-test";
+        String wrapperUrl = "jdbc:dadp:postgresql:plugin-mode-test";
+        Driver driver = mock(Driver.class);
+        Connection raw = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(driver.acceptsURL(nativeUrl)).thenReturn(true);
+        when(driver.connect(eq(nativeUrl), any())).thenReturn(raw);
+        when(raw.prepareStatement(eq(ENCRYPTED), any(String[].class))).thenReturn(statement);
+        when(raw.prepareStatement("DELETE FROM app.users WHERE id = ?")).thenReturn(statement);
+        when(statement.executeUpdate()).thenThrow(new SQLException("function missing", "42883"));
+        DriverManager.registerDriver(driver);
+        try {
+            Properties plugin = settings();
+            plugin.setProperty("dadp.v8.mode", "plugin");
+            plugin.setProperty("dadp.v8.generated-key", "id");
+            Connection connection = new DadpJdbcDriver().connect(wrapperUrl, plugin);
+            PreparedStatement insert = connection.prepareStatement(INSERT, Statement.RETURN_GENERATED_KEYS);
+            verify(raw).prepareStatement(ENCRYPTED, new String[]{"id"});
+            assertEquals("42883", assertThrows(SQLException.class, insert::executeUpdate).getSQLState());
+            assertThrows(SQLException.class, () -> connection.prepareStatement(INSERT, new String[]{"secret"}));
+            connection.prepareStatement("DELETE FROM app.users WHERE id = ?");
+            verify(raw).prepareStatement("DELETE FROM app.users WHERE id = ?");
+            assertThrows(SQLException.class, () -> connection.prepareStatement("DELETE FROM app.users"));
+            assertThrows(SQLException.class, () -> connection.prepareStatement("DELETE FROM app.users WHERE secret = ?"));
+            verify(driver).connect(eq(nativeUrl), any());
+        } finally {
+            DriverManager.deregisterDriver(driver);
+        }
+    }
+
     private static final String INSERT = "INSERT INTO app.users (id, secret) VALUES (?, ?)";
     private static final String ENCRYPTED = "INSERT INTO app.users (id, secret) VALUES (?, dadp.dadp_encrypt(?, 'TEST0001'))";
 

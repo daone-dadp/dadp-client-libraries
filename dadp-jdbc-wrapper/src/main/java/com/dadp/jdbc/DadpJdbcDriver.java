@@ -57,7 +57,7 @@ public class DadpJdbcDriver implements Driver {
             return null;
         }
         DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
-        if (V8PostgresqlConnection.requested(info)) {
+        if (V8PostgresqlConnection.pluginRequested(info)) {
             return V8PostgresqlConnection.connect(url, info);
         }
         
@@ -122,6 +122,7 @@ public class DadpJdbcDriver implements Driver {
         Properties sanitized = new Properties();
         sanitized.putAll(info);
         sanitized.remove(ProxyConfig.WRAPPER_ALIAS_PROPERTY);
+        sanitized.remove(V8PostgresqlConnection.MODE_PROPERTY);
         return sanitized;
     }
     

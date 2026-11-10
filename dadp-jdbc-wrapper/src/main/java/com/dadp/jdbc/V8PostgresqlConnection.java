@@ -12,21 +12,42 @@ import java.util.Properties;
 /** Isolated PG/MySQL plugin evaluation path. No legacy bootstrap or value crypto objects. */
 final class V8PostgresqlConnection {
     private static final String PREFIX = "dadp.v8.";
+    static final String MODE_PROPERTY = PREFIX + "mode";
     private final ExperimentalSqlRewriter rewriter;
+    private final boolean allowNamedGeneratedKeys;
+    private final String generatedKey;
     private Connection connection;
 
-    private V8PostgresqlConnection(ExperimentalSqlRewriter rewriter) {
+    private V8PostgresqlConnection(ExperimentalSqlRewriter rewriter, boolean allowNamedGeneratedKeys, String generatedKey) {
         this.rewriter = rewriter;
+        this.allowNamedGeneratedKeys = allowNamedGeneratedKeys;
+        this.generatedKey = generatedKey;
     }
 
-    static boolean requested(Properties properties) {
-        return properties != null && properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(PREFIX));
+    static boolean pluginRequested(Properties properties) throws SQLException {
+        if (properties == null) return false;
+        String mode = properties.getProperty(MODE_PROPERTY);
+        boolean pluginSettings = properties.stringPropertyNames().stream()
+                .anyMatch(key -> key.startsWith(PREFIX) && !MODE_PROPERTY.equals(key));
+        if ((mode == null && !properties.containsKey(MODE_PROPERTY)) || "engine".equals(mode)) {
+            if (pluginSettings) throw invalidMode();
+            return false;
+        }
+        if ("plugin".equals(mode) || "pg-evaluation".equals(mode) || "mysql-evaluation".equals(mode)) {
+            return true;
+        }
+        throw invalidMode();
+    }
+
+    private static SQLException invalidMode() {
+        return new SQLException("Invalid DADP JDBC execution mode or conflicting mode properties", "08001");
     }
 
     static Connection connect(String url, Properties properties) throws SQLException {
-        boolean mysql = "mysql-evaluation".equals(properties.getProperty(PREFIX + "mode"))
+        String mode = properties.getProperty(MODE_PROPERTY);
+        boolean mysql = ("plugin".equals(mode) || "mysql-evaluation".equals(mode))
                 && url.startsWith("jdbc:dadp:mysql:");
-        boolean pg = "pg-evaluation".equals(properties.getProperty(PREFIX + "mode"))
+        boolean pg = ("plugin".equals(mode) || "pg-evaluation".equals(mode))
                 && url.startsWith("jdbc:dadp:postgresql:");
         if (!pg && !mysql) {
             throw unsupported();
@@ -47,17 +68,23 @@ final class V8PostgresqlConnection {
                 }
             } else if (key.startsWith("dadp.")) {
                 if (!key.equals(PREFIX + "mode") && !key.equals(PREFIX + "schema")
-                        && !key.equals(PREFIX + "table")) {
+                        && !key.equals(PREFIX + "table")
+                        && !("plugin".equals(mode) && key.equals(PREFIX + "generated-key"))) {
                     throw unsupported();
                 }
             } else {
                 nativeProperties.setProperty(key, value);
             }
         }
+        if ("plugin".equals(mode) && columns.values().stream().noneMatch(java.util.Objects::nonNull)) {
+            throw new SQLException("Plugin mode requires at least one protected column", "08001");
+        }
         ExperimentalSqlRewriter.FixtureScope scope = new ExperimentalSqlRewriter.FixtureScope(
                 properties.getProperty(PREFIX + "schema"), properties.getProperty(PREFIX + "table"), columns);
         ExperimentalSqlRewriter rewriter = mysql ? ExperimentalSqlRewriter.forMysql(scope)
                 : ExperimentalSqlRewriter.forPostgresql(scope);
+        String generatedKey = properties.getProperty(PREFIX + "generated-key");
+        if (generatedKey != null) rewriter.checkGeneratedKeyColumns(new String[]{generatedKey});
         String nativeUrl = DadpJdbcUrlSupport.extractActualUrl(url);
         // Exactly one connection attempt; never enter the legacy connector's retry path.
         Connection delegate;
@@ -69,11 +96,15 @@ final class V8PostgresqlConnection {
         if (delegate == null) {
             throw new SQLException("Native driver did not create a connection", "08001");
         }
-        return wrap(delegate, rewriter);
+        return wrap(delegate, rewriter, "plugin".equals(mode), generatedKey);
     }
 
     static Connection wrap(Connection delegate, ExperimentalSqlRewriter rewriter) {
-        V8PostgresqlConnection runtime = new V8PostgresqlConnection(rewriter);
+        return wrap(delegate, rewriter, false, null);
+    }
+
+    private static Connection wrap(Connection delegate, ExperimentalSqlRewriter rewriter, boolean allowNamedGeneratedKeys, String generatedKey) {
+        V8PostgresqlConnection runtime = new V8PostgresqlConnection(rewriter, allowNamedGeneratedKeys, generatedKey);
         runtime.connection = runtime.proxy(Connection.class, delegate, null);
         return runtime.connection;
     }
@@ -97,7 +128,9 @@ final class V8PostgresqlConnection {
         if (name.equals("isWrapperFor")) return ((Class<?>) args[0]).isInstance(self);
         if (name.equals("getConnection")) return connection;
         if (delegate instanceof ResultSet && name.equals("getStatement")) return owner;
-        if (delegate instanceof Statement && name.equals("getGeneratedKeys")) throw unsupported();
+        if (delegate instanceof Statement && name.equals("getGeneratedKeys") && !allowNamedGeneratedKeys) {
+            throw unsupported();
+        }
         Object[] forwarded = args == null ? null : args.clone();
         if (delegate instanceof Connection) {
             if (name.equals("prepareCall") || name.equals("nativeSQL") || name.equals("setTypeMap")
@@ -107,8 +140,25 @@ final class V8PostgresqlConnection {
                 throw unsupported();
             }
             if (name.equals("createStatement") || name.equals("prepareStatement")) {
-                if (name.equals("prepareStatement") && args.length == 2) {
-                    noGeneratedKeys(args[1]);
+                if (name.equals("prepareStatement")) {
+                    String rewritten = rewriter.rewrite((String) args[0]);
+                    forwarded[0] = rewritten;
+                    if (args.length == 2) {
+                        String[] columns = null;
+                        if (allowNamedGeneratedKeys && args[1] instanceof String[]) {
+                            columns = ((String[]) args[1]).clone();
+                        } else if (generatedKey != null && Integer.valueOf(Statement.RETURN_GENERATED_KEYS).equals(args[1])) {
+                            columns = new String[]{generatedKey};
+                            method = Connection.class.getMethod("prepareStatement", String.class, String[].class);
+                        } else {
+                            noGeneratedKeys(args[1]);
+                        }
+                        if (columns != null) {
+                            if (!rewritten.startsWith("INSERT INTO ")) throw unsupported();
+                            rewriter.checkGeneratedKeyColumns(columns);
+                            forwarded[1] = columns;
+                        }
+                    }
                 }
                 // Updatable result sets are a second write path, outside the SQL allowlist.
                 int concurrencyIndex = name.equals("createStatement") ? 1 : 2;
@@ -117,7 +167,6 @@ final class V8PostgresqlConnection {
                         && (Integer) args[concurrencyIndex] != ResultSet.CONCUR_READ_ONLY) {
                     throw unsupported();
                 }
-                if (name.equals("prepareStatement")) forwarded[0] = rewriter.rewrite((String) args[0]);
             }
         }
         if (delegate instanceof Statement && args != null && args.length > 0
