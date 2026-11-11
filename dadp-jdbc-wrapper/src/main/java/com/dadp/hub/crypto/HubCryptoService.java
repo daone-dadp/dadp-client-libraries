@@ -317,12 +317,50 @@ public class HubCryptoService {
         return doPostBytes(operation, url, requestBody, contentType, acceptType, wrapperTransportMode);
     }
 
+    private static boolean retryableTransport(Throwable error) {
+        for (Throwable cause=error; cause!=null; cause=cause.getCause()) {
+            if (cause instanceof javax.net.ssl.SSLException) return false;
+        }
+        for (Throwable cause=error; cause!=null; cause=cause.getCause()) {
+            if (cause instanceof java.net.SocketException ||
+                    cause instanceof java.net.SocketTimeoutException || cause instanceof EOFException) return true;
+        }
+        return false;
+    }
+
     private BinaryHttpResponse doPostBytes(String operation, String url, byte[] requestBody,
                                            String contentType, String acceptType, String wrapperTransportMode) {
+        final long requestId=HTTP_REQUEST_SEQUENCE.incrementAndGet();
+        final long started=System.nanoTime();
+        long delay=100;
+        final boolean crypto=summarizeEndpoint(url).matches(".*/api/(encrypt|decrypt)(/batch|/stream)?");
+        for (int attempt=1;;attempt++) {
+            if (Thread.currentThread().isInterrupted()) throw new HubConnectionException("Engine recovery interrupted");
+            try {
+                BinaryHttpResponse response=doPostBytesOnce(operation,url,requestBody,contentType,acceptType,wrapperTransportMode,requestId);
+                boolean transientStatus=response.statusCode==502 || response.statusCode==503 || response.statusCode==504;
+                if (!crypto || !transientStatus || attempt>=16 || System.nanoTime()-started>=15_000_000_000L) return response;
+            } catch (HubConnectionException error) {
+                if (!crypto || !retryableTransport(error) || attempt>=16 || System.nanoTime()-started>=15_000_000_000L) throw error;
+            }
+            long remaining=15_000_000_000L-(System.nanoTime()-started);
+            if (remaining<=0) throw new HubConnectionException("Engine recovery budget exhausted");
+            log.debug("Wrapper crypto transport recovery: requestId={}, operation={}, attempt={}",requestId,operation,attempt);
+            try { Thread.sleep(Math.min(delay,Math.max(1,remaining/1_000_000))); }
+            catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new HubConnectionException("Engine recovery interrupted",error);
+            }
+            delay=Math.min(1000,delay*2);
+        }
+    }
+
+    private BinaryHttpResponse doPostBytesOnce(String operation, String url, byte[] requestBody,
+                                           String contentType, String acceptType, String wrapperTransportMode,
+                                           long requestId) {
         HttpURLConnection conn = null;
         boolean responseFullyConsumed = false;
         boolean captureTimings = profileRecorder != null || (enableLogging && log.isDebugEnabled());
-        long requestId = HTTP_REQUEST_SEQUENCE.incrementAndGet();
         int requestBytes = requestBody != null ? requestBody.length : 0;
         String endpoint = summarizeEndpoint(url);
         long startedNs = captureTimings ? System.nanoTime() : 0L;
