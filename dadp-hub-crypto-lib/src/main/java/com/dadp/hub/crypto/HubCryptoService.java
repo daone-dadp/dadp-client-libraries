@@ -73,7 +73,9 @@ public class HubCryptoService {
         factory.setProxy(java.net.Proxy.NO_PROXY);
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(5000);
-        return new RestTemplate(factory);
+        RestTemplate template = new RestTemplate(factory);
+        template.setInterceptors(java.util.Collections.singletonList(new CryptoRetryInterceptor()));
+        return template;
     }
 
     /**
