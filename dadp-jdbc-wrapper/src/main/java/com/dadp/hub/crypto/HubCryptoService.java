@@ -339,12 +339,17 @@ public class HubCryptoService {
             try {
                 BinaryHttpResponse response=doPostBytesOnce(operation,url,requestBody,contentType,acceptType,wrapperTransportMode,requestId);
                 boolean transientStatus=response.statusCode==502 || response.statusCode==503 || response.statusCode==504;
-                if (!crypto || !transientStatus || attempt>=16 || System.nanoTime()-started>=15_000_000_000L) return response;
+                if (!crypto || !transientStatus) return response;
+                if (attempt>=16 || System.nanoTime()-started>=15_000_000_000L)
+                    throw new com.dadp.hub.crypto.exception.TransientCryptoException("Engine temporary transport budget exhausted");
             } catch (HubConnectionException error) {
-                if (!crypto || !retryableTransport(error) || attempt>=16 || System.nanoTime()-started>=15_000_000_000L) throw error;
+                if (error instanceof com.dadp.hub.crypto.exception.TransientCryptoException) throw error;
+                if (!crypto || !retryableTransport(error)) throw error;
+                if (attempt>=16 || System.nanoTime()-started>=15_000_000_000L)
+                    throw new com.dadp.hub.crypto.exception.TransientCryptoException("Engine temporary transport budget exhausted", error);
             }
             long remaining=15_000_000_000L-(System.nanoTime()-started);
-            if (remaining<=0) throw new HubConnectionException("Engine recovery budget exhausted");
+            if (remaining<=0) throw new com.dadp.hub.crypto.exception.TransientCryptoException("Engine temporary transport budget exhausted");
             log.debug("Wrapper crypto transport recovery: requestId={}, operation={}, attempt={}",requestId,operation,attempt);
             try { Thread.sleep(Math.min(delay,Math.max(1,remaining/1_000_000))); }
             catch (InterruptedException error) {

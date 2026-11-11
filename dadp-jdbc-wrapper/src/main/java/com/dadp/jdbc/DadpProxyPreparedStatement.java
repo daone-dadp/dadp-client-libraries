@@ -740,8 +740,8 @@ public class DadpProxyPreparedStatement implements PreparedStatement {
         } catch (Exception e) {
             // 암호화 실패 시 경고 레벨로 간략하게 출력하고 평문으로 저장
             String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.warn("{} encryption failed: {}.{} (policy: {}), saving as plaintext - {}",
-                     methodName, plan.tableName, plan.columnName, plan.policyName, errorMsg);
+            log.warn("{} encryption failed: {}.{} (policy: {}), failOpen={} - {}",
+                     methodName, plan.tableName, plan.columnName, plan.policyName, isFailOpenEnabled(), errorMsg);
 
             notifyCryptoOperationFailure(methodName, plan.tableName, plan.columnName, plan.policyName, e);
 

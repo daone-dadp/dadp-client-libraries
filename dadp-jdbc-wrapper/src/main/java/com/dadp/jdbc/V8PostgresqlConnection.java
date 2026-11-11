@@ -111,7 +111,28 @@ final class V8PostgresqlConnection {
 
     private <T> T proxy(Class<T> type, T delegate, Statement owner) {
         return type.cast(Proxy.newProxyInstance(V8PostgresqlConnection.class.getClassLoader(),
-                new Class<?>[]{type}, (self, method, args) -> invoke(self, method, args, delegate, owner)));
+                new Class<?>[]{type}, new NativeInvocation(delegate, owner)));
+    }
+
+    private final class NativeInvocation implements java.lang.reflect.InvocationHandler {
+        private final Object delegate;
+        private final Statement owner;
+        NativeInvocation(Object delegate, Statement owner) { this.delegate=delegate; this.owner=owner; }
+        public Object invoke(Object self, Method method, Object[] args) throws Throwable {
+            return V8PostgresqlConnection.this.invoke(self, method, args, delegate, owner);
+        }
+    }
+
+    // Package-only access for the atomic recovery ledger. Public unwrap stays blocked.
+    static Connection recoveryDelegate(Connection wrapped) throws SQLException {
+        if (Proxy.isProxyClass(wrapped.getClass())) {
+            java.lang.reflect.InvocationHandler h=Proxy.getInvocationHandler(wrapped);
+            if (h instanceof V8PostgresqlConnection.NativeInvocation) {
+                Object delegate=((NativeInvocation) h).delegate;
+                if (delegate instanceof Connection) return (Connection) delegate;
+            }
+        }
+        throw new SQLException("Recovery requires a DADP PostgreSQL connection", "0A000");
     }
 
     private Object invoke(Object self, Method method, Object[] args, Object delegate, Statement owner) throws Throwable {

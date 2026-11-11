@@ -28,10 +28,10 @@ public class PolicyResolver {
     private static final Map<String, PolicyResolver> instanceResolvers = new ConcurrentHashMap<>();
     
     
-    private final Map<String, String> policyCache = new ConcurrentHashMap<>();
+    private volatile Map<String, String> policyCache = Collections.emptyMap();
 
     
-    private final Map<String, PolicyAttributes> policyAttributeCache = new ConcurrentHashMap<>();
+    private volatile Map<String, PolicyAttributes> policyAttributeCache = Collections.emptyMap();
 
     
     private volatile Long currentVersion = null;
@@ -93,7 +93,7 @@ public class PolicyResolver {
     private void loadMappingsFromStorage() {
         Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
-            policyCache.putAll(storedMappings);
+            policyCache = Collections.unmodifiableMap(new HashMap<>(storedMappings));
             
             Long storedVersion = storage.loadVersion();
             if (storedVersion != null) {
@@ -106,7 +106,7 @@ public class PolicyResolver {
             
             Map<String, PolicyAttributes> storedAttributes = storage.loadPolicyAttributes();
             if (storedAttributes != null && !storedAttributes.isEmpty()) {
-                policyAttributeCache.putAll(storedAttributes);
+                policyAttributeCache = Collections.unmodifiableMap(new HashMap<>(storedAttributes));
                 log.debug("Policy attributes loaded from persistent storage: {} entries", storedAttributes.size());
             }
             this.storedLogConfig = storage.loadStoredLogConfig();
@@ -191,11 +191,10 @@ public class PolicyResolver {
     }
     
     
-    public void refreshMappings(Map<String, String> mappings, Long version) {
+    public synchronized void refreshMappings(Map<String, String> mappings, Long version) {
         log.trace("Policy mapping cache refresh started: {} mappings, version={}", mappings.size(), version);
         Map<String, String> canonicalMappings = canonicalizeMappings(mappings);
-        policyCache.clear();
-        policyCache.putAll(canonicalMappings);
+        policyCache = Collections.unmodifiableMap(new HashMap<>(canonicalMappings));
         protectedColumnIndex = null;
         
         
@@ -222,14 +221,11 @@ public class PolicyResolver {
     }
     
     
-    public void refreshMappings(Map<String, String> mappings, Map<String, PolicyAttributes> attributes, Long version) {
+    public synchronized void refreshMappings(Map<String, String> mappings, Map<String, PolicyAttributes> attributes, Long version) {
         refreshMappings(mappings, version);
 
         if (attributes != null) {
-            policyAttributeCache.clear();
-            if (!attributes.isEmpty()) {
-                policyAttributeCache.putAll(attributes);
-            }
+            policyAttributeCache = Collections.unmodifiableMap(new HashMap<>(attributes));
             log.debug("Policy attributes cache refreshed: {} policies", attributes.size());
 
             storage.saveMappings(canonicalizeMappings(mappings), attributes, storedLogConfig, version);
@@ -254,7 +250,7 @@ public class PolicyResolver {
 
     
     @Deprecated
-    public void refreshMappings(Map<String, String> mappings) {
+    public synchronized void refreshMappings(Map<String, String> mappings) {
         refreshMappings(mappings, null);
     }
     
@@ -270,9 +266,12 @@ public class PolicyResolver {
     }
     
     
-    public void addMapping(String databaseName, String tableName, String columnName, String policyName) {
+    public synchronized void addMapping(String databaseName, String tableName, String columnName, String policyName) {
         String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
-        policyCache.put(key, policyName);
+        Map<String,String> next = new HashMap<>(policyCache);
+        next.put(key, policyName);
+        policyCache = Collections.unmodifiableMap(next);
+        protectedColumnIndex = null;
         log.trace("Policy mapping added: {} -> {}", key, policyName);
     }
     
@@ -283,9 +282,12 @@ public class PolicyResolver {
     }
     
     
-    public void removeMapping(String databaseName, String tableName, String columnName) {
+    public synchronized void removeMapping(String databaseName, String tableName, String columnName) {
         String key = buildSchemaOrTableKey(databaseName, tableName, columnName);
-        policyCache.remove(key);
+        Map<String,String> next = new HashMap<>(policyCache);
+        next.remove(key);
+        policyCache = Collections.unmodifiableMap(next);
+        protectedColumnIndex = null;
         log.trace("Policy mapping removed: {}", key);
     }
     
@@ -296,18 +298,17 @@ public class PolicyResolver {
     }
     
     
-    public void clearCache() {
-        policyCache.clear();
+    public synchronized void clearCache() {
+        policyCache = Collections.emptyMap();
         protectedColumnIndex = null;
         log.trace("Policy mapping cache cleared");
     }
     
     
-    public void reloadFromStorage() {
+    public synchronized void reloadFromStorage() {
         Map<String, String> storedMappings = canonicalizeMappings(storage.loadMappings());
         if (!storedMappings.isEmpty()) {
-            policyCache.clear();
-            policyCache.putAll(storedMappings);
+            policyCache = Collections.unmodifiableMap(new HashMap<>(storedMappings));
             protectedColumnIndex = null;
             Long storedVersion = storage.loadVersion();
             if (storedVersion != null) {
@@ -528,7 +529,8 @@ public class PolicyResolver {
             return null;
         }
 
-        String policy = policyCache.get(key);
+        Map<String,String> snapshot = policyCache;
+        String policy = snapshot.get(key);
         if (policy != null) {
             log.trace("Policy cache hit: {} -> {}", key, policy);
             return policy;
@@ -536,7 +538,7 @@ public class PolicyResolver {
 
         String lowerKey = key.toLowerCase(Locale.ROOT);
         if (!lowerKey.equals(key)) {
-            policy = policyCache.get(lowerKey);
+            policy = snapshot.get(lowerKey);
             if (policy != null) {
                 log.trace("Policy cache hit (lowercase): {} -> {}", lowerKey, policy);
                 return policy;
