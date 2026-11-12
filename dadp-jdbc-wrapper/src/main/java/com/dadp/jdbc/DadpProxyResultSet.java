@@ -239,8 +239,8 @@ public class DadpProxyResultSet implements ResultSet {
         ResultSetMetaData metaData = actualResultSet.getMetaData();
         String rawColumnName = metaData.getColumnName(columnIndex);
         String columnLabel = metaData.getColumnLabel(columnIndex);
-        String metadataSchemaName = metaData.getSchemaName(columnIndex);
-        String metadataTableName = metaData.getTableName(columnIndex);
+        String metadataSchemaName = metadataSchemaName(metaData, columnIndex);
+        String metadataTableName = metadataTableName(metaData, columnIndex);
         SqlParser.SourceColumn parsedSourceColumn = sqlParseResult.getSourceColumn(columnIndex);
         if (parsedSourceColumn == null && sqlParseResult.isLineageTracked(columnIndex)) {
             ParsedDecryptPlanEntry emptyPlan = new ParsedDecryptPlanEntry(null, null, null, currentPolicyVersion);
@@ -301,6 +301,25 @@ public class DadpProxyResultSet implements ResultSet {
         cacheParsedLabel(rawColumnName, columnIndex);
         cacheParsedLabel(columnName, columnIndex);
         return plan;
+    }
+
+    // SQream JDBC supports result columns but not optional schema metadata.
+    // Only unsupported-feature responses mean absent metadata; operational errors
+    // must still propagate. Parsed SQL lineage remains the policy lookup source.
+    private static String metadataSchemaName(ResultSetMetaData metadata, int index) throws SQLException {
+        try {
+            return metadata.getSchemaName(index);
+        } catch (SQLFeatureNotSupportedException unsupported) {
+            return null;
+        }
+    }
+
+    private static String metadataTableName(ResultSetMetaData metadata, int index) throws SQLException {
+        try {
+            return metadata.getTableName(index);
+        } catch (SQLFeatureNotSupportedException unsupported) {
+            return null;
+        }
     }
 
     private String resolveParsedColumnName(String rawColumnName, String columnLabel) {
@@ -743,8 +762,8 @@ public class DadpProxyResultSet implements ResultSet {
         }
         if (entry == null) {
             ResultSetMetaData metaData = actualResultSet.getMetaData();
-            String metadataSchemaName = metaData.getSchemaName(columnIndex);
-            String tableName = metaData.getTableName(columnIndex);
+            String metadataSchemaName = metadataSchemaName(metaData, columnIndex);
+            String tableName = metadataTableName(metaData, columnIndex);
             String columnName = metaData.getColumnName(columnIndex);
             String columnLabel = metaData.getColumnLabel(columnIndex);
             if (tableName == null || columnName == null || tableName.isEmpty() || columnName.isEmpty()) {
