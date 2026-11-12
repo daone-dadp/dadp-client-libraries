@@ -80,6 +80,12 @@ public class DadpProxyConnection implements Connection {
     }
 
     public DadpProxyConnection(Connection actualConnection, String originalUrl, Map<String, String> urlParams, java.util.Properties connectionProperties) {
+        this(actualConnection,originalUrl,urlParams,connectionProperties,false);
+    }
+
+    private final boolean managedRuntime;
+    DadpProxyConnection(Connection actualConnection, String originalUrl, Map<String,String> urlParams, java.util.Properties connectionProperties, boolean managedRuntime) {
+        this.managedRuntime=managedRuntime;
         this.actualConnection = actualConnection;
         this.originalUrl = originalUrl;
         this.originalUrlParams = urlParams;
@@ -96,11 +102,11 @@ public class DadpProxyConnection implements Connection {
             if (!config.isEnabled()) {
                 log.info("DADP Wrapper DISABLED (passthrough mode) - no encryption/decryption will be performed");
                 initializePassthroughState(false);
-                WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+                if (!managedRuntime) WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
                 return;
             }
             blockStartup("DADP Wrapper startup prerequisites not met; refusing SQL execution to prevent plaintext storage");
-            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+            if (!managedRuntime) WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
 
@@ -122,13 +128,13 @@ public class DadpProxyConnection implements Connection {
         boolean initialized = this.orchestrator.runBootstrapFlow(actualConnection);
         if (!initialized) {
             blockStartup("DADP Wrapper runtime is not initialized; refusing SQL execution to prevent plaintext storage");
-            WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+            if (!managedRuntime) WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
             return;
         }
         
         // 오케스트레이터에서 초기화된 서비스 가져오기
         activateRuntimeServicesFromOrchestrator("startup");
-        WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
+        if (!managedRuntime) WrapperRuntimeRefreshWatcher.register(runtimeRefreshTarget);
         
         // Runtime synchronization is owned by JdbcBootstrapOrchestrator.
         
@@ -336,6 +342,12 @@ public class DadpProxyConnection implements Connection {
             return false;
         }
         return activateRuntimeServicesFromOrchestrator("manual-refresh");
+    }
+
+    void reloadManagedRuntime(long expectedVersion) throws SQLException {
+        reloadRuntimeFromStorage();
+        if (policyResolver==null || !java.util.Objects.equals(policyResolver.getCurrentVersion(),Long.valueOf(expectedVersion)))
+            throw new SQLException("Hub policy/runtime snapshot is not fully applied", "08001");
     }
 
     private void reloadRuntimeFromStorage() {

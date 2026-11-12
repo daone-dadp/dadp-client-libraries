@@ -98,7 +98,7 @@ public class PolicyMappingStorage {
             }
 
             File storageFile = new File(storagePath);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            com.dadp.common.sync.config.AtomicJsonFile.write(storageFile.toPath(),objectMapper,data);
 
             log.debug("Policy mapping saved: {} mappings, {} attributes, logConfig={}, version={} -> {}",
                     mappings != null ? mappings.size() : 0,

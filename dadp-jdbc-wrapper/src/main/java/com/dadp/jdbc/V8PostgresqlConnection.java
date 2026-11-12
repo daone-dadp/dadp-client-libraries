@@ -103,7 +103,7 @@ final class V8PostgresqlConnection {
         return wrap(delegate, rewriter, false, null);
     }
 
-    private static Connection wrap(Connection delegate, ExperimentalSqlRewriter rewriter, boolean allowNamedGeneratedKeys, String generatedKey) {
+    static Connection wrap(Connection delegate, ExperimentalSqlRewriter rewriter, boolean allowNamedGeneratedKeys, String generatedKey) {
         V8PostgresqlConnection runtime = new V8PostgresqlConnection(rewriter, allowNamedGeneratedKeys, generatedKey);
         runtime.connection = runtime.proxy(Connection.class, delegate, null);
         return runtime.connection;

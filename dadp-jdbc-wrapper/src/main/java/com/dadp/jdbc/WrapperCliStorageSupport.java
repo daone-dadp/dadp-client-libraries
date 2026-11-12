@@ -169,7 +169,15 @@ public final class WrapperCliStorageSupport {
         return applyRefreshResponse(storageDir, responseBody, null);
     }
 
-    public static RefreshApplyResult applyRefreshResponse(String storageDir,
+    public static synchronized RefreshApplyResult applyRefreshResponse(String storageDir,String responseBody,String runtimeHubUrlFallback) throws IOException {
+        Path directory=Paths.get(storageDir);
+        try(java.nio.channels.FileChannel lockFile=java.nio.channels.FileChannel.open(directory.resolve(".runtime-refresh.lock"),java.nio.file.StandardOpenOption.CREATE,java.nio.file.StandardOpenOption.WRITE);
+            java.nio.channels.FileLock lock=lockFile.lock()) {
+            return applyLockedRefreshResponse(storageDir,responseBody,runtimeHubUrlFallback);
+        }
+    }
+
+    private static RefreshApplyResult applyLockedRefreshResponse(String storageDir,
                                                           String responseBody,
                                                           String runtimeHubUrlFallback) throws IOException {
         JsonNode root = OBJECT_MAPPER.readTree(responseBody);
@@ -190,6 +198,7 @@ public final class WrapperCliStorageSupport {
         if (responseAlias != null && !currentAlias.equals(responseAlias)) {
             throw new IllegalStateException("wrapper alias mismatch in Hub refresh response");
         }
+        ManagedDatasourceRuntime.validateRefresh(storageDir,root,currentAlias,tenantId);
         String cryptoMode = firstNonNull(
                 text(root.path("runtime").path("cryptoMode")),
                 text(wrapper.path("cryptoMode")),
@@ -221,7 +230,7 @@ public final class WrapperCliStorageSupport {
                 text(root.path("runtime").path("engineUrl")),
                 text(wrapper.path("engineUrl")));
 
-        configStorage.saveRuntimeOptions(
+        if (!configStorage.saveRuntimeOptions(
                 cryptoMode,
                 failOpen,
                 policySyncAutoEnabled,
@@ -232,7 +241,7 @@ public final class WrapperCliStorageSupport {
                 null,
                 null,
                 null,
-                enabled);
+                enabled)) throw new IOException("Cannot persist Hub runtime configuration");
 
         PolicyMappingStorage mappingStorage = new PolicyMappingStorage(storageDir, POLICY_MAPPINGS_FILE);
         Map<String, String> mappings = new LinkedHashMap<>();
@@ -266,7 +275,9 @@ public final class WrapperCliStorageSupport {
             }
         }
         Long version = parseLong(runtimeVersion);
-        mappingStorage.saveMappings(mappings, attributes, logConfig, version);
+        if (!mappingStorage.saveMappings(mappings, attributes, logConfig, version))
+            throw new IOException("Cannot persist Hub policy mappings");
+        ManagedDatasourceRuntime.persist(storageDir, root, currentAlias, tenantId);
         touchRefreshTrigger(storageDir);
 
         return new RefreshApplyResult(version, policyBindingCount, mappings.size(), engineUrl, cryptoMode);

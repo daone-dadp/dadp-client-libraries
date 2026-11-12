@@ -24,7 +24,10 @@ import java.nio.file.Paths;
  * @since 2025-12-31
  */
 public class InstanceConfigStorage {
-    
+    private void writeAtomically(File target,ObjectNode data) throws IOException {
+        AtomicJsonFile.write(target.toPath(),objectMapper,data);
+    }
+
     private static final DadpLogger log = DadpLoggerFactory.getLogger(InstanceConfigStorage.class);
     
     private final String storagePath;
@@ -106,7 +109,7 @@ public class InstanceConfigStorage {
             
             // Persist the canonical JSON file used by CLI and wrapper runtime.
             File storageFile = new File(storagePath);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            writeAtomically(storageFile, data);
             
             log.debug("Instance config saved: tenantId={}, alias={} -> {}",
                     text(data.path("tenantId")), text(data.path("alias")), storagePath);
@@ -167,7 +170,7 @@ public class InstanceConfigStorage {
             removeNonPersistentBootstrapFields(data);
 
             File storageFile = new File(storagePath);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            writeAtomically(storageFile, data);
             log.debug("Wrapper enrollment saved: tenantId={}, alias={}, runtimeVersion={} -> {}",
                     text(data.path("tenantId")), text(data.path("alias")), text(data.path("runtimeVersion")), storagePath);
             return true;
@@ -267,7 +270,7 @@ public class InstanceConfigStorage {
             saveRuntimeConfig(data, resolvedRuntimeHubUrl, engineUrl, cryptoMode, failOpen, policySyncAutoEnabled, enabled);
 
             File storageFile = new File(storagePath);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storageFile, data);
+            writeAtomically(storageFile, data);
             log.debug("Runtime options saved: cryptoMode={}, failOpen={}, policySyncAutoEnabled={}, runtimeVersion={}, engineUrl={} -> {}",
                     text(data.path("runtime").path("cryptoMode")),
                     data.path("runtime").path("failOpen").isMissingNode() ? null : Boolean.valueOf(data.path("runtime").path("failOpen").asBoolean(false)),

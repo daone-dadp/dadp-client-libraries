@@ -57,6 +57,24 @@ public class DadpJdbcDriver implements Driver {
             return null;
         }
         DadpJdbcUrlSupport.validateNoDadpRuntimeParams(url);
+        String alias=info!=null?info.getProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY):null;
+        if(alias==null||alias.trim().isEmpty())alias=System.getProperty(ProxyConfig.WRAPPER_ALIAS_PROPERTY);
+        if(alias!=null&&!alias.trim().isEmpty()){
+            Map<String,String> managedParams=new HashMap<>();managedParams.put(ProxyConfig.WRAPPER_ALIAS_PROPERTY,alias);
+            ProxyConfig cfg=new ProxyConfig(managedParams);
+            ProxyConfig.NotificationContext enrollment=ProxyConfig.loadNotificationContext(managedParams);
+            if(enrollment!=null)cfg.setTenantId(enrollment.getTenantId());
+            if(cfg.getTenantId()!=null&&!cfg.getTenantId().trim().isEmpty()){
+                if(info!=null)for(String key:info.stringPropertyNames())
+                    if(key.startsWith("dadp.v8.")&&!key.equals("dadp.v8.mode"))throw new SQLException("Hub-managed datasource must use Hub column policy mappings instead of local Plugin properties","08001");
+                ManagedDatasourceRuntime runtime=ManagedDatasourceRuntime.get(cfg);
+                Properties nativeProps=sanitizeNativeConnectionProperties(info);
+                String nativeUrl=extractActualUrl(url);
+                Connection raw=ActualJdbcDriverConnector.connect(nativeUrl,nativeProps);
+                try{return ManagedJdbcConnection.wrap(raw,url,managedParams,nativeProps,runtime);}
+                catch(SQLException e){raw.close();throw e;}
+            }
+        }
         if (V8PostgresqlConnection.pluginRequested(info)) {
             return V8PostgresqlConnection.connect(url, info);
         }

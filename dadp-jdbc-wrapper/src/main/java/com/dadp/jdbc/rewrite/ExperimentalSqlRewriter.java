@@ -42,6 +42,7 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
 public final class ExperimentalSqlRewriter {
     private final FixtureScope scope;
     private final FixtureFunctions functions;
+    private boolean qualifyUnqualified;
 
     /** Disabled by default: does not parse, resolve policies or change SQL. */
     public ExperimentalSqlRewriter() {
@@ -60,6 +61,12 @@ public final class ExperimentalSqlRewriter {
 
     public static ExperimentalSqlRewriter forPostgresql(FixtureScope scope) throws SQLException {
         return forPlugin(scope);
+    }
+
+    public static ExperimentalSqlRewriter forManagedPostgresql(FixtureScope scope) throws SQLException {
+        ExperimentalSqlRewriter result=forPostgresql(scope);
+        result.qualifyUnqualified=true;
+        return result;
     }
 
     public static ExperimentalSqlRewriter forMysql(FixtureScope scope) throws SQLException {
@@ -102,6 +109,9 @@ public final class ExperimentalSqlRewriter {
             throw unsupported();
         }
     }
+
+    public String getSchemaName() { return scope==null?null:scope.schema; }
+    public String getTableName() { return scope==null?null:scope.table; }
 
     public void checkGeneratedKeyColumns(String[] columns) throws SQLException {
         require(scope != null && columns.length > 0);
@@ -213,6 +223,7 @@ public final class ExperimentalSqlRewriter {
 
     private Table table(Table source, boolean allowAlias) throws SQLException {
         require(source != null);
+        if (qualifyUnqualified && source.getSchemaName()==null) source.setSchemaName(scope.schema);
         require(Objects.equals(scope.schema, source.getSchemaName()) && scope.table.equals(source.getName()));
         Table allowed = new Table(scope.table);
         allowed.setSchemaName(scope.schema);
