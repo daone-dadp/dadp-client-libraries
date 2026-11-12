@@ -157,7 +157,13 @@ final class ManagedJdbcConnection implements InvocationHandler {
             if(name.equals("isClosed"))return stopped;
             if(name.equals("cancel")){if(delegate!=null)delegate.cancel();return null;}
             if(stopped)throw new SQLException("Statement is closed","07000");
-            if(name.equals("clearParameters")){setters.entrySet().removeIf(e->e.getKey().startsWith("parameter:"));return null;}
+            if(name.equals("clearParameters")){
+                setters.entrySet().removeIf(e->e.getKey().startsWith("parameter:"));
+                // Recreate the native statement so removed binds cannot survive.
+                // Some JDBC vendors (including SQream) do not implement clearParameters.
+                if(delegate!=null){delegate.close();delegate=null;}
+                return null;
+            }
             if(name.startsWith("set")){
                 Object[] copy=copyArgs(args);
                 String key=method.getDeclaringClass()==PreparedStatement.class&&args!=null&&args.length>0&&args[0] instanceof Integer?"parameter:"+args[0]:"option:"+name;
@@ -180,7 +186,11 @@ final class ManagedJdbcConnection implements InvocationHandler {
                     if(name.equals("executeBatch")||name.equals("executeLargeBatch")){
                         delegate.clearBatch();
                         for(List<Call> batch:batches){((PreparedStatement)delegate).clearParameters();for(Call call:batch)call.apply(delegate);((PreparedStatement)delegate).addBatch();}
-                    }else {if(delegate instanceof PreparedStatement)((PreparedStatement)delegate).clearParameters();for(Call call:setters.values())call.apply(delegate);}
+                    }else {
+                        // Every retained parameter is reapplied; clearParameters above
+                        // disposes the delegate when parameters are actually removed.
+                        for(Call call:setters.values())call.apply(delegate);
+                    }
                     Object result=ManagedJdbcConnection.invoke(method,delegate,args);
                     if(name.equals("executeBatch")||name.equals("executeLargeBatch"))batches.clear();
                     return result instanceof ResultSet?guardResult((ResultSet)result,selfStatement,version):result;
