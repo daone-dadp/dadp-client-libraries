@@ -113,7 +113,7 @@ final class ManagedDatasourceRuntime {
             if(runtime.path("failOpen").asBoolean(false))throw invalid("Managed datasource requires failOpen=false");
             String vendor=root.path("datasource").path("vendor").asText().toLowerCase(Locale.ROOT);
             if("postgres".equals(vendor))vendor="postgresql";
-            if("plugin".equals(mode)&&!"postgresql".equals(vendor)&&!"mysql".equals(vendor))throw invalid("This DB supports Engine mode only");
+            if("plugin".equals(mode)&&!"postgresql".equals(vendor)&&!"mysql".equals(vendor)&&!"oracle".equals(vendor))throw invalid("This DB supports Engine mode only");
             List<ExperimentalSqlRewriter> rewriters=new ArrayList<>();
             if("plugin".equals(mode)){
                 JsonNode schema=root.path("schemaJson");
@@ -137,8 +137,8 @@ final class ManagedDatasourceRuntime {
                             columns.put(column,code);protectedColumn|=code!=null;
                         }
                         if(!protectedColumn)continue;
-                        ExperimentalSqlRewriter.FixtureScope scope=new ExperimentalSqlRewriter.FixtureScope(sc,name,columns);
-                        rewriters.add("mysql".equals(vendor)?ExperimentalSqlRewriter.forManagedMysql(scope):ExperimentalSqlRewriter.forManagedPostgresql(scope));
+                        ExperimentalSqlRewriter.FixtureScope scope="oracle".equals(vendor)?ExperimentalSqlRewriter.FixtureScope.forOracle(sc,name,columns):new ExperimentalSqlRewriter.FixtureScope(sc,name,columns);
+                        rewriters.add("oracle".equals(vendor)?ExperimentalSqlRewriter.forManagedOracle(scope):"mysql".equals(vendor)?ExperimentalSqlRewriter.forManagedMysql(scope):ExperimentalSqlRewriter.forManagedPostgresql(scope));
                     }
                     if(rewriters.isEmpty())throw invalid("Plugin mode requires a schema and active column policy mappings in Hub");
                 }catch(SQLException e){throw e;}catch(Exception e){throw invalid("Invalid Hub schema snapshot");}

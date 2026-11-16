@@ -47,9 +47,9 @@ class ManagedDatasourceSnapshotTest {
    assertEquals(7,ManagedDatasourceRuntime.JSON.readTree(dir.resolve("managed-runtime.json").toFile()).path("runtimeVersion").asInt());
   }finally{java.nio.file.Files.deleteIfExists(dir.resolve("managed-runtime.json"));java.nio.file.Files.deleteIfExists(dir);}
  }
- @Test void sqreamAndOracleCannotUsePluginOrUnknownMode()throws Exception{
+ @Test void unsupportedVendorsCannotUsePluginOrUnknownMode()throws Exception{
   assertThrows(SQLException.class,()->parse(snapshot("plugin","sqream")));
-  assertThrows(SQLException.class,()->parse(snapshot("plugin","oracle")));
+  assertThrows(SQLException.class,()->parse(snapshot("plugin","mariadb")));
   assertThrows(SQLException.class,()->parse(snapshot("auto","postgresql")));
   assertEquals("engine",parse(snapshot("engine","sqream")).mode);
  }

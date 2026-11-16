@@ -50,7 +50,7 @@ final class ManagedJdbcConnection implements InvocationHandler {
             String generated=null;
             if(autoKeys){
                 List<String> keys=new ArrayList<>();
-                try(ResultSet rs=raw.getMetaData().getPrimaryKeys(raw.getCatalog(),rewriter.getSchemaName(),rewriter.getTableName())){
+                try(ResultSet rs=raw.getMetaData().getPrimaryKeys(raw.getCatalog(),"oracle".equals(s.vendor)?rewriter.getSchemaName().toUpperCase(Locale.ROOT):rewriter.getSchemaName(),"oracle".equals(s.vendor)?rewriter.getTableName().toUpperCase(Locale.ROOT):rewriter.getTableName())){
                     while(rs.next())keys.add(rs.getString("COLUMN_NAME"));
                 }
                 if(keys.size()!=1)throw new SQLFeatureNotSupportedException("Generated keys require one unprotected primary key","0A000");

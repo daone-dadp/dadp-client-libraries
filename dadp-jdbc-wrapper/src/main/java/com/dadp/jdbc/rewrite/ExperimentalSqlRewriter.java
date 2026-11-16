@@ -42,7 +42,7 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
 public final class ExperimentalSqlRewriter {
     private final FixtureScope scope;
     private final FixtureFunctions functions;
-    private boolean qualifyUnqualified;
+    private boolean qualifyUnqualified, oracle;
 
     /** Disabled by default: does not parse, resolve policies or change SQL. */
     public ExperimentalSqlRewriter() {
@@ -77,6 +77,28 @@ public final class ExperimentalSqlRewriter {
         ExperimentalSqlRewriter result=forMysql(scope);
         result.qualifyUnqualified=true;
         return result;
+    }
+
+    public static ExperimentalSqlRewriter forManagedOracle(FixtureScope scope) throws SQLException {
+        ExperimentalSqlRewriter result=forPlugin(scope);
+        result.qualifyUnqualified=true;result.oracle=true;
+        return result;
+    }
+    private static String oracleIdentifier(String value) throws SQLException {
+        require(value!=null);
+        if(value.startsWith("\"")){
+            require(value.matches("\"[A-Z][A-Z0-9_]*\""));
+            value=value.substring(1,value.length()-1);
+        }
+        require(value.matches("[A-Za-z][A-Za-z0-9_]*"));
+        return value.toLowerCase(java.util.Locale.ROOT);
+    }
+    private void normalizeFunction(Function f)throws SQLException{
+        if(oracle){
+            java.util.List<String> parts=new java.util.ArrayList<>();
+            for(String part:f.getName().split("\\."))parts.add(oracleIdentifier(part));
+            f.setName(parts);
+        }
     }
 
     private static ExperimentalSqlRewriter forPlugin(FixtureScope scope) throws SQLException {
@@ -122,6 +144,7 @@ public final class ExperimentalSqlRewriter {
     public void checkGeneratedKeyColumns(String[] columns) throws SQLException {
         require(scope != null && columns.length > 0);
         for (String column : columns) {
+            if(oracle)column=oracleIdentifier(column);
             require(scope.columns.containsKey(column) && scope.columns.get(column) == null);
         }
     }
@@ -198,6 +221,7 @@ public final class ExperimentalSqlRewriter {
             Expression expression = item.getExpression();
             if (expression instanceof Function) {
                 Function explicit = (Function) expression;
+                normalizeFunction(explicit);
                 require(explicit.getParameters() != null && explicit.getParameters().size() == 1);
                 expression = explicit.getParameters().get(0);
             }
@@ -211,6 +235,7 @@ public final class ExperimentalSqlRewriter {
             }
             Alias alias = item.getAlias();
             if (alias != null) {
+                if(oracle)alias.setName(oracleIdentifier(alias.getName()));
                 identifier(alias.getName());
                 sameShape(alias, new Alias(alias.getName(), alias.isUseAs()));
             } else if (value != target && item.getExpression() instanceof Column) {
@@ -229,6 +254,11 @@ public final class ExperimentalSqlRewriter {
 
     private Table table(Table source, boolean allowAlias) throws SQLException {
         require(source != null);
+        if(oracle){
+            source.setName(oracleIdentifier(source.getName()));
+            if(source.getSchemaName()!=null)source.setSchemaName(oracleIdentifier(source.getSchemaName()));
+            if(source.getAlias()!=null)source.getAlias().setName(oracleIdentifier(source.getAlias().getName()));
+        }
         if (qualifyUnqualified && source.getSchemaName()==null) source.setSchemaName(scope.schema);
         require(Objects.equals(scope.schema, source.getSchemaName()) && scope.table.equals(source.getName()));
         Table allowed = new Table(scope.table);
@@ -243,6 +273,13 @@ public final class ExperimentalSqlRewriter {
     }
 
     private String column(Column column, Table table, boolean qualified) throws SQLException {
+        if(oracle){
+            column.setColumnName(oracleIdentifier(column.getColumnName()));
+            if(column.getTable()!=null&&column.getTable().getName()!=null){
+                column.getTable().setName(oracleIdentifier(column.getTable().getName()));
+                if(column.getTable().getSchemaName()!=null)column.getTable().setSchemaName(oracleIdentifier(column.getTable().getSchemaName()));
+            }
+        }
         String name = column.getColumnName();
         require(scope.columns.containsKey(name));
         if (column.getTable() != null && column.getTable().getName() != null) {
@@ -278,6 +315,7 @@ public final class ExperimentalSqlRewriter {
             if (value instanceof Function) {
                 require(policy != null);
                 Function explicit = (Function) value;
+                normalizeFunction(explicit);
                 require(explicit.getParameters() != null && explicit.getParameters().size() == 2);
                 Expression input = explicit.getParameters().get(0);
                 require(input instanceof StringValue || input instanceof NullValue || input instanceof JdbcParameter);
@@ -338,6 +376,19 @@ public final class ExperimentalSqlRewriter {
         private final String schema;
         private final String table;
         private final Map<String, String> columns;
+
+        public static FixtureScope forOracle(String schema,String table,Map<String,String> columns)throws SQLException{
+            // Oracle metadata uses uppercase for unquoted objects. Quoted mixed/lowercase
+            // objects are deliberately outside this contract, never silently folded.
+            require(schema!=null&&schema.matches("[A-Z][A-Z0-9_]*"));
+            require(table!=null&&table.matches("[A-Z][A-Z0-9_]*"));
+            Map<String,String> normalized=new java.util.LinkedHashMap<>();
+            for(Map.Entry<String,String> e:columns.entrySet()){
+                require(e.getKey().matches("[A-Z][A-Z0-9_]*"));
+                normalized.put(e.getKey().toLowerCase(java.util.Locale.ROOT),e.getValue());
+            }
+            return new FixtureScope(schema.toLowerCase(java.util.Locale.ROOT),table.toLowerCase(java.util.Locale.ROOT),normalized);
+        }
 
         /** Every known column must be explicit; null policy means confirmed unprotected. */
         public FixtureScope(String schema, String table, Map<String, String> columns) throws SQLException {
