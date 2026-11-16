@@ -169,7 +169,12 @@ public final class ExperimentalSqlRewriter {
             String name = column(source.getColumns().get(i), table, false);
             require(seen.add(name));
             Expression value = values.get(i);
-            rewritten.add(wrap(value, name, false));
+            // Oracle Hibernate emits DEFAULT for an unprotected identity column.
+            // Do not allow DEFAULT for protected values, UPDATE or predicates.
+            if(oracle && scope.columns.get(name)==null && value instanceof Column
+                    && value.toString().equalsIgnoreCase("DEFAULT"))
+                rewritten.add(value);
+            else rewritten.add(wrap(value, name, false));
         }
         Insert allowed = new Insert();
         allowed.setTable(table);

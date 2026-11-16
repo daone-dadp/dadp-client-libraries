@@ -39,4 +39,12 @@ class OracleManagedSqlTest{
   String sql="INSERT INTO USERS(ID,NAME) VALUES(?,?)";
   assertTrue(snap.rewriter(sql).rewrite(sql).contains("dadp.dadp_encrypt(?, 'DAONE234')"));
  }
+ @Test void defaultIsAllowedOnlyForAnOracleUnprotectedInsertColumn()throws Exception{
+  assertTrue(rewriter().rewrite("insert into users(id,name,phone) values(default,?,?)").toLowerCase().contains("default"));
+  assertThrows(SQLException.class,()->rewriter().rewrite("insert into users(id,name,phone) values(?,default,?)"));
+  assertThrows(SQLException.class,()->rewriter().rewrite("update users set id=default where id=?"));
+  java.util.Map<String,String>m=new java.util.LinkedHashMap<>();m.put("id",null);m.put("name","DAONE234");
+  ExperimentalSqlRewriter pg=ExperimentalSqlRewriter.forManagedPostgresql(new ExperimentalSqlRewriter.FixtureScope("public","users",m));
+  assertThrows(SQLException.class,()->pg.rewrite("insert into users(id,name) values(default,?)"));
+ }
 }
