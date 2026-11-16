@@ -15,7 +15,7 @@ final class ManagedJdbcConnection implements InvocationHandler {
     private Connection self;
     private DadpProxyConnection engine;
     private long engineVersion=-1,transactionVersion=-1;
-    private boolean closed;
+    private boolean closed,rollbackOnly;
     private volatile boolean autoCommit;
     private ManagedJdbcConnection(Connection raw,String url,Map<String,String> params,Properties properties,ManagedDatasourceRuntime runtime)throws SQLException{
         this.raw=raw;this.url=url;this.params=params;this.properties=properties;this.runtime=runtime;
@@ -33,6 +33,14 @@ final class ManagedJdbcConnection implements InvocationHandler {
     static <T>T proxy(Class<T> type,InvocationHandler h){return (T)Proxy.newProxyInstance(ManagedJdbcConnection.class.getClassLoader(),new Class<?>[]{type},h);}
     static Object invoke(Method m,Object target,Object[] args)throws Throwable{
         try{return m.invoke(target,args);}catch(InvocationTargetException e){throw e.getTargetException();}
+    }
+    // Internal recovery-ledger access only; public JDBC unwrap remains guarded.
+    static Connection recoveryDelegate(Connection wrapped)throws SQLException{
+        if(Proxy.isProxyClass(wrapped.getClass())){
+            InvocationHandler handler=Proxy.getInvocationHandler(wrapped);
+            if(handler instanceof ManagedJdbcConnection)return ((ManagedJdbcConnection)handler).raw;
+        }
+        return V8PostgresqlConnection.recoveryDelegate(wrapped);
     }
     private Connection route(ManagedDatasourceRuntime.Snapshot s,String sql,boolean autoKeys)throws SQLException{
         if("plugin".equals(s.mode)){
@@ -54,13 +62,25 @@ final class ManagedJdbcConnection implements InvocationHandler {
         if(engineVersion!=s.version){engine.reloadManagedRuntime(s.version);engineVersion=s.version;}
         return engine;
     }
+    private SQLTransactionRollbackException rollbackRequired(){
+        return new SQLTransactionRollbackException("Hub datasource configuration changed; rollback the complete transaction before continuing","40001");
+    }
     private ManagedDatasourceRuntime.Snapshot active()throws SQLException{
-        ManagedDatasourceRuntime.Snapshot s=runtime.snapshot();
+        if(!autoCommit&&rollbackOnly)throw rollbackRequired();
+        ManagedDatasourceRuntime.Snapshot s;
+        try{s=runtime.snapshot();}
+        catch(SQLException denied){
+            if(!autoCommit&&transactionVersion>=0)rollbackOnly=true;
+            throw denied;
+        }
         if(!autoCommit){
             if(transactionVersion<0)transactionVersion=s.version;
-            if(transactionVersion!=s.version)throw new SQLTransactionRollbackException("Hub datasource configuration changed; rollback the transaction before continuing","40001");
+            if(transactionVersion!=s.version){rollbackOnly=true;throw rollbackRequired();}
         }
         return s;
+    }
+    private void checkTransactionBoundary()throws SQLException{
+        if(!autoCommit&&(transactionVersion>=0||rollbackOnly))active();
     }
     public Object invoke(Object ignored,Method method,Object[] args)throws Throwable{
         String name=method.getName();
@@ -74,11 +94,32 @@ final class ManagedJdbcConnection implements InvocationHandler {
         if(name.equals("close")){if(!closed){closed=true;if(engine!=null)engine.close();else raw.close();}return null;}
         if(name.equals("isClosed"))return closed||raw.isClosed();
         if(closed)throw new SQLException("Connection is closed","08003");
-        if(name.equals("commit")||name.equals("rollback")){
-            Object out=invoke(method,raw,args);transactionVersion=-1;return out;
+        if(name.equals("commit")){
+            runtime.gate.readLock().lock();
+            try{
+                checkTransactionBoundary();
+                Object out=invoke(method,raw,args);transactionVersion=-1;rollbackOnly=false;return out;
+            }finally{runtime.gate.readLock().unlock();}
+        }
+        if(name.equals("rollback")){
+            Object out=invoke(method,raw,args);
+            // A savepoint rollback does not end the surrounding transaction.
+            if(args==null||args.length==0){transactionVersion=-1;rollbackOnly=false;}
+            return out;
         }
         if(name.equals("setAutoCommit")){
-            Object out=invoke(method,raw,args);autoCommit=Boolean.TRUE.equals(args[0]);if(autoCommit)transactionVersion=-1;return out;
+            runtime.gate.readLock().lock();
+            try{
+                boolean enable=Boolean.TRUE.equals(args[0]);
+                if(enable&&!autoCommit)checkTransactionBoundary();
+                Object out=invoke(method,raw,args);autoCommit=enable;
+                if(autoCommit){transactionVersion=-1;rollbackOnly=false;}return out;
+            }finally{runtime.gate.readLock().unlock();}
+        }
+        if(name.equals("setSavepoint")){
+            runtime.gate.readLock().lock();
+            try{active();return invoke(method,raw,args);}
+            finally{runtime.gate.readLock().unlock();}
         }
         if(name.equals("prepareCall"))throw unsupported();
         if(name.equals("setSchema")||name.equals("setCatalog")){

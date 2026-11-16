@@ -63,7 +63,7 @@ final class ManagedDatasourceRuntime {
             if(status==401||status==403||status==404||status==409){
                 blocked=invalid("Hub rejected datasource runtime refresh (HTTP "+status+")");throw blocked;
             }
-            if(status!=200)throw invalid("Hub datasource refresh is temporarily unavailable");
+            if(status!=200)throw new SQLTransientConnectionException("Hub datasource refresh is temporarily unavailable","08001");
             JsonNode root=JSON.readTree(response.getBody());
             Snapshot next;
             try{next=Snapshot.parse(root,config.getAlias(),config.getTenantId());}
@@ -78,7 +78,7 @@ final class ManagedDatasourceRuntime {
                 blocked=null;
             }finally{gate.writeLock().unlock();}
         }catch(SQLException e){throw e;}
-        catch(Exception e){throw invalid("Hub datasource refresh failed; last valid snapshot retained");}
+        catch(Exception e){throw new SQLTransientConnectionException("Hub datasource refresh failed; last valid snapshot retained","08001");}
     }
     static void validateRefresh(String directory,JsonNode root,String alias,String tenant)throws java.io.IOException {
         if(!root.path("runtime").has("executionMode"))return;
@@ -95,7 +95,7 @@ final class ManagedDatasourceRuntime {
         try{Snapshot.parse(root,alias,tenant);}catch(SQLException e){throw new java.io.IOException(e.getMessage());}
         com.dadp.common.sync.config.AtomicJsonFile.write(Paths.get(directory,"managed-runtime.json"),JSON,root);
     }
-    static SQLException invalid(String message){return new SQLException(message,"08001");}
+    static SQLException invalid(String message){return new SQLNonTransientConnectionException(message,"08001");}
     static final class Snapshot {
         final long version;final String mode,vendor;final boolean enabled;
         final List<ExperimentalSqlRewriter> rewriters;

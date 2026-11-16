@@ -88,13 +88,13 @@ public final class RecoverablePostgresqlWrite {
         try (Connection wrapped=DriverManager.getConnection(url, properties)) {
             Connection raw=wrapped instanceof DadpProxyConnection
                     ? ((DadpProxyConnection) wrapped).getActualConnection()
-                    : V8PostgresqlConnection.recoveryDelegate(wrapped);
+                    : ManagedJdbcConnection.recoveryDelegate(wrapped);
             if (raw.getMetaData().getDatabaseMajorVersion()!=17
                     || !raw.getMetaData().getURL().startsWith("jdbc:postgresql:"))
                 throw new SQLException("Recovery currently supports PostgreSQL 17", "0A000");
             raw.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             raw.setReadOnly(false);
-            raw.setAutoCommit(false);
+            wrapped.setAutoCommit(false);
             boolean committed=false;
             try {
                 int claimed;
@@ -117,7 +117,7 @@ public final class RecoverablePostgresqlWrite {
                             long count=row.getLong(2);
                             if (row.wasNull()) throw new SQLException("Incomplete committed recovery entry", "DPI02");
                             long generated=row.getLong(3); Long savedKey=row.wasNull()?null:generated;
-                            raw.rollback();
+                            wrapped.rollback();
                             return new Result(count,savedKey,true,attempts);
                         }
                     }
@@ -145,12 +145,12 @@ public final class RecoverablePostgresqlWrite {
                     complete.setString(3,scope); complete.setObject(4,id); complete.setQueryTimeout(querySeconds());
                     if (complete.executeUpdate()!=1) throw new SQLException("Recovery ledger invariant failed","DPI02");
                 }
-                raw.commit();
+                wrapped.commit();
                 committed=true;
                 return new Result(affected,generated,false,attempts);
             } finally {
                 if (!committed) {
-                    try { raw.rollback(); } catch (SQLException ignored) { /* next attempt reconciles on new connection */ }
+                    try { wrapped.rollback(); } catch (SQLException ignored) { /* next attempt reconciles on new connection */ }
                 }
             }
         }
