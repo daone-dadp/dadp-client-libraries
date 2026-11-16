@@ -31,6 +31,13 @@ class ManagedDatasourceSnapshotTest {
   assertThrows(SQLException.class,()->s.rewriter("select * from users"));
   assertThrows(SQLException.class,()->s.rewriter("select name from users union select name from other"));
  }
+ @Test void mysqlHubMappingsUseMysqlPublicFunctionsAndRemainQualified()throws Exception{
+  ManagedDatasourceRuntime.Snapshot s=parse(snapshot("plugin","mysql"));
+  String sql="insert into public.users(id,name,phone) values(?,?,?)";
+  assertTrue(s.rewriter(sql).rewrite(sql).contains("dadp.dadp_encrypt(?, 'DAONE234')"));
+  assertTrue(s.rewriter("select name from users where id=?").rewrite("select name from users where id=?").contains("dadp.dadp_decrypt"));
+  assertThrows(SQLException.class,()->parse(snapshot("plugin","mariadb")));
+ }
  @Test void staleRefreshCannotOverwriteNewerModeOrPolicies()throws Exception{
   java.nio.file.Path dir=java.nio.file.Files.createTempDirectory("managed-runtime-contract-");
   try{

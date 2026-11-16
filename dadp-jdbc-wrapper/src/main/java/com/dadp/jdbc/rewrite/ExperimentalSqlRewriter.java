@@ -73,6 +73,12 @@ public final class ExperimentalSqlRewriter {
         return forPlugin(scope);
     }
 
+    public static ExperimentalSqlRewriter forManagedMysql(FixtureScope scope) throws SQLException {
+        ExperimentalSqlRewriter result=forMysql(scope);
+        result.qualifyUnqualified=true;
+        return result;
+    }
+
     private static ExperimentalSqlRewriter forPlugin(FixtureScope scope) throws SQLException {
         require(scope.schema != null);
         for (String policy : scope.columns.values()) {
