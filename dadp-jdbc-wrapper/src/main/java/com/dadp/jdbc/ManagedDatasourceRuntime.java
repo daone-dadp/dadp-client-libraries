@@ -126,6 +126,7 @@ final class ManagedDatasourceRuntime {
                         String code=b.path("policyCode").asText();
                         if(!code.matches("[A-Z0-9]{8}"))throw invalid("Invalid Hub policy code");
                         String key=b.path("schemaName").asText()+"."+b.path("tableName").asText()+"."+b.path("columnName").asText();
+                        if("oracle".equals(vendor))key=key.toLowerCase(Locale.ROOT);
                         if(bindings.put(key,code)!=null)throw invalid("Duplicate Hub column policy binding");
                     }
                     for(JsonNode table:tables){
@@ -133,7 +134,9 @@ final class ManagedDatasourceRuntime {
                         String name=table.path("tableName").asText();
                         Map<String,String> columns=new LinkedHashMap<>();boolean protectedColumn=false;
                         for(JsonNode col:table.path("columns")){
-                            String column=col.path("columnName").asText(),code=bindings.get(sc+"."+name+"."+column);
+                            String column=col.path("columnName").asText();
+                            String bindingKey=sc+"."+name+"."+column;
+                            String code=bindings.get("oracle".equals(vendor)?bindingKey.toLowerCase(Locale.ROOT):bindingKey);
                             columns.put(column,code);protectedColumn|=code!=null;
                         }
                         if(!protectedColumn)continue;

@@ -34,7 +34,7 @@ class OracleManagedSqlTest{
   n.putObject("runtime").put("executionMode","plugin").put("enabled",true).put("failOpen",false);
   n.putObject("datasource").put("alias","ora").put("vendor","oracle").put("schemaName","CUSTOMER_APP");
   n.put("schemaJson","{\"tables\":[{\"schemaName\":\"CUSTOMER_APP\",\"tableName\":\"USERS\",\"columns\":[{\"columnName\":\"ID\"},{\"columnName\":\"NAME\"}]}]}");
-  n.putArray("policyBindings").addObject().put("schemaName","CUSTOMER_APP").put("tableName","USERS").put("columnName","NAME").put("policyCode","DAONE234").put("status","ACTIVE");
+  n.putArray("policyBindings").addObject().put("schemaName","customer_app").put("tableName","users").put("columnName","name").put("policyCode","DAONE234").put("status","ACTIVE");
   ManagedDatasourceRuntime.Snapshot snap=ManagedDatasourceRuntime.Snapshot.parse(n,"ora","agent");
   String sql="INSERT INTO USERS(ID,NAME) VALUES(?,?)";
   assertTrue(snap.rewriter(sql).rewrite(sql).contains("dadp.dadp_encrypt(?, 'DAONE234')"));
