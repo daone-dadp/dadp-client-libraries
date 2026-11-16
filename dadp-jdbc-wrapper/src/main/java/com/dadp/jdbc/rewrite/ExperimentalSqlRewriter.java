@@ -143,9 +143,11 @@ public final class ExperimentalSqlRewriter {
 
     public void checkGeneratedKeyColumns(String[] columns) throws SQLException {
         require(scope != null && columns.length > 0);
-        for (String column : columns) {
-            if(oracle)column=oracleIdentifier(column);
+        for (int i=0;i<columns.length;i++) {
+            String column=oracle?oracleIdentifier(columns[i]):columns[i];
             require(scope.columns.containsKey(column) && scope.columns.get(column) == null);
+            // Oracle JDBC resolves generated-key names against uppercase catalog names.
+            if(oracle)columns[i]=column.toUpperCase(java.util.Locale.ROOT);
         }
     }
 
