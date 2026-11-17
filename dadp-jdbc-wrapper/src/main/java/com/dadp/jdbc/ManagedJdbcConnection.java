@@ -180,7 +180,12 @@ final class ManagedJdbcConnection implements InvocationHandler {
             throw unsupported();
         }
         private void prepareFor(ManagedDatasourceRuntime.Snapshot s,String sql)throws Throwable{
-            if(delegate!=null&&version==s.version)return;
+            // SQream JDBC 6.6 closes its server statement after a prepared execution.
+            // Keep the application PS and typed binds; create a native PS for each NEW execution.
+            // This never replays an execution that has already started or failed.
+            boolean singleUse="sqream".equals(s.vendor)&&"plugin".equals(s.mode)
+                &&prepare.getName().equals("prepareStatement");
+            if(delegate!=null&&version==s.version&&!singleUse)return;
             if(delegate!=null)delegate.close();
             boolean autoKeys=prepare.getName().equals("prepareStatement")&&prepareArgs.length==2
                 &&Integer.valueOf(Statement.RETURN_GENERATED_KEYS).equals(prepareArgs[1]);

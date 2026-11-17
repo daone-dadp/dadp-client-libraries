@@ -77,4 +77,48 @@ class ManagedSqreamConnectionTest {
         }
         verify(raw,never()).prepareStatement(anyString());verify(nativeStatement,never()).executeUpdate();
     }
+    @Test void repeatedExecutionsUseNewNativeStatementsAndRetainTypedBindsAndOptions() throws Exception {
+        PreparedStatement second=mock(PreparedStatement.class);
+        when(raw.prepareStatement(anyString())).thenReturn(nativeStatement,second);
+        when(second.executeUpdate()).thenReturn(1);
+        try(PreparedStatement p=app.prepareStatement("insert into users(id,name) values(?,?)")) {
+            p.setQueryTimeout(19);p.setInt(1,7);p.setString(2,"first");
+            assertEquals(1,p.executeUpdate());verify(nativeStatement,never()).close();
+            p.setInt(1,8);p.setString(2,"second");assertEquals(1,p.executeUpdate());
+            verify(nativeStatement).close();verify(second).setQueryTimeout(19);
+            verify(second).setInt(1,8);verify(second).setString(2,"second");
+        }
+        verify(raw,times(2)).prepareStatement(anyString());
+        verify(nativeStatement,times(1)).executeUpdate();verify(second,times(1)).executeUpdate();
+        verify(second).close();
+    }
+    @Test void nextExecuteClosesPriorResultWhileResultsStayOpenUntilThen() throws Exception {
+        PreparedStatement second=mock(PreparedStatement.class);
+        ResultSet firstResult=mock(ResultSet.class),secondResult=mock(ResultSet.class);
+        when(raw.prepareStatement(anyString())).thenReturn(nativeStatement,second);
+        when(nativeStatement.executeQuery()).thenReturn(firstResult);when(second.executeQuery()).thenReturn(secondResult);
+        java.util.concurrent.atomic.AtomicBoolean closed=new java.util.concurrent.atomic.AtomicBoolean();
+        doAnswer(inv->{closed.set(true);return null;}).when(nativeStatement).close();
+        when(firstResult.isClosed()).thenAnswer(inv->closed.get());
+        try(PreparedStatement p=app.prepareStatement("select id,name from users where id=?")) {
+            p.setLong(1,7);ResultSet first=p.executeQuery();assertFalse(first.isClosed());
+            verify(nativeStatement,never()).close();
+            p.setLong(1,8);try(ResultSet next=p.executeQuery()){assertTrue(first.isClosed());}
+            verify(second).setLong(1,8);
+        }
+        verify(nativeStatement).close();verify(raw,times(2)).prepareStatement(anyString());
+    }
+    @Test void clearParametersDiscardsPriorNativeBindingsButRetainsStatementOptions() throws Exception {
+        PreparedStatement second=mock(PreparedStatement.class);
+        when(raw.prepareStatement(anyString())).thenReturn(nativeStatement,second);
+        when(second.executeUpdate()).thenReturn(1);
+        try(PreparedStatement p=app.prepareStatement("insert into users(id,name) values(?,?)")) {
+            p.setQueryTimeout(23);p.setInt(1,7);p.setString(2,"old");assertEquals(1,p.executeUpdate());
+            p.clearParameters();verify(nativeStatement).close();
+            p.setInt(1,8);p.setString(2,"new");assertEquals(1,p.executeUpdate());
+            verify(second).setQueryTimeout(23);verify(second).setInt(1,8);verify(second).setString(2,"new");
+            verify(second,never()).setInt(1,7);verify(second,never()).setString(2,"old");
+        }
+    }
+
 }
