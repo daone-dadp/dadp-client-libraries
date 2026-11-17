@@ -44,6 +44,7 @@ final class ManagedJdbcConnection implements InvocationHandler {
     }
     private Connection route(ManagedDatasourceRuntime.Snapshot s,String sql,boolean autoKeys)throws SQLException{
         if("plugin".equals(s.mode)){
+            if("sqream".equals(s.vendor)&&autoKeys)throw unsupported();
             if(sql.matches("(?is)\\s*SELECT\\s+1(?:\\s+AS\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*;?\\s*"))
                 return V8PostgresqlConnection.wrap(raw,new com.dadp.jdbc.rewrite.ExperimentalSqlRewriter(),false,null);
             com.dadp.jdbc.rewrite.ExperimentalSqlRewriter rewriter=s.rewriter(sql);
@@ -123,6 +124,8 @@ final class ManagedJdbcConnection implements InvocationHandler {
         }
         if(name.equals("prepareCall"))throw unsupported();
         if(name.equals("setSchema")||name.equals("setCatalog")){
+            ManagedDatasourceRuntime.Snapshot s=active();
+            if("sqream".equals(s.vendor)&&"plugin".equals(s.mode))throw unsupported();
             return invoke(method,engine!=null?engine:raw,args);
         }
         if(name.equals("createStatement")||name.equals("prepareStatement")){

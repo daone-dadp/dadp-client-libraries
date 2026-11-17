@@ -48,7 +48,7 @@ class ManagedDatasourceSnapshotTest {
   }finally{java.nio.file.Files.deleteIfExists(dir.resolve("managed-runtime.json"));java.nio.file.Files.deleteIfExists(dir);}
  }
  @Test void unsupportedVendorsCannotUsePluginOrUnknownMode()throws Exception{
-  assertThrows(SQLException.class,()->parse(snapshot("plugin","sqream")));
+  assertThrows(SQLException.class,()->parse(snapshot("plugin","sqlserver")));
   assertThrows(SQLException.class,()->parse(snapshot("plugin","mariadb")));
   assertThrows(SQLException.class,()->parse(snapshot("auto","postgresql")));
   assertEquals("engine",parse(snapshot("engine","sqream")).mode);

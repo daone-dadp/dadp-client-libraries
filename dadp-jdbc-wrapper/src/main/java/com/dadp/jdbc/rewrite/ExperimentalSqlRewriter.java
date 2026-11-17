@@ -42,7 +42,7 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
 public final class ExperimentalSqlRewriter {
     private final FixtureScope scope;
     private final FixtureFunctions functions;
-    private boolean qualifyUnqualified, oracle;
+    private boolean qualifyUnqualified, oracle, sqream;
 
     /** Disabled by default: does not parse, resolve policies or change SQL. */
     public ExperimentalSqlRewriter() {
@@ -76,6 +76,17 @@ public final class ExperimentalSqlRewriter {
     public static ExperimentalSqlRewriter forManagedMysql(FixtureScope scope) throws SQLException {
         ExperimentalSqlRewriter result=forMysql(scope);
         result.qualifyUnqualified=true;
+        return result;
+    }
+
+    /** SQream external Python Module Service, selected only by a Hub Alias snapshot. */
+    public static ExperimentalSqlRewriter forManagedSqream(FixtureScope scope) throws SQLException {
+        require(scope.schema != null);
+        for(String policy : scope.columns.values())
+            require(policy == null || policy.matches("[A-Z0-9]{8}"));
+        ExperimentalSqlRewriter result=new ExperimentalSqlRewriter(scope,
+                new FixtureFunctions("dadp_crypto.dadp_encrypt", "dadp_crypto.dadp_decrypt"));
+        result.qualifyUnqualified=true;result.sqream=true;
         return result;
     }
 
@@ -254,6 +265,18 @@ public final class ExperimentalSqlRewriter {
         allowed.setFromItem(table);
         allowed.setSelectItems(source.getSelectItems());
         allowed.setWhere(predicate(source.getWhere(), table));
+        if(sqream && source.getOrderByElements()!=null) {
+            require(source.getOrderByElements().size()==1);
+            net.sf.jsqlparser.statement.select.OrderByElement order=source.getOrderByElements().get(0);
+            require(order.getExpression() instanceof Column);
+            String ordered=column((Column)order.getExpression(),table,true);
+            require(scope.columns.get(ordered)==null);
+            net.sf.jsqlparser.statement.select.OrderByElement permitted=new net.sf.jsqlparser.statement.select.OrderByElement();
+            permitted.setExpression(order.getExpression());
+            permitted.setAsc(order.isAsc());permitted.setAscDescPresent(order.isAscDescPresent());
+            sameShape(order,permitted);
+            allowed.setOrderByElements(Collections.singletonList(permitted));
+        }
         sameShape(source, allowed);
         allowed.setSelectItems(rewritten);
         return allowed;
