@@ -69,7 +69,7 @@ public class DadpJdbcDriver implements Driver {
                     if(key.startsWith("dadp.v8.")&&!key.equals("dadp.v8.mode"))throw new SQLException("Hub-managed datasource must use Hub column policy mappings instead of local Plugin properties","08001");
                 ManagedDatasourceRuntime runtime=ManagedDatasourceRuntime.get(cfg);
                 Properties nativeProps=sanitizeNativeConnectionProperties(info);
-                String nativeUrl=extractActualUrl(url);
+                String nativeUrl=SqreamJdbcTransport.nativeUrl(extractActualUrl(url),nativeProps,runtime.snapshot().vendor);
                 Connection raw=ActualJdbcDriverConnector.connect(nativeUrl,nativeProps);
                 try{return ManagedJdbcConnection.wrap(raw,url,managedParams,nativeProps,runtime);}
                 catch(SQLException e){raw.close();throw e;}
