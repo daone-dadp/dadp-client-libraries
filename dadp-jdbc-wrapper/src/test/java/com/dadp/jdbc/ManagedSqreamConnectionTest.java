@@ -61,6 +61,9 @@ class ManagedSqreamConnectionTest {
         try(PreparedStatement p=app.prepareStatement("insert into users(id,name) values(?,?)",Statement.RETURN_GENERATED_KEYS)) {
             p.setInt(1,7);p.setString(2,"plain");assertThrows(SQLException.class,p::executeUpdate);
         }
+        try(PreparedStatement p=app.prepareStatement("insert into users(id,name) values(?,?)",new String[]{"id"})) {
+            p.setInt(1,7);p.setString(2,"plain");assertThrows(SQLException.class,p::executeUpdate);
+        }
         verify(raw,never()).setSchema(anyString());verify(raw,never()).setCatalog(anyString());
         verify(raw,never()).prepareStatement(anyString(),anyInt());
         verify(raw,never()).getMetaData();

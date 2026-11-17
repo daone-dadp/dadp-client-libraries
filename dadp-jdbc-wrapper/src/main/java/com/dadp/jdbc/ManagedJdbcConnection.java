@@ -57,7 +57,7 @@ final class ManagedJdbcConnection implements InvocationHandler {
                 if(keys.size()!=1)throw new SQLFeatureNotSupportedException("Generated keys require one unprotected primary key","0A000");
                 rewriter.checkGeneratedKeyColumns(new String[]{keys.get(0)});generated=keys.get(0);
             }
-            return V8PostgresqlConnection.wrap(raw,rewriter,true,generated);
+            return V8PostgresqlConnection.wrap(raw,rewriter,!"sqream".equals(s.vendor),generated);
         }
         if(engine==null)engine=new DadpProxyConnection(raw,url,params,properties,true);
         if(engineVersion!=s.version){engine.reloadManagedRuntime(s.version);engineVersion=s.version;}
