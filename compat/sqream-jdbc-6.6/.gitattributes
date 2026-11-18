@@ -3,3 +3,5 @@
 # Keep the pinned CFR reconstruction's final blank line; its exact source hash is provenance.
 candidate2/**/SqreamExecutedStatementImpl.java whitespace=-blank-at-eof
 candidate3/**/SqreamExecutedStatementImpl.java whitespace=-blank-at-eof
+candidate4/baseline-source/**/*.java whitespace=-blank-at-eof
+candidate4/compat-src/**/*.java whitespace=-blank-at-eof

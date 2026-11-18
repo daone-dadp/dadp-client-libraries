@@ -1,0 +1,997 @@
+--- baseline-source/com/sqream/jdbc/SQPreparedStatement.java
++++ compat-src/com/sqream/jdbc/SQPreparedStatement.java
+@@ -85,29 +85,56 @@
+ 
+     @Override
+     public void close() throws SQLException {
+-        try {
+-            if (this.client != null && this.client.isOpen()) {
+-                if (this.client.isOpenStatement()) {
+-                    this.client.close();
+-                }
+-                this.client.closeConnection();
+-            }
+-            if (this.connection != null) {
+-                this.connection.removeItem(this);
+-            }
+-        }
+-        catch (Exception e) {
+-            throw new SQLException(e);
+-        }
+-        this.isClosed = true;
++        if (this.isClosed) return;
++        Throwable failure = null;
++        try {
++            if (this.client != null) this.client.closeConnection();
++        } catch (Throwable primary) { failure = primary; }
++        finally {
++            try {
++                if (this.connection != null) this.connection.removeItem(this);
++            } catch (Throwable cleanup) {
++                if (failure == null) failure = cleanup;
++                else if (cleanup != failure) failure.addSuppressed(cleanup);
++            } finally { this.isClosed = true; }
++        }
++        if (failure instanceof Error) throw (Error)failure;
++        if (failure instanceof SQLException) throw (SQLException)failure;
++        if (failure != null) throw new SQLException(failure);
++    }
++
++    private long compatAckBeforeExecution() throws SQLException {
++        try { return this.client.compatStatementAckSequence(); }
++        catch (ConnException failure) { throw new SQLException(failure); }
++    }
++
++    private void compatRequireNewCloseAck(long priorSequence) throws SQLException {
++        try { this.client.compatRequireStatementCloseAck(this.statementId, priorSequence); }
++        catch (ConnException failure) { throw new SQLException(failure); }
+     }
+ 
+     @Override
+     public int[] executeBatch() throws SQLException {
+-        int[] res = new int[this.setsPerBatch.size()];
+-        Arrays.fill(res, 1);
+-        this.setsPerBatch.clear();
+-        return res;
++        if (this.isClosed) throw new SQLException("Statement is closed", "07000");
++        if (this.setsPerBatch.isEmpty()) return new int[0];
++        if (!this.client.isOpenStatement())
++            throw new SQLException("SQream native statement has completed; prepare a new statement", "07000");
++        if (this.setCounter > 0)
++            throw new SQLException("Add the current bound row with addBatch before executeBatch", "07001");
++        String type = this.client.getQueryType();
++        if (!StatementType.PARAMED_INSERT.getValue().equals(type)
++                && !StatementType.PARAMED_UPDATE_DELETE.getValue().equals(type))
++            throw new SQLException("executeBatch requires a parameterized non-SELECT statement", "07000");
++        int rows = this.setsPerBatch.size();
++        long priorAck = this.compatAckBeforeExecution();
++        this.sendParameters(); // setCounter==0: do not append an already-added row again.
++        try { this.client.close(); }
++        catch (Exception failure) { throw new SQLException(failure); }
++        this.compatRequireNewCloseAck(priorAck);
++        int[] result = new int[rows];
++        Arrays.fill(result, 1); // Preserve the native driver's per-added-row count convention.
++        this.setsPerBatch.clear(); // Only after PUT and statement-close ACK.
++        return result;
+     }
+ 
+     @Override
+@@ -117,6 +144,8 @@
+ 
+     @Override
+     public void addBatch() throws SQLException {
++        if (this.isClosed || !this.client.isOpenStatement())
++            throw new SQLException("SQream native statement has completed; prepare a new statement", "07000");
+         try {
+             this.client.next();
+             this.setsPerBatch.add(this.setCounter);
+@@ -129,15 +158,27 @@
+ 
+     @Override
+     public boolean execute() throws SQLException {
+-        if (this.client.getQueryType().equals(StatementType.PARAMED_SELECT.getValue())) {
+-            this.sendParameters();
+-        }
+-        this.SQRS = SQResultSet.getInstance(this.client, this.db_name);
+-        if (this.setCounter > 0) {
+-            LOGGER.log(Level.FINE, "Automatically add row as a batch");
+-            this.addBatch();
+-        }
+-        return (!StatementType.PARAMED_INSERT.getValue().equals(this.client.getQueryType()) || !StatementType.PARAMED_UPDATE_DELETE.getValue().equals(this.client.getQueryType())) && this.client.getRowLength() > 0;
++        if (this.isClosed || !this.client.isOpenStatement())
++            throw new SQLException("SQream native statement has completed; prepare a new statement", "07000");
++        String type = this.client.getQueryType();
++        if (StatementType.PARAMED_INSERT.getValue().equals(type)
++                || StatementType.PARAMED_UPDATE_DELETE.getValue().equals(type)) {
++            this.executeUpdateInternal();
++            this.setsPerBatch.clear();
++            this.SQRS = null;
++            return false;
++        }
++        if (StatementType.PARAMED_SELECT.getValue().equals(type)
++                || StatementType.QUERY.getValue().equals(type)) {
++            this.executeQuery();
++            return true;
++        }
++        long priorAck = this.compatAckBeforeExecution();
++        try { this.client.close(); }
++        catch (Exception failure) { throw new SQLException(failure); }
++        this.compatRequireNewCloseAck(priorAck);
++        this.SQRS = null;
++        return false;
+     }
+ 
+     @Override
+@@ -727,10 +768,13 @@
+         if (this.isClosed) {
+             throw new SQLException("Called executeUpdate() on closed statement");
+         }
++        if (!this.client.isOpenStatement())
++            throw new SQLException("SQream native statement has completed; prepare a new statement", "07000");
+         String queryType = this.client.getQueryType();
+         if (queryType.equals(StatementType.PARAMED_SELECT.getValue()) || queryType.equals(StatementType.QUERY.getValue())) {
+             throw new SQLException("executeUpdate() cannot be called with a SELECT statement");
+         }
++        long priorAck = this.compatAckBeforeExecution();
+         this.sendParameters();
+         try {
+             this.client.close();
+@@ -738,6 +782,7 @@
+         catch (Exception e) {
+             throw new SQLException(e);
+         }
++        this.compatRequireNewCloseAck(priorAck);
+         return this.setsPerBatch.size();
+     }
+ 
+--- baseline-source/com/sqream/jdbc/connector/ConnectorImpl.java
++++ compat-src/com/sqream/jdbc/connector/ConnectorImpl.java
+@@ -22,6 +22,7 @@
+ import com.sqream.jdbc.connector.serverAPI.SqreamConnectionFactory;
+ import com.sqream.jdbc.connector.serverAPI.Statement.SqreamCreatedStatement;
+ import com.sqream.jdbc.connector.serverAPI.Statement.SqreamExecutedStatement;
++import com.sqream.jdbc.connector.serverAPI.Statement.SqreamExecutedStatementImpl;
+ import com.sqream.jdbc.connector.storage.FlushStorage;
+ import com.sqream.jdbc.connector.storage.fetchStorage.EmptyFetchStorage;
+ import com.sqream.jdbc.connector.storage.fetchStorage.FetchStorage;
+@@ -300,23 +301,52 @@
+         }
+     }
+ 
++    public long compatStatementAckSequence() throws ConnException {
++        if (!(this.sqreamExecutedStatement instanceof SqreamExecutedStatementImpl))
++            throw new ConnException("SQream statement completion proof is unavailable");
++        return ((SqreamExecutedStatementImpl)this.sqreamExecutedStatement).compatStatementAckSequence();
++    }
++
++    public void compatRequireStatementCloseAck(int expectedStatementId, long priorSequence) throws ConnException {
++        if (!(this.sqreamExecutedStatement instanceof SqreamExecutedStatementImpl)
++                || !((SqreamExecutedStatementImpl)this.sqreamExecutedStatement)
++                        .compatMatchesStatementCloseAck(expectedStatementId, priorSequence))
++            throw new ConnException("SQream statement completion ACK was not confirmed for this execution");
++    }
++
+     @Override
+     public boolean closeConnection() throws ConnException {
+-        if (this.sqreamConnection != null && this.sqreamConnection.isOpen()) {
+-            if (this.sqreamExecutedStatement != null && this.sqreamExecutedStatement.isOpen()) {
+-                this.close();
+-            }
+-            try {
++        // JDBC close cancels resources; it must never execute pending binds/batches.
++        Throwable failure = null;
++        try {
++            if (this.sqreamConnection != null && this.sqreamConnection.isOpen())
+                 this.sqreamConnection.close();
+-                if (this.fetchStorage != null) {
+-                    this.fetchStorage.close();
+-                    this.fetchStorage = null;
+-                }
+-            }
+-            catch (Exception e) {
+-                throw new ConnException(e);
+-            }
+-        }
++        } catch (Throwable primary) { failure = primary; }
++        try {
++            if (this.flushService != null) this.flushService.compatAbortWithoutFlush();
++        } catch (Throwable cleanup) {
++            if (failure == null) failure = cleanup;
++            else if (cleanup != failure) failure.addSuppressed(cleanup);
++        }
++        try {
++            if (this.fetchStorage != null) this.fetchStorage.close();
++        } catch (Throwable cleanup) {
++            if (failure == null) failure = cleanup;
++            else if (cleanup != failure) failure.addSuppressed(cleanup);
++        }
++        try {
++            if (this.byteBufferPool != null) this.byteBufferPool.close();
++        } catch (Throwable cleanup) {
++            if (failure == null) failure = cleanup;
++            else if (cleanup != failure) failure.addSuppressed(cleanup);
++        } finally {
++            this.flushStorage = null;
++            this.fetchStorage = null;
++            this.byteBufferPool = null;
++        }
++        if (failure instanceof Error) throw (Error)failure;
++        if (failure instanceof ConnException) throw (ConnException)failure;
++        if (failure != null) throw new ConnException(failure);
+         return true;
+     }
+ 
+--- baseline-source/com/sqream/jdbc/connector/FlushService.java
++++ compat-src/com/sqream/jdbc/connector/FlushService.java
+@@ -25,6 +25,15 @@
+     private long paramedQueryTimeout;
+     private ExecutorService executorService = Executors.newSingleThreadExecutor();
+     private Future<?> future;
++    private volatile boolean compatAborted;
++
++    // Resource cancellation only. No wait, no new flush and no thread interrupt.
++    public synchronized void compatAbortWithoutFlush() {
++        this.compatAborted = true;
++        if (this.future != null) this.future.cancel(false);
++        this.executorService.shutdown();
++    }
++
+ 
+     private FlushService(SqreamExecutedStatement sqreamExecutedStatement, long paramedQueryTimeout) {
+         this.sqreamExecutedStatement = sqreamExecutedStatement;
+@@ -35,13 +44,15 @@
+         return new FlushService(sqreamExecutedStatement, paramedQueryTimeout);
+     }
+ 
+-    public void process(BlockDto block, ByteBufferPool byteBufferPool) {
++    public synchronized void process(BlockDto block, ByteBufferPool byteBufferPool) {
++        if (this.compatAborted) throw new IllegalStateException("SQream flush service is closed");
+         LOGGER.log(Level.FINE, MessageFormat.format("Process block: block=[{0}]", block));
+         if (this.executorService.isTerminated()) {
+             this.executorService = Executors.newSingleThreadExecutor();
+         }
+         this.future = this.executorService.submit(() -> {
+             try {
++                if (this.compatAborted) return;
+                 Thread.currentThread().setName("flush-service");
+                 this.flush(this.sqreamExecutedStatement, block);
+                 this.resetBlock(block);
+--- baseline-source/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java
++++ compat-src/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java
+@@ -1,62 +1,65 @@
+ /*
+- * Decompiled with CFR 0.152.
++ * SQream JDBC 6.6 ABI-compatible heartbeat implementation.
++ * DADP compatibility patch, based on the MIT-licensed 6.6 release bytecode.
++ * The original upstream 6.6 sources artifact contains no Java source.
+  */
+ package com.sqream.jdbc.connector.heartbeat;
+-
+-import com.sqream.jdbc.connector.heartbeat.HeartBeatService;
+ import com.sqream.jdbc.connector.messenger.Messenger;
+-import java.text.MessageFormat;
+-import java.util.concurrent.Executors;
+-import java.util.concurrent.ScheduledExecutorService;
+-import java.util.concurrent.TimeUnit;
++import com.sqream.jdbc.connector.messenger.MessengerImpl;
++import java.util.concurrent.*;
+ import java.util.concurrent.atomic.AtomicInteger;
++import java.util.concurrent.locks.ReentrantLock;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ 
+-public class HeartBeatServiceImpl
+-implements HeartBeatService {
+-    private static final Logger LOGGER = Logger.getLogger(HeartBeatServiceImpl.class.getName());
++public class HeartBeatServiceImpl implements HeartBeatService {
++    private static final Logger LOGGER=Logger.getLogger(HeartBeatServiceImpl.class.getName());
+     private final Messenger messenger;
+     private final long interval;
++    // Retain the 6.6 field names for diagnostics; neither executor interrupts IO.
+     private ScheduledExecutorService executorService;
+     private ScheduledExecutorService executorServicePingCount;
+-    private static final int PING_TIMER = 60;
++    private static final int PING_TIMER=60;
++    private ScheduledFuture<?> pingFuture;
++    private long generation;
++    private boolean running;
++    private final ReentrantLock fallbackOwner=new ReentrantLock(true);
+ 
+-    public HeartBeatServiceImpl(Messenger messenger, long intervalMs) {
+-        this.messenger = messenger;
+-        this.interval = intervalMs;
+-    }
+-
+-    @Override
+-    public void start() {
+-        if (this.isRunning()) {
+-            return;
+-        }
+-        AtomicInteger counterPing = new AtomicInteger();
+-        this.executorServicePingCount = Executors.newSingleThreadScheduledExecutor();
+-        this.executorService = Executors.newSingleThreadScheduledExecutor();
+-        this.executorService.scheduleWithFixedDelay(() -> {
+-            try {
+-                this.messenger.ping();
+-                counterPing.getAndIncrement();
+-            }
+-            catch (Exception e) {
+-                this.stop();
+-                LOGGER.log(Level.WARNING, "Failed to ping server");
+-            }
+-        }, this.interval, this.interval, TimeUnit.MILLISECONDS);
+-        this.executorServicePingCount.scheduleWithFixedDelay(() -> LOGGER.log(Level.FINE, MessageFormat.format("Ping count on {0} seconds is {1}", 60, counterPing.get())), 60L, 60L, TimeUnit.SECONDS);
+-    }
+-
+-    @Override
+-    public void stop() {
+-        if (this.isRunning()) {
+-            this.executorService.shutdownNow();
+-            this.executorServicePingCount.shutdownNow();
++    public HeartBeatServiceImpl(Messenger messenger,long interval){this.messenger=messenger;this.interval=interval;}
++    public synchronized void start(){
++        if(isRunning())return;
++        running=true;final long token=++generation;final AtomicInteger count=new AtomicInteger();
++        try {
++        executorService=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"sqream-compat-idle-heartbeat");t.setDaemon(true);return t;});
++        executorServicePingCount=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"sqream-compat-heartbeat-count");t.setDaemon(true);return t;});
++        pingFuture=executorService.scheduleWithFixedDelay(()->{
++            ReentrantLock owner=messenger instanceof MessengerImpl?((MessengerImpl)messenger).compatTransportOwner():fallbackOwner;
++            // Only writes/atomic binary frames exclude PING; response reads stay live.
++            if(!owner.tryLock())return;
++            try{
++                synchronized(this){if(!running||generation!=token)return;}
++                if(messenger instanceof MessengerImpl && !((MessengerImpl)messenger).compatHeartbeatPermitted())return;
++                messenger.ping();count.incrementAndGet();
++            }catch(Throwable failure){
++                stop();LOGGER.log(Level.WARNING,"Failed to ping server");
++                if(failure instanceof Error)throw (Error)failure;
++            }finally{owner.unlock();}
++        },interval,interval,TimeUnit.MILLISECONDS);
++        executorServicePingCount.scheduleWithFixedDelay(()->LOGGER.log(Level.FINE,"Ping count on 60 seconds is {0}",count.get()),PING_TIMER,PING_TIMER,TimeUnit.SECONDS);
++        } catch(Throwable failure) {
++            running=false;++generation;
++            if(pingFuture!=null)pingFuture.cancel(false);
++            if(executorService!=null)executorService.shutdown();
++            if(executorServicePingCount!=null)executorServicePingCount.shutdown();
++            throw failure;
+         }
+     }
+-
+-    private boolean isRunning() {
+-        return this.executorService != null && !this.executorService.isShutdown();
++    public synchronized void stop(){
++        // Invalidate before cancellation; a task must recheck after obtaining IO ownership.
++        running=false;++generation;
++        if(pingFuture!=null)pingFuture.cancel(false);
++        if(executorService!=null)executorService.shutdown();
++        if(executorServicePingCount!=null)executorServicePingCount.shutdown();
+     }
++    private boolean isRunning(){return running&&executorService!=null&&!executorService.isShutdown();}
+ }
+--- baseline-source/com/sqream/jdbc/connector/messenger/MessengerImpl.java
++++ compat-src/com/sqream/jdbc/connector/messenger/MessengerImpl.java
+@@ -23,6 +23,8 @@
+ import java.text.MessageFormat;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.locks.ReentrantLock;
+ 
+ public class MessengerImpl
+ implements Messenger {
+@@ -48,6 +50,109 @@
+     private final SQSocketConnector socket;
+     private final JsonParser jsonParser;
+     private HeartBeatService pingService = new HeartBeatFakeService();
++    // Foreground protocol calls remain ordered, while full-duplex idle PING writes
++    // can keep a session alive during a response/ACK read.
++    private final ReentrantLock compatOwner = new ReentrantLock(true);
++    private final ReentrantLock compatWriteOwner = new ReentrantLock(true);
++    private volatile boolean compatClosed, compatPoisoned;
++    private volatile boolean compatBinaryWrite, compatBinaryRead, compatAwaitingReconstruct;
++    private long compatReadRemaining;
++    private volatile boolean compatHasOpenedStatement, compatStatementCloseAcked;
++    private volatile int compatCurrentStatementId = -1, compatAckedStatementId = -1;
++    private volatile long compatCloseAckSequence;
++    public long compatStatementAckSequence() { return this.compatCloseAckSequence; }
++    public boolean compatMatchesStatementCloseAck(int expectedStatementId, long priorSequence) {
++        long sequence = this.compatCloseAckSequence;
++        // Resource cancellation does not erase an ACK already received by this execution.
++        return sequence > priorSequence && this.compatAckedStatementId == expectedStatementId;
++    }
++    // Terminal status: 1=hint complete,2=partial,3=TLS omitted,4=hint error,
++    // 5=active/unknown cancellation,6=busy writer cancellation,8=local release error.
++    private volatile int compatTerminalStatus, compatTerminalHintWritten = -3;
++    public int compatTerminalCloseStatus() { return this.compatTerminalStatus; }
++    public int compatTerminalHintBytes() { return this.compatTerminalHintWritten; }
++    private void compatMarkActive() {
++        this.compatHasOpenedStatement = true;
++        this.compatStatementCloseAcked = false;
++    }
++    private static final long COMPAT_OWNER_WAIT_SECONDS = 10L;
++
++    public ReentrantLock compatTransportOwner() { return this.compatWriteOwner; }
++    public boolean compatHeartbeatPermitted() {
++        return !this.compatClosed && !this.compatPoisoned
++                && !this.compatBinaryWrite && !this.compatAwaitingReconstruct;
++    }
++    private interface CompatIo<T> { T run() throws ConnException; }
++    private void compatEnter() throws ConnException {
++        if (this.compatClosed || this.compatPoisoned) throw new ConnException("SQream transport is closed or unusable");
++        boolean acquired;
++        try { acquired = this.compatOwner.tryLock(COMPAT_OWNER_WAIT_SECONDS, TimeUnit.SECONDS); }
++        catch (InterruptedException interrupted) {
++            Thread.currentThread().interrupt();
++            throw new ConnException("Interrupted before obtaining SQream transport ownership");
++        }
++        if (!acquired) {
++            // Never replace a channel while an earlier PING still owns it.
++            // Closing this OLD transport unblocks its IO; it is never reused.
++            this.compatPoisoned = true;
++            try {
++                this.pingService.stop();
++            } finally {
++                try { this.socket.close(); } catch (ConnException ignored) { }
++            }
++            throw new ConnException("SQream transport ownership timed out; connection is unusable");
++        }
++        if (this.compatClosed || this.compatPoisoned) {
++            this.compatOwner.unlock();
++            throw new ConnException("SQream transport is closed or unusable");
++        }
++    }
++    private void compatResumeIdle() {
++        if (this.compatHeartbeatPermitted() && this.socket.isOpen()) {
++            this.pingService.start();
++        }
++    }
++    private <T> T compatWriteIo(CompatIo<T> operation) throws ConnException {
++        if (this.compatClosed || this.compatPoisoned)
++            throw new ConnException("SQream transport is closed or unusable");
++        boolean acquired;
++        try { acquired = this.compatWriteOwner.tryLock(COMPAT_OWNER_WAIT_SECONDS, TimeUnit.SECONDS); }
++        catch (InterruptedException interrupted) {
++            Thread.currentThread().interrupt();
++            throw new ConnException("Interrupted before obtaining SQream write ownership");
++        }
++        if (!acquired) {
++            this.compatPoisoned = true;
++            try { this.pingService.stop(); }
++            finally { try { this.socket.close(); } catch (ConnException ignored) { } }
++            throw new ConnException("SQream write ownership timed out; connection is unusable");
++        }
++        try {
++            if (this.compatClosed || this.compatPoisoned)
++                throw new ConnException("SQream transport is closed or unusable");
++            return operation.run();
++        } finally { this.compatWriteOwner.unlock(); }
++    }
++    private <T> T compatIo(CompatIo<T> operation, boolean pauseHeartbeat) throws ConnException {
++        this.compatEnter();
++        Throwable original = null;
++        try {
++            if (pauseHeartbeat) this.pingService.stop();
++            return operation.run();
++        } catch (ConnException | RuntimeException | Error failure) {
++            original = failure;
++            throw failure;
++        } finally {
++            try {
++                try {
++                    if (pauseHeartbeat) this.compatResumeIdle();
++                } catch (RuntimeException | Error resumeFailure) {
++                    if (original == null) throw resumeFailure;
++                    if (resumeFailure != original) original.addSuppressed(resumeFailure);
++                }
++            } finally { this.compatOwner.unlock(); }
++        }
++    }
+ 
+     private MessengerImpl(SQSocketConnector socket, JsonParser jsonParser) {
+         this.socket = socket;
+@@ -60,32 +165,49 @@
+ 
+     @Override
+     public FetchMetadataDto fetch() throws ConnException {
+-        String response = this.sendMessage(COMMAND_FETCH, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_FETCH, response));
+-        return this.jsonParser.toFetchMetadata(response);
++        this.compatMarkActive();
++        return this.compatIo(() -> {
++            this.compatBinaryRead = true;
++            String response = this.sendMessage(COMMAND_FETCH, true, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_FETCH, response));
++            FetchMetadataDto metadata = this.jsonParser.toFetchMetadata(response);
++            long remaining = 0;
++            for (int i=0; i<metadata.colAmount(); i++) remaining += metadata.getSizeByIndex(i);
++            this.compatReadRemaining = remaining;
++            this.compatBinaryRead = remaining != 0;
++            return metadata;
++        }, true);
+     }
+ 
+     @Override
+     public ConnectionStateDto connect(String database, String user, String password, String service) throws ConnException {
+-        String connStr = MessageFormat.format(CONNECT_DATABASE_TEMPLATE, database, user, password, service);
+-        String response = this.sendMessage(connStr, true, false);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", connStr, response));
+-        ConnectionStateDto connState = this.jsonParser.toConnectionState(response);
+-        this.pingService = HeartBeatServiceFactory.getService(this);
+-        this.pingService.start();
+-        return connState;
++        return this.compatIo(() -> {
++            String connStr = MessageFormat.format(CONNECT_DATABASE_TEMPLATE, database, user, password, service);
++            String response = this.sendMessage(connStr, true, false);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", connStr, response));
++            ConnectionStateDto connState = this.jsonParser.toConnectionState(response);
++            this.pingService = HeartBeatServiceFactory.getService(this);
++            return connState;
++        }, true);
+     }
+ 
+     @Override
+     public int openStatement() throws ConnException {
++        this.compatMarkActive();
+         String response = this.sendMessage(COMMAND_GET_STATEMENT_ID, true, true);
+         LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_GET_STATEMENT_ID, response));
+-        return this.jsonParser.toStatementId(response);
++        int statementId = this.jsonParser.toStatementId(response);
++        this.compatCurrentStatementId = statementId;
++        return statementId;
+     }
+ 
+     @Override
+     public void isStatementReconstructed(int statementId) throws ConnException {
+-        this.validateResponse(this.sendMessage(MessageFormat.format(RECONSTRUCT_STATEMENT_TEMPLATE, statementId), true, true), EVENT_STATEMENT_RECONSTRUCTED);
++        this.compatIo(() -> {
++            this.validateResponse(this.sendMessage(MessageFormat.format(RECONSTRUCT_STATEMENT_TEMPLATE, statementId), true, false), EVENT_STATEMENT_RECONSTRUCTED);
++            this.compatAwaitingReconstruct = false;
++            return null;
++        }, true);
+     }
+ 
+     @Override
+@@ -104,44 +226,126 @@
+ 
+     @Override
+     public void closeStatement() throws ConnException {
+-        String response = this.sendMessage(COMMAND_CLOSE_STATEMENT, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_STATEMENT, response));
+-        this.validateResponse(response, EVENT_STATEMENT_CLOSED);
+-    }
+-
+-    @Override
+-    public void closeConnection() throws ConnException {
+-        this.pingService.stop();
+-        String response = this.sendMessage(COMMAND_CLOSE_CONNECTION, true, false);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_CONNECTION, response));
+-        this.validateResponse(response, EVENT_CONNECTION_CLOSED);
+-        this.socket.close();
++        this.compatIo(() -> {
++            String response = this.sendMessage(COMMAND_CLOSE_STATEMENT, true, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_STATEMENT, response));
++            this.validateResponse(response, EVENT_STATEMENT_CLOSED);
++            try {
++                if (!"statementClosed".equals(Json.parse(response).asObject().getString("statementClosed", "")))
++                    throw new ConnException("SQream statement close ACK was not confirmed");
++            } catch (ParseException | UnsupportedOperationException malformed) {
++                throw new ConnException("SQream statement close ACK was not confirmed");
++            }
++            this.compatAckedStatementId = this.compatCurrentStatementId;
++            this.compatCloseAckSequence++;
++            this.compatStatementCloseAcked = true;
++            this.compatBinaryWrite = false; this.compatBinaryRead = false;
++            this.compatAwaitingReconstruct = false;
++            return null;
++        }, true);
++    }
++
++    @Override
++    public synchronized void closeConnection() throws ConnException {
++        if (this.compatClosed) return;
++        // Terminal close never declares an active/unknown SQL request successful.
++        // Prevent new IO first; old IO can only touch this OLD channel.
++        this.compatClosed = true;
++        Throwable failure = null;
++        boolean foregroundOwned = false, writeOwned = false, detached = false;
++        try {
++            try { this.pingService.stop(); }
++            catch (RuntimeException | Error stopFailure) { failure = stopFailure; }
++            foregroundOwned = this.compatOwner.tryLock();
++            writeOwned = this.compatWriteOwner.tryLock();
++            boolean quiesced = foregroundOwned && writeOwned;
++            boolean confirmed = quiesced && (!this.compatHasOpenedStatement || this.compatStatementCloseAcked)
++                    && !this.compatBinaryWrite && !this.compatAwaitingReconstruct;
++            ByteBuffer hint = null;
++            int expected = 0;
++            if (confirmed) {
++                byte[] bytes = COMMAND_CLOSE_CONNECTION.getBytes();
++                hint = this.socket.generateHeaderedBuffer(bytes.length, true);
++                hint.put(bytes);
++                hint.flip();
++                expected = hint.remaining();
++            }
++            this.compatTerminalHintWritten = this.socket.compatTerminateLocal(hint, quiesced);
++            detached = true;
++            if (!confirmed) this.compatTerminalStatus = writeOwned ? 5 : 6;
++            else if (this.compatTerminalHintWritten == expected) this.compatTerminalStatus = 1;
++            else if (this.compatTerminalHintWritten == -1) this.compatTerminalStatus = 3;
++            else if (this.compatTerminalHintWritten == -2) this.compatTerminalStatus = 4;
++            else this.compatTerminalStatus = 2;
++        } catch (ConnException | RuntimeException | Error closeFailure) {
++            if (failure == null) failure = closeFailure;
++            else if (closeFailure != failure) failure.addSuppressed(closeFailure);
++            this.compatTerminalStatus = 8;
++        } finally {
++            if (!detached) {
++                try { this.socket.compatTerminateLocal(null, foregroundOwned && writeOwned); }
++                catch (ConnException | RuntimeException | Error cleanup) {
++                    if (failure == null) failure = cleanup;
++                    else if (cleanup != failure) failure.addSuppressed(cleanup);
++                }
++            }
++            try { this.pingService.stop(); }
++            catch (RuntimeException | Error cleanup) {
++                if (failure == null) failure = cleanup;
++                else if (cleanup != failure) failure.addSuppressed(cleanup);
++            } finally {
++                if (writeOwned) this.compatWriteOwner.unlock();
++                if (foregroundOwned) this.compatOwner.unlock();
++            }
++        }
++        if (failure instanceof ConnException) throw (ConnException)failure;
++        if (failure instanceof RuntimeException) throw (RuntimeException)failure;
++        if (failure instanceof Error) throw (Error)failure;
+     }
+ 
+     @Override
+     public void put(int rowCounter) throws ConnException {
+-        String message = MessageFormat.format(PUT_TEMPLATE, rowCounter);
+-        this.pingService.stop();
+-        this.sendMessage(message, false, false);
+-        LOGGER.log(Level.FINE, message);
+-        this.pingService.start();
++        this.compatMarkActive();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            String message = MessageFormat.format(PUT_TEMPLATE, rowCounter);
++            this.sendMessage(message, false, false);
++            LOGGER.log(Level.FINE, message);
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void ping() throws ConnException {
+-        this.sendMessage(PING, false, false);
++        this.compatWriteIo(() -> {
++            if (!this.compatHeartbeatPermitted()) return null;
++            byte[] bytes = PING.getBytes();
++            ByteBuffer frame = this.socket.generateHeaderedBuffer(bytes.length, true);
++            frame.put(bytes);
++            this.socket.sendData(frame, false);
++            return null;
++        });
+         LOGGER.log(Level.FINE, PING);
+     }
+ 
+     @Override
+     public void isPutted() throws ConnException {
+-        String response = this.socket.sendData(null, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", null, response));
+-        this.validateResponse(response, EVENT_PUTTED);
++        this.compatIo(() -> {
++            // All binary bytes have been sent by the same flush worker before this
++            // ACK read. No PING was permitted inside that frame; now full-duplex
++            // idle PING must continue while the server consumes/processes it.
++            this.compatBinaryWrite = false;
++            this.compatResumeIdle();
++            String response = this.socket.sendData(null, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", null, response));
++            this.validateResponse(response, EVENT_PUTTED);
++            return null;
++        }, false);
+     }
+ 
+     @Override
+     public void execute() throws ConnException {
++        this.compatMarkActive();
+         String response = this.sendMessage(COMMAND_EXECUTE, true, true);
+         LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_EXECUTE, response));
+         this.validateResponse(response, EVENT_EXECUTED);
+@@ -149,14 +353,24 @@
+ 
+     @Override
+     public void reconnect(String ip, int port, boolean useSsl, String database, String user, String password, String service, int connectionId, int listenerId) throws ConnException {
+-        this.socket.reconnect(ip, port, useSsl);
+-        String reconnectStr = MessageFormat.format(RECONNECT_DATABASE_TEMPLATE, database, user, password, service, connectionId, listenerId);
+-        String response = this.sendMessage(reconnectStr, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", reconnectStr, response));
++        this.compatIo(() -> {
++            this.compatAwaitingReconstruct = true;
++            // Quiesce the previous write generation BEFORE replacing the channel.
++            this.compatWriteIo(() -> {
++                this.pingService.stop();
++                this.socket.reconnect(ip, port, useSsl);
++                String reconnectStr = MessageFormat.format(RECONNECT_DATABASE_TEMPLATE, database, user, password, service, connectionId, listenerId);
++                String response = this.sendMessage(reconnectStr, true, false);
++                LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", reconnectStr, response));
++                return null;
++            });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public StatementStateDto prepareStatement(String statement, int chunkSize, boolean canSupportParams) throws ConnException {
++        this.compatMarkActive();
+         JsonObject prepareJsonify = Json.object().add("prepareStatement", statement).add("chunkSize", chunkSize).add("canSupportParams", canSupportParams).add("canSupportClusterFiles", true);
+         String prepareStr = prepareJsonify.toString(WriterConfig.MINIMAL);
+         return this.jsonParser.toStatementState(this.sendMessage(prepareStr, true, true));
+@@ -164,27 +378,44 @@
+ 
+     @Override
+     public void sendBinaryHeader(long dataLength) throws ConnException {
+-        this.pingService.stop();
+-        ByteBuffer header = this.socket.generateHeader(dataLength, false);
+-        this.socket.sendData(header, false);
+-        this.pingService.start();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            this.compatWriteIo(() -> {
++                ByteBuffer header = this.socket.generateHeader(dataLength, false);
++                this.socket.sendData(header, false);
++                return null;
++            });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void sendBinaryData(ByteBuffer buffer) throws ConnException {
+-        this.pingService.stop();
+-        this.socket.sendData(buffer, false);
+-        this.pingService.start();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            this.compatWriteIo(() -> { this.socket.sendData(buffer, false); return null; });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void parseHeader() throws ConnException {
+-        this.socket.parseHeader();
++        this.compatIo(() -> {
++            this.compatResumeIdle();
++            this.socket.parseHeader();
++            return null;
++        }, false);
+     }
+ 
+     @Override
+     public void fetchBinaryData(ByteBuffer target, int size) throws ConnException {
+-        this.socket.readData(target, size);
++        this.compatIo(() -> {
++            this.compatResumeIdle();
++            this.socket.readData(target, size);
++            if (this.compatReadRemaining > 0) this.compatReadRemaining = Math.max(0L, this.compatReadRemaining - size);
++            if (this.compatReadRemaining == 0) this.compatBinaryRead = false;
++            return null;
++        }, false);
+     }
+ 
+     private String validateResponse(String response, String expected) throws ConnException {
+@@ -200,13 +431,17 @@
+     }
+ 
+     private String sendMessage(String message, boolean getResponse, boolean restartPing) throws ConnException {
+-        if (restartPing) {
+-            this.pingService.stop();
+-            this.pingService.start();
+-        }
+-        byte[] messageBytes = message.getBytes();
+-        ByteBuffer messageBuffer = this.socket.generateHeaderedBuffer(messageBytes.length, true);
+-        messageBuffer.put(messageBytes);
+-        return this.socket.sendData(messageBuffer, getResponse);
++        return this.compatIo(() -> {
++            this.compatWriteIo(() -> {
++                byte[] messageBytes = message.getBytes();
++                ByteBuffer messageBuffer = this.socket.generateHeaderedBuffer(messageBytes.length, true);
++                messageBuffer.put(messageBytes);
++                this.socket.sendData(messageBuffer, false);
++                return null;
++            });
++            // Keep heartbeat live during a blocking response, not inside a write.
++            if (restartPing) this.compatResumeIdle();
++            return getResponse ? this.socket.sendData(null, true) : null;
++        }, restartPing);
+     }
+ }
+--- baseline-source/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java
++++ compat-src/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java
+@@ -13,6 +13,7 @@
+ import com.sqream.jdbc.connector.TableMetadata;
+ import com.sqream.jdbc.connector.enums.StatementType;
+ import com.sqream.jdbc.connector.messenger.Messenger;
++import com.sqream.jdbc.connector.messenger.MessengerImpl;
+ import com.sqream.jdbc.connector.serverAPI.SqreamConnectionContext;
+ import com.sqream.jdbc.connector.serverAPI.Statement.BasesProtocolPhase;
+ import com.sqream.jdbc.connector.serverAPI.Statement.SqreamExecutedStatement;
+@@ -46,6 +47,17 @@
+         this.setActiveMetadata(this.inputMetadata);
+     }
+ 
++    public long compatStatementAckSequence() {
++        Messenger messenger = this.context.getMessenger();
++        return messenger instanceof MessengerImpl ? ((MessengerImpl)messenger).compatStatementAckSequence() : -1L;
++    }
++
++    public boolean compatMatchesStatementCloseAck(int expectedStatementId, long priorSequence) {
++        Messenger messenger = this.context.getMessenger();
++        return messenger instanceof MessengerImpl
++                && ((MessengerImpl)messenger).compatMatchesStatementCloseAck(expectedStatementId, priorSequence);
++    }
++
+     @Override
+     public void setActiveMetadata(TableMetadata metadata) {
+         this.activeMetadata = metadata;
+@@ -96,7 +108,12 @@
+             messenger.isPutted();
+         }
+         catch (ConnException e) {
+-            this.close();
++            // Preserve the original protocol/server failure if best-effort cleanup also fails.
++            try {
++                this.close();
++            } catch (Throwable cleanup) {
++                if (cleanup != e) e.addSuppressed(cleanup);
++            }
+             throw new RuntimeException(e);
+         }
+         catch (IOException e) {
+@@ -149,7 +166,11 @@
+             return this.parse(fetch_buffers, this.outputMetadata, fetchMeta.getNewRowsFetched());
+         }
+         catch (ConnException e) {
+-            this.close();
++            try {
++                this.close();
++            } catch (Throwable cleanup) {
++                if (cleanup != e) e.addSuppressed(cleanup);
++            }
+             throw new RuntimeException(e);
+         }
+     }
+--- baseline-source/com/sqream/jdbc/connector/socket/SQSocket.java
++++ compat-src/com/sqream/jdbc/connector/socket/SQSocket.java
+@@ -26,12 +26,53 @@
+     private static final Logger LOGGER = Logger.getLogger(SQSocket.class.getName());
+     private static final String TLS_PROTOCOL_VERSION = "TLSv1.2";
+     public static final int BUFFER_SIZE = 65536;
+-    private SocketChannel socketChannel;
++    private volatile SocketChannel socketChannel;
++    private final Object compatChannelState = new Object();
+     private TlsChannel tlsChannel;
+     private ByteBuffer buffer;
+     private String ip;
+     private int port;
+     private boolean useSsl;
++    private volatile boolean compatLocallyDetached;
++    private volatile boolean compatTlsCleanupFailed;
++
++    // The hint is an optional terminal control frame, never SQL data.
++    // Caller quiesces foreground and heartbeat IO before using this method.
++    public int compatTryTerminalHint(ByteBuffer frame) throws ConnException {
++        if (this.useSsl) return -1; // Never write plaintext onto a TLS channel.
++        try {
++            if (this.socketChannel == null || !this.socketChannel.isOpen()) return 0;
++            this.socketChannel.configureBlocking(false);
++            return this.socketChannel.write(frame); // One nonblocking attempt; no retry loop.
++        } catch (IOException | RuntimeException failure) {
++            throw new ConnException(failure);
++        }
++    }
++
++    public void compatDetachLocal(boolean quiesced) throws ConnException {
++        SocketChannel detached;
++        synchronized (this.compatChannelState) {
++            this.compatLocallyDetached = true; // Permanent: terminal abort cannot be reopened.
++            detached = this.socketChannel;
++        }
++        IOException failure = null;
++        try {
++            if (detached != null) detached.close();
++        } catch (IOException closeFailure) { failure = closeFailure; }
++        // Closing the underlying channel FIRST prevents TLS close from waiting
++        // for a peer. Only touch wrapper buffers if no reader/writer can own them.
++        if (quiesced) {
++            if (this.tlsChannel != null) {
++                try { this.tlsChannel.close(); }
++                catch (IOException tlsCleanup) { this.compatTlsCleanupFailed = true; }
++            }
++            this.buffer = null;
++        }
++        if (failure != null) throw new ConnException(failure);
++    }
++
++    public boolean compatTlsCleanupFailed() { return this.compatTlsCleanupFailed; }
++
+ 
+     public SQSocket() throws ConnException {
+         LOGGER.log(Level.FINE, MessageFormat.format("Open socket with params: ip=[{0}], port=[{1}], useSsl=[{2}]", this.ip, this.port, this.useSsl));
+@@ -69,7 +110,7 @@
+     }
+ 
+     boolean isOpen() {
+-        return this.useSsl ? this.tlsChannel.isOpen() : this.socketChannel.isOpen();
++        return !this.compatLocallyDetached && (this.useSsl ? this.tlsChannel.isOpen() : this.socketChannel.isOpen());
+     }
+ 
+     public void close() throws ConnException {
+@@ -94,8 +135,20 @@
+         this.port = port;
+         this.useSsl = useSsl;
+         try {
+-            this.socketChannel = SocketChannel.open();
+-            this.socketChannel.connect(new InetSocketAddress(ip, port));
++            SocketChannel fresh = SocketChannel.open();
++            synchronized (this.compatChannelState) {
++                if (this.compatLocallyDetached) {
++                    fresh.close();
++                    throw new java.nio.channels.ClosedChannelException();
++                }
++                this.socketChannel = fresh; // Register before potentially blocking connect.
++            }
++            // Terminal abort never waits for this connect; it closes the registered raw FD.
++            fresh.connect(new InetSocketAddress(ip, port));
++            if (this.compatLocallyDetached) {
++                fresh.close();
++                throw new java.nio.channels.ClosedChannelException();
++            }
+             if (useSsl) {
+                 SSLContext ssl_context = null;
+                 ssl_context = SSLContext.getInstance(TLS_PROTOCOL_VERSION);
+@@ -117,6 +170,10 @@
+                 this.tlsChannel = ClientTlsChannel.newBuilder((ByteChannel)this.socketChannel, ssl_context).build();
+             }
+             this.buffer = MemoryAllocationService.allocateDirectByteBuffer(65536);
++            if (this.compatLocallyDetached) {
++                fresh.close();
++                throw new java.nio.channels.ClosedChannelException();
++            }
+         }
+         catch (IOException | KeyManagementException | NoSuchAlgorithmException e) {
+             throw new RuntimeException(e);
+--- baseline-source/com/sqream/jdbc/connector/socket/SQSocketConnector.java
++++ compat-src/com/sqream/jdbc/connector/socket/SQSocketConnector.java
+@@ -31,6 +31,28 @@
+ 
+     public SQSocketConnector(SQSocket socket) throws ConnException {
+         this.socket = socket;
++    }
++
++    // Return bytes written, -1 for TLS hint omission, -2 for hint failure,
++    // or -3 when no hint was requested. Local channel release is mandatory.
++    public int compatTerminateLocal(ByteBuffer hint, boolean quiesced) throws ConnException {
++        int written = -3;
++        ConnException hintFailure = null;
++        try {
++            if (hint != null) {
++                try { written = this.socket.compatTryTerminalHint(hint); }
++                catch (ConnException failure) { hintFailure = failure; written = -2; }
++            }
++        } finally {
++            try { this.socket.compatDetachLocal(quiesced); }
++            catch (ConnException detachFailure) {
++                if (hintFailure != null) detachFailure.addSuppressed(hintFailure);
++                throw detachFailure;
++            } finally {
++                if (quiesced) { this.header = null; this.responseMessage = null; }
++            }
++        }
++        return written;
+     }
+ 
+     public void connect(String ip, int port, boolean useSsl, boolean cluster) throws ConnException {
