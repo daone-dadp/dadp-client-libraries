@@ -1,6 +1,6 @@
 # SQream JDBC 6.6 DADP compatibility candidate 4
 
-상태: 소스·JAR 해시 동결, 실제 Wrapper 1,024회 및 연속 24,000회 인수 검증 진행 중. **정식 배포 승인 또는 연속 처리 PASS를 뜻하지 않는다.** 공급사 원본, 후보1~3 및 실패 증거를 보존한다.
+상태: 최종 동결 JAR의 실제 Wrapper 1,024회와 단일 JVM 연속 24,000회가 통과했다. **정식 배포 승인을 뜻하지 않는다.** 공급사 원본, 후보1~3 및 실패 증거를 보존한다.
 
 ## 변경 목적
 
@@ -55,6 +55,8 @@ python3 compat/sqream-jdbc-6.6/candidate4/build.py --base-jar /absolute/path/to/
 
 sendParameters, executeQuery, 명시 Connector flush/close 및 FlushService.close의 정상 소스를 비교했다. executeUpdate에는 완료 상태 거부와 로컬 ACK postcondition만 더하며 정상 네트워크 데이터 순서를 바꾸지 않는다.
 
-원시 API의 소규모 실물 검증에서133행·399암호문, close 전 fresh 연결 조회와 close 후 중복0, 미실행 close0행을 확인했다. 실제 Wrapper1,024회와 연속24,000회 최종 증거는 진행 중이며 결과 확정 후 별도 기록에 연결한다. 오프라인·소규모 시험으로 연속 실행을 통과했다고 대신하지 않는다.
+원시 API의 소규모 실물 검증에서133행·399암호문, close 전 fresh 연결 조회와 close 후 중복0, 미실행 close0행을 확인했다. 실제 Wrapper1,024회는 전체·부분 32세션 및 재사용 AppPS의 delegate 재준비를 포함하며 오류·중복0건과12개 무결성 검사를 통과했다. 이어 같은 최종 JAR로 단일 JVM의 전체·부분 × 1·8·32세션 CRUD24,000회가 모두 ACK, SQL시도 각1회, 실패·누락·중복·미확정0건으로 끝났다. 서비스·터널·설정·JAR 변경 없이36검사와50snapshot을 통과했고 독립 감시6,839샘플이STOPPED_OK로 종료했다. 동결 검증기도 통과했다. 오프라인·소규모 시험과 연속 실행은 별도 증적으로 보존한다.
+
+최종 run ID: 7b08dbdf-1d72-4b49-a7ee-13eb5ba66e82. 증적 root는 /home/au212/projects/artifacts/dadp/verification/sqream-continuous-20261118이며 run-attempt3/acceptance.safe.json과 final-independent-audit.safe.json을 함께 확인한다. 상세 보고서는 dadp2.0 저장소 docs/sqream/2026-11-18-continuous-crud-validation.md다. 최종 판정 뒤 README만 갱신했으며 동결 Java/build 입력과 JAR 해시는 바꾸지 않았다.
 
 테스트의 Unsafe 생성자 우회와 SecurityManager 실패 주입은 테스트 프로세스에만 사용한다. 런타임 JAR에는 테스트 클래스를 넣지 않는다.
