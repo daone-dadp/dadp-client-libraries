@@ -1,0 +1,30 @@
+{
+  "baselineReconstructionAdjustment": "Explicit ByteBuffer cast for Java8 position return type; baseline and candidate same.",
+  "baselineSha256": "f4ed47c03620cc044cf35b80f25082712644a809a9a3bddac90ce42ce50b0198",
+  "baselineVendorJarModified": false,
+  "changesFromCompat2": [
+    "Separate foreground command ordering from atomic frame/write ownership",
+    "Keep10second native heartbeat live during JSON/binary response and PUT-ACK reads",
+    "Preserve write generation quiescence before reconnect and suppress PING inside binary frame",
+    "Preserve first protocol exception if heartbeat restart or statement cleanup fails",
+    "Preserve first fetch read failure through cleanup",
+    "Preserve terminal connection ACK failure through heartbeat-stop/socket-close cleanup"
+  ],
+  "compatVersion": "6.6-dadpcompat3",
+  "compilerRelease": 8,
+  "continuous24kStatus": "Attempt1 failed; candidate3 not yet tested",
+  "idleHeartbeatIntervalChanged": false,
+  "normalNativeConcurrencyCapAdded": false,
+  "rootCauseEvidence": "Captured Session ended: client timeout (60 seconds); long physical liveness controls still pending",
+  "sourceHashes": {
+    "baseline-source/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "dd659770f5a24ad7a64b04cd3b23454bb20e83297354c675f6955f5c9b893add",
+    "baseline-source/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "d09b34573aac03c1e2a561964a88859a1e009b62691af29dbf1fee6d96d5363c",
+    "baseline-source/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java": "a5e59bbd67a67a544fd9be02db1e2d80c691e5d248693444f85394bf6a613ff9",
+    "compat-src/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "5cd5c251d877c3dd0939f354c3be116f84872680502c942db74121b85263a58e",
+    "compat-src/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "2de76a3c5273bca70297d02086958ab0da407728536488559c29937d0409739c",
+    "compat-src/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java": "baababc848c0b0da7837fb0d01fdea500c2aca41f8c71e2c262d4833c750f5d6"
+  },
+  "sourceProvenance": "Exact6.6 release bytecode reconstructed with CFR0.152; sources.jar has no Java sources",
+  "sqlRetries": 0,
+  "upstreamVersion": "6.6"
+}

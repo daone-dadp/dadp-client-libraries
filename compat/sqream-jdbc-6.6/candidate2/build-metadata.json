@@ -1,0 +1,24 @@
+{
+  "baselineReconstructionAdjustment": "Explicit ByteBuffer cast around position() enables Java8 API compilation; same original receiver/argument and observable buffer position.",
+  "baselineSha256": "f4ed47c03620cc044cf35b80f25082712644a809a9a3bddac90ce42ce50b0198",
+  "baselineVendorJarModified": false,
+  "changesFromCompat1": [
+    "SqreamExecutedStatementImpl.put retains first ConnException and suppresses cleanup failure"
+  ],
+  "compatVersion": "6.6-dadpcompat2",
+  "compilerRelease": 8,
+  "firstServerError54BytesRootCause": "Still under investigation; no continuous24k PASS claim",
+  "idleHeartbeatIntervalChanged": false,
+  "normalNativeConcurrencyCapAdded": false,
+  "sourceHashes": {
+    "baseline-source/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "dd659770f5a24ad7a64b04cd3b23454bb20e83297354c675f6955f5c9b893add",
+    "baseline-source/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "d09b34573aac03c1e2a561964a88859a1e009b62691af29dbf1fee6d96d5363c",
+    "baseline-source/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java": "a5e59bbd67a67a544fd9be02db1e2d80c691e5d248693444f85394bf6a613ff9",
+    "compat-src/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "60a761c6f2b73968e787425355d4b04da4aeceba71029ee895072be218363f5c",
+    "compat-src/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "c0c000b29d2160c4e8abe9ac15c0d29e01fe93acc6bcc5e907b235e1d229bd9a",
+    "compat-src/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java": "dee3b4ca0c286ac78ea48b85d428418cd83b88bf5ecdeec321f2c606dd22a9fa"
+  },
+  "sourceProvenance": "Exact6.6 release bytecode reconstructed with CFR0.152; sources.jar has no Java sources",
+  "sqlRetries": 0,
+  "upstreamVersion": "6.6"
+}

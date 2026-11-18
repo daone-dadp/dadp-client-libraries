@@ -1,0 +1,511 @@
+--- baseline-source/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java
++++ compat-src/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java
+@@ -1,62 +1,65 @@
+ /*
+- * Decompiled with CFR 0.152.
++ * SQream JDBC 6.6 ABI-compatible heartbeat implementation.
++ * DADP compatibility patch, based on the MIT-licensed 6.6 release bytecode.
++ * The original upstream 6.6 sources artifact contains no Java source.
+  */
+ package com.sqream.jdbc.connector.heartbeat;
+-
+-import com.sqream.jdbc.connector.heartbeat.HeartBeatService;
+ import com.sqream.jdbc.connector.messenger.Messenger;
+-import java.text.MessageFormat;
+-import java.util.concurrent.Executors;
+-import java.util.concurrent.ScheduledExecutorService;
+-import java.util.concurrent.TimeUnit;
++import com.sqream.jdbc.connector.messenger.MessengerImpl;
++import java.util.concurrent.*;
+ import java.util.concurrent.atomic.AtomicInteger;
++import java.util.concurrent.locks.ReentrantLock;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ 
+-public class HeartBeatServiceImpl
+-implements HeartBeatService {
+-    private static final Logger LOGGER = Logger.getLogger(HeartBeatServiceImpl.class.getName());
++public class HeartBeatServiceImpl implements HeartBeatService {
++    private static final Logger LOGGER=Logger.getLogger(HeartBeatServiceImpl.class.getName());
+     private final Messenger messenger;
+     private final long interval;
++    // Retain the 6.6 field names for diagnostics; neither executor interrupts IO.
+     private ScheduledExecutorService executorService;
+     private ScheduledExecutorService executorServicePingCount;
+-    private static final int PING_TIMER = 60;
++    private static final int PING_TIMER=60;
++    private ScheduledFuture<?> pingFuture;
++    private long generation;
++    private boolean running;
++    private final ReentrantLock fallbackOwner=new ReentrantLock(true);
+ 
+-    public HeartBeatServiceImpl(Messenger messenger, long intervalMs) {
+-        this.messenger = messenger;
+-        this.interval = intervalMs;
+-    }
+-
+-    @Override
+-    public void start() {
+-        if (this.isRunning()) {
+-            return;
+-        }
+-        AtomicInteger counterPing = new AtomicInteger();
+-        this.executorServicePingCount = Executors.newSingleThreadScheduledExecutor();
+-        this.executorService = Executors.newSingleThreadScheduledExecutor();
+-        this.executorService.scheduleWithFixedDelay(() -> {
+-            try {
+-                this.messenger.ping();
+-                counterPing.getAndIncrement();
+-            }
+-            catch (Exception e) {
+-                this.stop();
+-                LOGGER.log(Level.WARNING, "Failed to ping server");
+-            }
+-        }, this.interval, this.interval, TimeUnit.MILLISECONDS);
+-        this.executorServicePingCount.scheduleWithFixedDelay(() -> LOGGER.log(Level.FINE, MessageFormat.format("Ping count on {0} seconds is {1}", 60, counterPing.get())), 60L, 60L, TimeUnit.SECONDS);
+-    }
+-
+-    @Override
+-    public void stop() {
+-        if (this.isRunning()) {
+-            this.executorService.shutdownNow();
+-            this.executorServicePingCount.shutdownNow();
++    public HeartBeatServiceImpl(Messenger messenger,long interval){this.messenger=messenger;this.interval=interval;}
++    public synchronized void start(){
++        if(isRunning())return;
++        running=true;final long token=++generation;final AtomicInteger count=new AtomicInteger();
++        try {
++        executorService=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"sqream-compat-idle-heartbeat");t.setDaemon(true);return t;});
++        executorServicePingCount=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"sqream-compat-heartbeat-count");t.setDaemon(true);return t;});
++        pingFuture=executorService.scheduleWithFixedDelay(()->{
++            ReentrantLock owner=messenger instanceof MessengerImpl?((MessengerImpl)messenger).compatTransportOwner():fallbackOwner;
++            // Only writes/atomic binary frames exclude PING; response reads stay live.
++            if(!owner.tryLock())return;
++            try{
++                synchronized(this){if(!running||generation!=token)return;}
++                if(messenger instanceof MessengerImpl && !((MessengerImpl)messenger).compatHeartbeatPermitted())return;
++                messenger.ping();count.incrementAndGet();
++            }catch(Throwable failure){
++                stop();LOGGER.log(Level.WARNING,"Failed to ping server");
++                if(failure instanceof Error)throw (Error)failure;
++            }finally{owner.unlock();}
++        },interval,interval,TimeUnit.MILLISECONDS);
++        executorServicePingCount.scheduleWithFixedDelay(()->LOGGER.log(Level.FINE,"Ping count on 60 seconds is {0}",count.get()),PING_TIMER,PING_TIMER,TimeUnit.SECONDS);
++        } catch(Throwable failure) {
++            running=false;++generation;
++            if(pingFuture!=null)pingFuture.cancel(false);
++            if(executorService!=null)executorService.shutdown();
++            if(executorServicePingCount!=null)executorServicePingCount.shutdown();
++            throw failure;
+         }
+     }
+-
+-    private boolean isRunning() {
+-        return this.executorService != null && !this.executorService.isShutdown();
++    public synchronized void stop(){
++        // Invalidate before cancellation; a task must recheck after obtaining IO ownership.
++        running=false;++generation;
++        if(pingFuture!=null)pingFuture.cancel(false);
++        if(executorService!=null)executorService.shutdown();
++        if(executorServicePingCount!=null)executorServicePingCount.shutdown();
+     }
++    private boolean isRunning(){return running&&executorService!=null&&!executorService.isShutdown();}
+ }
+--- baseline-source/com/sqream/jdbc/connector/messenger/MessengerImpl.java
++++ compat-src/com/sqream/jdbc/connector/messenger/MessengerImpl.java
+@@ -23,6 +23,8 @@
+ import java.text.MessageFormat;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.locks.ReentrantLock;
+ 
+ public class MessengerImpl
+ implements Messenger {
+@@ -48,6 +50,91 @@
+     private final SQSocketConnector socket;
+     private final JsonParser jsonParser;
+     private HeartBeatService pingService = new HeartBeatFakeService();
++    // Foreground protocol calls remain ordered, while full-duplex idle PING writes
++    // can keep a session alive during a response/ACK read.
++    private final ReentrantLock compatOwner = new ReentrantLock(true);
++    private final ReentrantLock compatWriteOwner = new ReentrantLock(true);
++    private volatile boolean compatClosed, compatPoisoned;
++    private volatile boolean compatBinaryWrite, compatBinaryRead, compatAwaitingReconstruct;
++    private long compatReadRemaining;
++    private static final long COMPAT_OWNER_WAIT_SECONDS = 10L;
++
++    public ReentrantLock compatTransportOwner() { return this.compatWriteOwner; }
++    public boolean compatHeartbeatPermitted() {
++        return !this.compatClosed && !this.compatPoisoned
++                && !this.compatBinaryWrite && !this.compatAwaitingReconstruct;
++    }
++    private interface CompatIo<T> { T run() throws ConnException; }
++    private void compatEnter() throws ConnException {
++        if (this.compatClosed || this.compatPoisoned) throw new ConnException("SQream transport is closed or unusable");
++        boolean acquired;
++        try { acquired = this.compatOwner.tryLock(COMPAT_OWNER_WAIT_SECONDS, TimeUnit.SECONDS); }
++        catch (InterruptedException interrupted) {
++            Thread.currentThread().interrupt();
++            throw new ConnException("Interrupted before obtaining SQream transport ownership");
++        }
++        if (!acquired) {
++            // Never replace a channel while an earlier PING still owns it.
++            // Closing this OLD transport unblocks its IO; it is never reused.
++            this.compatPoisoned = true;
++            try {
++                this.pingService.stop();
++            } finally {
++                try { this.socket.close(); } catch (ConnException ignored) { }
++            }
++            throw new ConnException("SQream transport ownership timed out; connection is unusable");
++        }
++        if (this.compatClosed || this.compatPoisoned) {
++            this.compatOwner.unlock();
++            throw new ConnException("SQream transport is closed or unusable");
++        }
++    }
++    private void compatResumeIdle() {
++        if (this.compatHeartbeatPermitted() && this.socket.isOpen()) {
++            this.pingService.start();
++        }
++    }
++    private <T> T compatWriteIo(CompatIo<T> operation) throws ConnException {
++        if (this.compatClosed || this.compatPoisoned)
++            throw new ConnException("SQream transport is closed or unusable");
++        boolean acquired;
++        try { acquired = this.compatWriteOwner.tryLock(COMPAT_OWNER_WAIT_SECONDS, TimeUnit.SECONDS); }
++        catch (InterruptedException interrupted) {
++            Thread.currentThread().interrupt();
++            throw new ConnException("Interrupted before obtaining SQream write ownership");
++        }
++        if (!acquired) {
++            this.compatPoisoned = true;
++            try { this.pingService.stop(); }
++            finally { try { this.socket.close(); } catch (ConnException ignored) { } }
++            throw new ConnException("SQream write ownership timed out; connection is unusable");
++        }
++        try {
++            if (this.compatClosed || this.compatPoisoned)
++                throw new ConnException("SQream transport is closed or unusable");
++            return operation.run();
++        } finally { this.compatWriteOwner.unlock(); }
++    }
++    private <T> T compatIo(CompatIo<T> operation, boolean pauseHeartbeat) throws ConnException {
++        this.compatEnter();
++        Throwable original = null;
++        try {
++            if (pauseHeartbeat) this.pingService.stop();
++            return operation.run();
++        } catch (ConnException | RuntimeException | Error failure) {
++            original = failure;
++            throw failure;
++        } finally {
++            try {
++                try {
++                    if (pauseHeartbeat) this.compatResumeIdle();
++                } catch (RuntimeException | Error resumeFailure) {
++                    if (original == null) throw resumeFailure;
++                    if (resumeFailure != original) original.addSuppressed(resumeFailure);
++                }
++            } finally { this.compatOwner.unlock(); }
++        }
++    }
+ 
+     private MessengerImpl(SQSocketConnector socket, JsonParser jsonParser) {
+         this.socket = socket;
+@@ -60,20 +147,29 @@
+ 
+     @Override
+     public FetchMetadataDto fetch() throws ConnException {
+-        String response = this.sendMessage(COMMAND_FETCH, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_FETCH, response));
+-        return this.jsonParser.toFetchMetadata(response);
++        return this.compatIo(() -> {
++            this.compatBinaryRead = true;
++            String response = this.sendMessage(COMMAND_FETCH, true, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_FETCH, response));
++            FetchMetadataDto metadata = this.jsonParser.toFetchMetadata(response);
++            long remaining = 0;
++            for (int i=0; i<metadata.colAmount(); i++) remaining += metadata.getSizeByIndex(i);
++            this.compatReadRemaining = remaining;
++            this.compatBinaryRead = remaining != 0;
++            return metadata;
++        }, true);
+     }
+ 
+     @Override
+     public ConnectionStateDto connect(String database, String user, String password, String service) throws ConnException {
+-        String connStr = MessageFormat.format(CONNECT_DATABASE_TEMPLATE, database, user, password, service);
+-        String response = this.sendMessage(connStr, true, false);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", connStr, response));
+-        ConnectionStateDto connState = this.jsonParser.toConnectionState(response);
+-        this.pingService = HeartBeatServiceFactory.getService(this);
+-        this.pingService.start();
+-        return connState;
++        return this.compatIo(() -> {
++            String connStr = MessageFormat.format(CONNECT_DATABASE_TEMPLATE, database, user, password, service);
++            String response = this.sendMessage(connStr, true, false);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", connStr, response));
++            ConnectionStateDto connState = this.jsonParser.toConnectionState(response);
++            this.pingService = HeartBeatServiceFactory.getService(this);
++            return connState;
++        }, true);
+     }
+ 
+     @Override
+@@ -85,7 +181,11 @@
+ 
+     @Override
+     public void isStatementReconstructed(int statementId) throws ConnException {
+-        this.validateResponse(this.sendMessage(MessageFormat.format(RECONSTRUCT_STATEMENT_TEMPLATE, statementId), true, true), EVENT_STATEMENT_RECONSTRUCTED);
++        this.compatIo(() -> {
++            this.validateResponse(this.sendMessage(MessageFormat.format(RECONSTRUCT_STATEMENT_TEMPLATE, statementId), true, false), EVENT_STATEMENT_RECONSTRUCTED);
++            this.compatAwaitingReconstruct = false;
++            return null;
++        }, true);
+     }
+ 
+     @Override
+@@ -104,40 +204,91 @@
+ 
+     @Override
+     public void closeStatement() throws ConnException {
+-        String response = this.sendMessage(COMMAND_CLOSE_STATEMENT, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_STATEMENT, response));
+-        this.validateResponse(response, EVENT_STATEMENT_CLOSED);
++        this.compatIo(() -> {
++            String response = this.sendMessage(COMMAND_CLOSE_STATEMENT, true, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_STATEMENT, response));
++            this.validateResponse(response, EVENT_STATEMENT_CLOSED);
++            this.compatBinaryWrite = false; this.compatBinaryRead = false;
++            this.compatAwaitingReconstruct = false;
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void closeConnection() throws ConnException {
+-        this.pingService.stop();
+-        String response = this.sendMessage(COMMAND_CLOSE_CONNECTION, true, false);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_CONNECTION, response));
+-        this.validateResponse(response, EVENT_CONNECTION_CLOSED);
+-        this.socket.close();
++        if (this.compatClosed) return;
++        this.compatEnter();
++        Throwable original = null;
++        try {
++            this.pingService.stop();
++            this.compatWriteIo(() -> {
++                String response = this.sendMessage(COMMAND_CLOSE_CONNECTION, true, false);
++                LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", COMMAND_CLOSE_CONNECTION, response));
++                this.validateResponse(response, EVENT_CONNECTION_CLOSED);
++                return null;
++            });
++        } catch (ConnException | RuntimeException | Error failure) {
++            original = failure;
++            throw failure;
++        } finally {
++            this.compatClosed = true;
++            try {
++                try { this.pingService.stop(); }
++                catch (RuntimeException | Error stopFailure) {
++                    if (original == null) {
++                        original = stopFailure;
++                        throw stopFailure;
++                    }
++                    if (stopFailure != original) original.addSuppressed(stopFailure);
++                }
++            } finally {
++                try {
++                    this.socket.close();
++                } catch (ConnException | RuntimeException | Error closeFailure) {
++                    if (original == null) throw closeFailure;
++                    if (closeFailure != original) original.addSuppressed(closeFailure);
++                } finally { this.compatOwner.unlock(); }
++            }
++        }
+     }
+ 
+     @Override
+     public void put(int rowCounter) throws ConnException {
+-        String message = MessageFormat.format(PUT_TEMPLATE, rowCounter);
+-        this.pingService.stop();
+-        this.sendMessage(message, false, false);
+-        LOGGER.log(Level.FINE, message);
+-        this.pingService.start();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            String message = MessageFormat.format(PUT_TEMPLATE, rowCounter);
++            this.sendMessage(message, false, false);
++            LOGGER.log(Level.FINE, message);
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void ping() throws ConnException {
+-        this.sendMessage(PING, false, false);
++        this.compatWriteIo(() -> {
++            if (!this.compatHeartbeatPermitted()) return null;
++            byte[] bytes = PING.getBytes();
++            ByteBuffer frame = this.socket.generateHeaderedBuffer(bytes.length, true);
++            frame.put(bytes);
++            this.socket.sendData(frame, false);
++            return null;
++        });
+         LOGGER.log(Level.FINE, PING);
+     }
+ 
+     @Override
+     public void isPutted() throws ConnException {
+-        String response = this.socket.sendData(null, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", null, response));
+-        this.validateResponse(response, EVENT_PUTTED);
++        this.compatIo(() -> {
++            // All binary bytes have been sent by the same flush worker before this
++            // ACK read. No PING was permitted inside that frame; now full-duplex
++            // idle PING must continue while the server consumes/processes it.
++            this.compatBinaryWrite = false;
++            this.compatResumeIdle();
++            String response = this.socket.sendData(null, true);
++            LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", null, response));
++            this.validateResponse(response, EVENT_PUTTED);
++            return null;
++        }, false);
+     }
+ 
+     @Override
+@@ -149,10 +300,19 @@
+ 
+     @Override
+     public void reconnect(String ip, int port, boolean useSsl, String database, String user, String password, String service, int connectionId, int listenerId) throws ConnException {
+-        this.socket.reconnect(ip, port, useSsl);
+-        String reconnectStr = MessageFormat.format(RECONNECT_DATABASE_TEMPLATE, database, user, password, service, connectionId, listenerId);
+-        String response = this.sendMessage(reconnectStr, true, true);
+-        LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", reconnectStr, response));
++        this.compatIo(() -> {
++            this.compatAwaitingReconstruct = true;
++            // Quiesce the previous write generation BEFORE replacing the channel.
++            this.compatWriteIo(() -> {
++                this.pingService.stop();
++                this.socket.reconnect(ip, port, useSsl);
++                String reconnectStr = MessageFormat.format(RECONNECT_DATABASE_TEMPLATE, database, user, password, service, connectionId, listenerId);
++                String response = this.sendMessage(reconnectStr, true, false);
++                LOGGER.log(Level.FINE, MessageFormat.format("Request: [{0}], Response: [{1}]", reconnectStr, response));
++                return null;
++            });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+@@ -164,27 +324,44 @@
+ 
+     @Override
+     public void sendBinaryHeader(long dataLength) throws ConnException {
+-        this.pingService.stop();
+-        ByteBuffer header = this.socket.generateHeader(dataLength, false);
+-        this.socket.sendData(header, false);
+-        this.pingService.start();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            this.compatWriteIo(() -> {
++                ByteBuffer header = this.socket.generateHeader(dataLength, false);
++                this.socket.sendData(header, false);
++                return null;
++            });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void sendBinaryData(ByteBuffer buffer) throws ConnException {
+-        this.pingService.stop();
+-        this.socket.sendData(buffer, false);
+-        this.pingService.start();
++        this.compatIo(() -> {
++            this.compatBinaryWrite = true;
++            this.compatWriteIo(() -> { this.socket.sendData(buffer, false); return null; });
++            return null;
++        }, true);
+     }
+ 
+     @Override
+     public void parseHeader() throws ConnException {
+-        this.socket.parseHeader();
++        this.compatIo(() -> {
++            this.compatResumeIdle();
++            this.socket.parseHeader();
++            return null;
++        }, false);
+     }
+ 
+     @Override
+     public void fetchBinaryData(ByteBuffer target, int size) throws ConnException {
+-        this.socket.readData(target, size);
++        this.compatIo(() -> {
++            this.compatResumeIdle();
++            this.socket.readData(target, size);
++            if (this.compatReadRemaining > 0) this.compatReadRemaining = Math.max(0L, this.compatReadRemaining - size);
++            if (this.compatReadRemaining == 0) this.compatBinaryRead = false;
++            return null;
++        }, false);
+     }
+ 
+     private String validateResponse(String response, String expected) throws ConnException {
+@@ -200,13 +377,17 @@
+     }
+ 
+     private String sendMessage(String message, boolean getResponse, boolean restartPing) throws ConnException {
+-        if (restartPing) {
+-            this.pingService.stop();
+-            this.pingService.start();
+-        }
+-        byte[] messageBytes = message.getBytes();
+-        ByteBuffer messageBuffer = this.socket.generateHeaderedBuffer(messageBytes.length, true);
+-        messageBuffer.put(messageBytes);
+-        return this.socket.sendData(messageBuffer, getResponse);
++        return this.compatIo(() -> {
++            this.compatWriteIo(() -> {
++                byte[] messageBytes = message.getBytes();
++                ByteBuffer messageBuffer = this.socket.generateHeaderedBuffer(messageBytes.length, true);
++                messageBuffer.put(messageBytes);
++                this.socket.sendData(messageBuffer, false);
++                return null;
++            });
++            // Keep heartbeat live during a blocking response, not inside a write.
++            if (restartPing) this.compatResumeIdle();
++            return getResponse ? this.socket.sendData(null, true) : null;
++        }, restartPing);
+     }
+ }
+--- baseline-source/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java
++++ compat-src/com/sqream/jdbc/connector/serverAPI/Statement/SqreamExecutedStatementImpl.java
+@@ -96,7 +96,12 @@
+             messenger.isPutted();
+         }
+         catch (ConnException e) {
+-            this.close();
++            // Preserve the original protocol/server failure if best-effort cleanup also fails.
++            try {
++                this.close();
++            } catch (Throwable cleanup) {
++                if (cleanup != e) e.addSuppressed(cleanup);
++            }
+             throw new RuntimeException(e);
+         }
+         catch (IOException e) {
+@@ -149,7 +154,11 @@
+             return this.parse(fetch_buffers, this.outputMetadata, fetchMeta.getNewRowsFetched());
+         }
+         catch (ConnException e) {
+-            this.close();
++            try {
++                this.close();
++            } catch (Throwable cleanup) {
++                if (cleanup != e) e.addSuppressed(cleanup);
++            }
+             throw new RuntimeException(e);
+         }
+     }
