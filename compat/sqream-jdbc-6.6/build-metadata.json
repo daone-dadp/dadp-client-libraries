@@ -1,0 +1,22 @@
+{
+  "baselineJar": "/home/au212/projects/artifacts/dadp/verification/sqream-continuous-20261118/driver-triage/sqream-jdbc-6.6.central.jar",
+  "baselineOutput": {
+    "path": "/home/au212/projects/artifacts/dadp/verification/sqream-continuous-20261118/driver-source/sqream-jdbc-6.6-dadp-baseline-recompiled.jar",
+    "sha256": "5486c9de381db21cccb1813e03f9500cf83f447678e2c66eba98025f3a21884d"
+  },
+  "baselineSha256": "f4ed47c03620cc044cf35b80f25082712644a809a9a3bddac90ce42ce50b0198",
+  "baselineVendorJarModified": false,
+  "compatVersion": "6.6-dadpcompat1",
+  "compilerRelease": 8,
+  "idleHeartbeatIntervalChanged": false,
+  "normalNativeConcurrencyCapAdded": false,
+  "sourceHashes": {
+    "baseline-source/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "dd659770f5a24ad7a64b04cd3b23454bb20e83297354c675f6955f5c9b893add",
+    "baseline-source/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "d09b34573aac03c1e2a561964a88859a1e009b62691af29dbf1fee6d96d5363c",
+    "compat-src/com/sqream/jdbc/connector/heartbeat/HeartBeatServiceImpl.java": "60a761c6f2b73968e787425355d4b04da4aeceba71029ee895072be218363f5c",
+    "compat-src/com/sqream/jdbc/connector/messenger/MessengerImpl.java": "c0c000b29d2160c4e8abe9ac15c0d29e01fe93acc6bcc5e907b235e1d229bd9a"
+  },
+  "sourceProvenance": "Exact6.6 bytecode reconstructed baseline; upstream sources.jar has no Java sources",
+  "sqlRetries": 0,
+  "upstreamVersion": "6.6"
+}
